@@ -29,7 +29,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
     radio: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h.01M11 15h.01M15 15h2M7 9h10"/></>, users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
     help: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4.58 1.68c-1.15 1.06-2.08 1.38-2.08 3.32M12 17h.01"/></>, settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06A1.7 1.7 0 0 0 15.76 18a1.7 1.7 0 0 0-1 1.54V20h-3v-.46A1.7 1.7 0 0 0 10.76 18a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.12 14a1.7 1.7 0 0 0-1.54-1H5.1v-3h.48A1.7 1.7 0 0 0 7.12 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06A1.7 1.7 0 0 0 10.76 5a1.7 1.7 0 0 0 1-1.54V3h3v.46A1.7 1.7 0 0 0 15.76 5a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.54 1h.48v3h-.48A1.7 1.7 0 0 0 19.4 15Z"/></>,
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>, plus: <><path d="M12 5v14M5 12h14"/></>, chart: <><path d="M4 19V5M4 19h17M8 15v-3M12 15V8M16 15V5M20 15v-7"/></>, clock: <><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></>, arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>, search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>, file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></>, more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>, close: <><path d="m6 6 12 12M18 6 6 18"/></>, upload: <><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></>, activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>, check: <><path d="m5 12 4 4L19 6"/></>, lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>, logout: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-4"/></>, download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>, plus: <><path d="M12 5v14M5 12h14"/></>, chart: <><path d="M4 19V5M4 19h17M8 15v-3M12 15V8M16 15V5M20 15v-7"/></>, clock: <><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></>, arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>, search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>, file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></>, more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>, close: <><path d="m6 6 12 12M18 6 6 18"/></>, upload: <><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></>, activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>, check: <><path d="m5 12 4 4L19 6"/></>, lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>, logout: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-4"/></>, download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>, eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></>, "eye-off": <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/></>
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{p[name]}</svg>;
 }
@@ -58,10 +58,92 @@ export default function Home() {
 }
 
 function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
-  const [mode, setMode] = useState<"login" | "signup" | "admin" | "forgot">("login"); const [error, setError] = useState("");
-  const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const data = new FormData(e.currentTarget); const email = String(data.get("email") || "").trim().toLowerCase(); const password = String(data.get("password") || ""); if (mode === "admin") { if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) return setError("Incorrect administrator username or password."); onLogin({ role: "admin", name: "Xpack Admin", email }); return; } if (mode === "forgot") { setError("If that email exists, a password reset link has been queued."); return; } const name = String(data.get("name") || "").trim(); const company = String(data.get("company") || "").trim(); if (mode === "signup" && (!name || password.length < 8 || password !== String(data.get("confirm") || ""))) return setError("Please complete all required fields and use matching 8+ character passwords."); onLogin({ role: "customer", name: mode === "signup" ? name : customerSeed.name, email: email || customerSeed.email, company: mode === "signup" ? company || name : customerSeed.company }); };
+  const [mode, setMode] = useState<"login" | "signup" | "admin" | "forgot">("login");
+  const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [captchaResolved, setCaptchaResolved] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const [lockoutCount, setLockoutCount] = useState(0);
+  const [lockoutUntil, setLockoutUntil] = useState<Date | null>(null);
+  const [timeRemaining, setTimeRemaining] = useState(0);
+
+  useEffect(() => {
+    if (!lockoutUntil) return;
+    const interval = setInterval(() => {
+      const remaining = Math.ceil((lockoutUntil.getTime() - Date.now()) / 1000);
+      if (remaining <= 0) {
+        setLockoutUntil(null);
+        setTimeRemaining(0);
+        setError("");
+        clearInterval(interval);
+      } else {
+        setTimeRemaining(remaining);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lockoutUntil]);
+
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (lockoutUntil && Date.now() < lockoutUntil.getTime()) {
+      return setError(`Too many failed attempts. Try again in ${timeRemaining} seconds.`);
+    }
+
+    const data = new FormData(e.currentTarget);
+    const email = String(data.get("email") || "").trim().toLowerCase();
+    const password = String(data.get("password") || "");
+
+    if (mode !== "forgot" && !captchaResolved) {
+      return setError("Please verify you are human by checking the CAPTCHA.");
+    }
+
+    const handleFailure = (msg: string) => {
+      const newAttempts = attempts + 1;
+      if (newAttempts >= 5) {
+        const nextLockoutCount = lockoutCount + 1;
+        let penaltyMinutes = 1;
+        if (nextLockoutCount === 2) penaltyMinutes = 5;
+        else if (nextLockoutCount > 2) penaltyMinutes = 5 + (nextLockoutCount - 2);
+        
+        setLockoutCount(nextLockoutCount);
+        setLockoutUntil(new Date(Date.now() + penaltyMinutes * 60000));
+        setAttempts(0);
+        setError(`Too many failed attempts. Account locked for ${penaltyMinutes} minute(s).`);
+      } else {
+        setAttempts(newAttempts);
+        setError(`${msg} (${5 - newAttempts} attempts remaining)`);
+      }
+    };
+
+    if (mode === "admin") {
+      if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) return handleFailure("Incorrect administrator username or password.");
+      setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
+      onLogin({ role: "admin", name: "Xpack Admin", email });
+      return;
+    }
+    if (mode === "forgot") {
+      setError("If that email exists, a password reset link has been queued.");
+      return;
+    }
+    const name = String(data.get("name") || "").trim();
+    const company = String(data.get("company") || "").trim();
+    if (mode === "signup") {
+      if (!name || password.length < 8 || password !== String(data.get("confirm") || "")) return setError("Please complete all required fields and use matching 8+ character passwords.");
+      setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
+      onLogin({ role: "customer", name, email, company: company || name });
+      return;
+    }
+    if (mode === "login") {
+      if (email !== customerSeed.email || password !== "password123") return handleFailure("Incorrect email or password. Hint: customer@xpack.demo / password123");
+      setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
+      onLogin({ role: "customer", name: customerSeed.name, email: customerSeed.email, company: customerSeed.company });
+    }
+  };
+
   const title = mode === "admin" ? "Administrator sign in" : mode === "signup" ? "Create your Xpack account" : mode === "forgot" ? "Reset your password" : "Welcome back";
-  return <main className="auth-shell"><section className="auth-brand"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div><div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>{mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name"/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company"/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000"/></label></>}<label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? ADMIN_EMAIL : undefined}/></label>{mode !== "forgot" && <label>Password<input name="password" type="password" required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined}/></label>}{mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••"/></label>}{mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked/> Remember me</label><button type="button" onClick={() => { setMode("forgot"); setError(""); }}>Forgot password?</button></div>}{error && <p className="auth-error">{error}</p>}<button className="primary auth-submit">{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : "Sign in"}<Icon name="arrow" size={16}/></button>{mode === "admin" ? <button type="button" className="plain-link" onClick={() => { setMode("login"); setError(""); }}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => { setMode("admin"); setError(""); }}><Icon name="lock" size={14}/>Administrator sign in</button></>}</form></section></main>;
+  const isLocked = lockoutUntil !== null;
+
+  return <main className="auth-shell"><section className="auth-brand"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div><div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>{mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}<label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? ADMIN_EMAIL : undefined} disabled={isLocked}/></label>{mode !== "forgot" && <label>Password<div style={{position: 'relative'}}><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined} style={{paddingRight: '36px'}} disabled={isLocked}/><button type="button" onClick={() => setShowPassword(!showPassword)} style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px'}} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}{mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}{mode !== "forgot" && <label className="check" style={{marginTop: '4px', marginBottom: '8px', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '8px'}}><input type="checkbox" checked={captchaResolved} onChange={e => setCaptchaResolved(e.target.checked)} disabled={isLocked}/> <strong>I am human</strong> (Mock CAPTCHA)</label>}{mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => { setMode("forgot"); setError(""); }} disabled={isLocked}>Forgot password?</button></div>}{error && <p className="auth-error">{error}</p>}<button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>{mode === "admin" ? <button type="button" className="plain-link" onClick={() => { setMode("login"); setError(""); }} disabled={isLocked}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }} disabled={isLocked}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => { setMode("admin"); setError(""); }} disabled={isLocked}><Icon name="lock" size={14}/>Administrator sign in</button></>}</form></section></main>;
 }
 
 function CustomerPage({ view, orders, tickets, setView, create, ticket, select, session }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; session: Session }) {
