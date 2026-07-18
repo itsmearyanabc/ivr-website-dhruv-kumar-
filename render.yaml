@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: xpack-ivr-portal
+    runtime: node
+    plan: starter
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 22.14.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: xpack-postgres
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+databases:
+  - name: xpack-postgres
+    plan: basic-256mb
+    databaseName: xpack
+    user: xpack_admin
