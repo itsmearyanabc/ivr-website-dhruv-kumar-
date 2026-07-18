@@ -1,4 +1,4 @@
-// cspell:ignore Xpack xpack Dhruv Kaveri Proximo
+// cspell:ignore Xpack xpack Dhruv Kaveri Proximo supabase SUPABASE
 "use client";
 
 import React, { FormEvent, useEffect, useState } from "react";
@@ -51,10 +51,12 @@ export default function App() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { 
     const saved = localStorage.getItem("xpack-session"); 
-    if (saved) setSession(JSON.parse(saved)); 
+    if (saved) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSession(JSON.parse(saved)); 
+    }
     
     async function fetchData() {
       if (!supabaseUrl) return;
@@ -75,7 +77,9 @@ export default function App() {
     setShowBroadcast(false); 
     message("Broadcast request submitted for review."); 
     if (supabaseUrl) {
-      const { audioFile, contactsFile, ...orderData } = order;
+      const orderData = { ...order };
+      delete orderData.audioFile;
+      delete orderData.contactsFile;
       await supabase.from('orders').insert([orderData]);
     }
   };
