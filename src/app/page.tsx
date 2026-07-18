@@ -44,7 +44,7 @@ export default function Home() {
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
   const [selected, setSelected] = useState<Order | null>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { const saved = localStorage.getItem("xpack-session"); if (saved) setSession(JSON.parse(saved)); }, []);
   const message = (text: string) => { setToast(text); window.setTimeout(() => setToast(""), 3600); };
   const login = (next: Session) => { localStorage.setItem("xpack-session", JSON.stringify(next)); setSession(next); setView("Overview"); };
