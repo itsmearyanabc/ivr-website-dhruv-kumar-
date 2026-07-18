@@ -1,7 +1,8 @@
 // cspell:ignore Xpack xpack Dhruv Kaveri Proximo
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
 type Role = "customer" | "admin";
 type Status = "Placed" | "In progress" | "Completed" | "Cancelled";
@@ -24,6 +25,10 @@ const initialTickets: Ticket[] = [
   { id: "TK-207", subject: "Report metrics clarification", customer: "Kaveri Retail Group", priority: "High", status: "In progress", message: "We need clarity on the delivered and answered values.", created: "Yesterday" },
 ];
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
   const p: Record<string, React.ReactNode> = {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
@@ -35,25 +40,72 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
 }
 function Badge({ status }: { status: string }) { return <span className={`badge ${status.toLowerCase().replaceAll(" ", "-")}`}><i />{status}</span>; }
 
-export default function Home() {
+export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [view, setView] = useState("Overview");
-  const [orders, setOrders] = useState(initialOrders);
-  const [tickets, setTickets] = useState(initialTickets);
+  const [orders, setOrders] = useState<Order[]>(initialOrders);
+  const [tickets, setTickets] = useState<Ticket[]>(initialTickets);
   const [toast, setToast] = useState("");
   const [showBroadcast, setShowBroadcast] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
   const [selected, setSelected] = useState<Order | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { const saved = localStorage.getItem("xpack-session"); if (saved) setSession(JSON.parse(saved)); }, []);
+  useEffect(() => { 
+    const saved = localStorage.getItem("xpack-session"); 
+    if (saved) setSession(JSON.parse(saved)); 
+    
+    async function fetchData() {
+      if (!supabaseUrl) return;
+      const { data: oData } = await supabase.from('orders').select('*');
+      if (oData && oData.length > 0) setOrders(oData as Order[]);
+      const { data: tData } = await supabase.from('tickets').select('*');
+      if (tData && tData.length > 0) setTickets(tData as Ticket[]);
+    }
+    fetchData();
+  }, []);
+
   const message = (text: string) => { setToast(text); window.setTimeout(() => setToast(""), 3600); };
   const login = (next: Session) => { localStorage.setItem("xpack-session", JSON.stringify(next)); setSession(next); setView("Overview"); };
   const logout = () => { localStorage.removeItem("xpack-session"); setSession(null); setSelected(null); setSelectedTicket(null); };
-  const addOrder = (order: Order) => { setOrders([order, ...orders]); setShowBroadcast(false); message("Broadcast request submitted for review."); };
-  const addTicket = (ticket: Ticket) => { setTickets([ticket, ...tickets]); setShowTicket(false); message("Support ticket created. Our team has been notified."); };
-  const updateOrder = (id: string, status: Status, report = false) => { setOrders(orders.map(o => o.id === id ? { ...o, status, report: o.report || report } : o)); setSelected(null); message(status === "Completed" ? "Order completed and report shared with customer." : `Order updated to ${status}.`); };
-  const updateTicket = (id: string, status: TicketStatus, reply?: string) => { setTickets(tickets.map(t => t.id === id ? { ...t, status, reply: reply || t.reply } : t)); setSelectedTicket(null); message(status === "Resolved" ? "Ticket resolved and reply sent." : `Ticket updated to ${status}.`); };
+
+  const addOrder = async (order: Order) => { 
+    setOrders([order, ...orders]); 
+    setShowBroadcast(false); 
+    message("Broadcast request submitted for review."); 
+    if (supabaseUrl) {
+      const { audioFile, contactsFile, ...orderData } = order;
+      await supabase.from('orders').insert([orderData]);
+    }
+  };
+
+  const addTicket = async (ticket: Ticket) => { 
+    setTickets([ticket, ...tickets]); 
+    setShowTicket(false); 
+    message("Support ticket created. Our team has been notified."); 
+    if (supabaseUrl) {
+      await supabase.from('tickets').insert([ticket]);
+    }
+  };
+
+  const updateOrder = async (id: string, status: Status, report = false) => { 
+    setOrders(orders.map(o => o.id === id ? { ...o, status, report: o.report || report } : o)); 
+    setSelected(null); 
+    message(status === "Completed" ? "Order completed and report shared with customer." : `Order updated to ${status}.`); 
+    if (supabaseUrl) {
+      await supabase.from('orders').update({ status, report }).eq('id', id);
+    }
+  };
+
+  const updateTicket = async (id: string, status: TicketStatus, reply?: string) => { 
+    setTickets(tickets.map(t => t.id === id ? { ...t, status, reply: reply || t.reply } : t)); 
+    setSelectedTicket(null); 
+    message(status === "Resolved" ? "Ticket resolved and reply sent." : `Ticket updated to ${status}.`); 
+    if (supabaseUrl) {
+      await supabase.from('tickets').update({ status, reply }).eq('id', id);
+    }
+  };
   if (!session) return <Auth onLogin={login} />;
   const nav = session.role === "customer" ? [["Overview", "grid"], ["My broadcasts", "radio"], ["Support centre", "help"], ["Settings", "settings"]] : [["Overview", "grid"], ["Broadcast management", "radio"], ["Customers", "users"], ["Support desk", "help"], ["Activity log", "activity"]];
   return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div><nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">?</span><div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div></div><div className="user-card"><span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span><div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div><button title="Sign out" onClick={logout}><Icon name="logout"/></button></div></div></aside><section className="content"><header><div className="mobile-brand">Xpack</div><div className="header-actions"><span className="access-label"><Icon name={session.role === "admin" ? "lock" : "users"} size={14}/>{session.role === "admin" ? "Admin access" : "Customer portal"}</span><button className="notification"><Icon name="bell"/><em>3</em></button><span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span></div></header><div className="page">{session.role === "customer" ? <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} /> : <AdminPage view={view} orders={orders} tickets={tickets} setView={setView} select={setSelected} selectTicket={setSelectedTicket} />}</div></section>{showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session}/>} {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder}/>} {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}</main>;
