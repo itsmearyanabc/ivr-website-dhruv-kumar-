@@ -3,7 +3,7 @@ services:
     name: xpack-ivr-portal
     runtime: node
     plan: starter
-    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    buildCommand: pnpm install --frozen-lockfile --ignore-scripts && pnpm rebuild && pnpm build
     startCommand: pnpm start
     healthCheckPath: /
     envVars:
