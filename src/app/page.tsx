@@ -9,8 +9,8 @@ type Session = { role: Role; name: string; email: string; company?: string };
 type Order = { id: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean };
 type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string };
 
-const ADMIN_EMAIL = "admin@xpack.in";
-const ADMIN_PASSWORD = "XpackAdmin@2026";
+const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@xpack.in";
+const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "XpackAdmin@2026";
 const customerSeed: Session = { role: "customer", name: "Dhruv Kumar", email: "customer@xpack.demo", company: "Dhruv Kumar & Co." };
 const initialOrders: Order[] = [
   { id: "BR-1048", name: "Monsoon renewal reminder", customer: "Dhruv Kumar & Co.", email: "customer@xpack.demo", created: "Today, 10:42 AM", contacts: "12,450", status: "Placed", schedule: "Start on processing" },
