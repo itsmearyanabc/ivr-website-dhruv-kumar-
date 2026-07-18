@@ -25,8 +25,8 @@ const initialTickets: Ticket[] = [
   { id: "TK-207", subject: "Report metrics clarification", customer: "Kaveri Retail Group", priority: "High", status: "In progress", message: "We need clarity on the delivered and answered values.", created: "Yesterday" },
 ];
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://dehwarnjivtnyqyeurvx.supabase.co";
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_i17mynZC650zca-KNAmBiw_eZqaGMhX";
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
