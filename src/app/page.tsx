@@ -61,17 +61,23 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   const [mode, setMode] = useState<"login" | "signup" | "admin" | "forgot">("login");
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [captchaQ, setCaptchaQ] = useState({ n1: 1, n2: 1 });
+  const [captchaQ, setCaptchaQ] = useState({ n1: 4, n2: 7 }); // Default initial mock question
   const [captchaAnswer, setCaptchaAnswer] = useState("");
   const [attempts, setAttempts] = useState(0);
   const [lockoutCount, setLockoutCount] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState<Date | null>(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
 
-  useEffect(() => {
+  const resetCaptcha = () => {
     setCaptchaQ({ n1: Math.floor(Math.random() * 10) + 1, n2: Math.floor(Math.random() * 10) + 1 });
     setCaptchaAnswer("");
-  }, [mode]);
+  };
+
+  const changeMode = (newMode: typeof mode) => {
+    setMode(newMode);
+    setError("");
+    resetCaptcha();
+  };
 
   useEffect(() => {
     if (!lockoutUntil) return;
@@ -101,7 +107,8 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
 
     if (mode !== "forgot") {
       if (parseInt(captchaAnswer) !== captchaQ.n1 + captchaQ.n2) {
-        return setError(`Please solve the CAPTCHA correctly (${captchaQ.n1} + ${captchaQ.n2}).`);
+        resetCaptcha();
+        return setError(`Please solve the CAPTCHA correctly.`);
       }
     }
 
@@ -121,6 +128,7 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
         setAttempts(newAttempts);
         setError(`${msg} (${5 - newAttempts} attempts remaining)`);
       }
+      resetCaptcha();
     };
 
     if (mode === "admin") {
@@ -137,9 +145,13 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
     const company = String(data.get("company") || "").trim();
     if (mode === "signup") {
       if (email === customerSeed.email || email === ADMIN_EMAIL) {
+        resetCaptcha();
         return setError("This email is already registered. Try login instead.");
       }
-      if (!name || password.length < 8 || password !== String(data.get("confirm") || "")) return setError("Please complete all required fields and use matching 8+ character passwords.");
+      if (!name || password.length < 8 || password !== String(data.get("confirm") || "")) {
+        resetCaptcha();
+        return setError("Please complete all required fields and use matching 8+ character passwords.");
+      }
       setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
       onLogin({ role: "customer", name, email, company: company || name });
       return;
@@ -154,7 +166,7 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   const title = mode === "admin" ? "Administrator sign in" : mode === "signup" ? "Create your Xpack account" : mode === "forgot" ? "Reset your password" : "Welcome back";
   const isLocked = lockoutUntil !== null;
 
-  return <main className="auth-shell"><section className="auth-brand"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div><div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>{mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}<label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? ADMIN_EMAIL : undefined} disabled={isLocked}/></label>{mode !== "forgot" && <label>Password<div style={{position: 'relative'}}><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined} style={{paddingRight: '36px'}} disabled={isLocked}/><button type="button" onClick={() => setShowPassword(!showPassword)} style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px'}} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}{mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}{mode !== "forgot" && <label>Security Check: What is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}{mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => { setMode("forgot"); setError(""); }} disabled={isLocked}>Forgot password?</button></div>}{error && <p className="auth-error">{error}</p>}<button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>{mode === "admin" ? <button type="button" className="plain-link" onClick={() => { setMode("login"); setError(""); }} disabled={isLocked}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => { setMode(mode === "signup" ? "login" : "signup"); setError(""); }} disabled={isLocked}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => { setMode("admin"); setError(""); }} disabled={isLocked}><Icon name="lock" size={14}/>Administrator sign in</button></>}</form></section></main>;
+  return <main className="auth-shell"><section className="auth-brand"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div><div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>{mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}<label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? ADMIN_EMAIL : undefined} disabled={isLocked}/></label>{mode !== "forgot" && <label>Password<div style={{position: 'relative'}}><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined} style={{paddingRight: '36px'}} disabled={isLocked}/><button type="button" onClick={() => setShowPassword(!showPassword)} style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px'}} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}{mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}{mode !== "forgot" && <label>Security Check: What is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}{mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}{error && <p className="auth-error">{error}</p>}<button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>{mode === "admin" ? <button type="button" className="plain-link" onClick={() => changeMode("login")} disabled={isLocked}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => changeMode("admin")} disabled={isLocked}><Icon name="lock" size={14}/>Administrator sign in</button></>}</form></section></main>;
 }
 
 function CustomerPage({ view, orders, tickets, setView, create, ticket, select, session }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; session: Session }) {
