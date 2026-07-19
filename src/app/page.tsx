@@ -4,14 +4,14 @@
 
 import React, { FormEvent, useEffect, useState } from "react";
 import { signUp, signIn, signOut } from "@/app/actions/auth";
-import { getBroadcasts, createBroadcast, updateBroadcastStatus } from "@/app/actions/broadcasts";
+import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 
 type Role = "customer" | "admin";
 type Status = "Placed" | "In progress" | "Completed" | "Cancelled";
 type TicketStatus = "Open" | "In progress" | "Resolved" | "Closed";
 type Session = { role: Role; name: string; email: string; company?: string };
-type Order = { id: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean; audioFile?: File; contactsFile?: File };
+type Order = { id: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean; audioKey?: string; contactsKey?: string; reportKey?: string; audioFile?: File; contactsFile?: File };
 type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
 
 const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@xpack.in";
@@ -60,6 +60,7 @@ export default function App() {
       const { data: bData } = await getBroadcasts();
       if (bData && bData.length > 0) {
         // Map database broadcasts to frontend orders
+        // Map database broadcasts to frontend orders
         setOrders(bData.map((b: any) => ({
           id: b.reference_no,
           name: b.name,
@@ -70,7 +71,10 @@ export default function App() {
           status: b.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : b.status.charAt(0) + b.status.slice(1).toLowerCase(),
           schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing',
           notes: b.description,
-          report: b.status === 'COMPLETED',
+          audioKey: b.audio_key,
+          contactsKey: b.contacts_key,
+          reportKey: b.reports?.[0]?.file_key,
+          report: b.status === 'COMPLETED' && !!b.reports?.[0]?.file_key,
         })));
       }
       
@@ -143,15 +147,20 @@ export default function App() {
     }
   };
 
-  const updateOrder = async (id: string, status: Status, report = false) => { 
+  const updateOrder = async (id: string, status: Status, reportFile?: File) => { 
     setSelected(null); 
     const dbStatus = status.toUpperCase().replace(' ', '_');
-    const { error } = await updateBroadcastStatus(id, dbStatus);
+    const formData = new FormData();
+    formData.append("id", id);
+    formData.append("status", dbStatus);
+    if (reportFile) formData.append("report", reportFile);
+
+    const { error } = await updateBroadcastStatus(formData);
     if (error) {
       message(error);
     } else {
       message(status === "Completed" ? "Order completed and report shared with customer." : `Order updated to ${status}.`);
-      setOrders(orders.map(o => o.id === id ? { ...o, status, report: o.report || report } : o));
+      setOrders(orders.map(o => o.id === id ? { ...o, status, report: o.report || !!reportFile } : o));
     }
   };
 
@@ -303,5 +312,18 @@ function OrderTable({ orders, onSelect, admin = false }: { orders: Order[]; onSe
 function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
 function BroadcastModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (o: Order) => void; session: Session }) { const [audioFile, setAudioFile] = useState<File | null>(null); const [contactsFile, setContactsFile] = useState<File | null>(null); const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const data = new FormData(e.currentTarget); const audio = data.get("audio") as File, contacts = data.get("contacts") as File; if (!audio?.name || !contacts?.name) return alert("Please attach both the audio file and contact list."); onSubmit({ id: `BR-${1050 + Math.floor(Math.random() * 850)}`, name: String(data.get("name")), customer: session.company || session.name, email: session.email, created: "Just now", contacts: "Pending validation", status: "Placed", schedule: String(data.get("schedule")), notes: String(data.get("notes") || ""), audioFile: audio, contactsFile: contacts }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">NEW REQUEST</p><h2>Create a broadcast</h2><p>Upload your campaign assets for the Xpack operations team.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Broadcast name<input name="name" required placeholder="e.g. August renewal reminder"/></label><div className="form-grid"><label>Audio file <span className="dropzone">{audioFile ? <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB</small></>}<input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{contactsFile ? <><Icon name="check"/><b>{contactsFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload contact list</b><small>Maximum 50 MB</small></>}<input name="contacts" type="file" required onChange={e => setContactsFile(e.target.files?.[0] || null)}/></span></label></div><label>Schedule<select name="schedule"><option>Start on processing</option><option>Schedule for later</option></select></label><label>Instructions <textarea name="notes" placeholder="Any instructions for our operations team?" rows={3}/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Submit broadcast <Icon name="arrow" size={16}/></button></div></form></div>; }
 function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => void; session: Session }) { const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const d = new FormData(e.currentTarget); onSubmit({ id: `TK-${209 + Math.floor(Math.random() * 90)}`, subject: String(d.get("subject")), customer: session.company || session.name, priority: String(d.get("priority")) as "Normal" | "High", status: "Open", message: String(d.get("message")), created: "Just now" }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal compact-modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we’ll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Subject<input name="subject" required placeholder="How can we help?"/></label><label>Priority<select name="priority"><option>Normal</option><option>High</option></select></label><label>Message<textarea name="message" required rows={5} placeholder="Give us the details…"/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Create ticket <Icon name="arrow" size={16}/></button></div></form></div>; }
-function OrderModal({ order, admin, onClose, onUpdate }: { order: Order; admin: boolean; onClose: () => void; onUpdate: (id: string, s: Status, report?: boolean) => void }) { const [status, setStatus] = useState<Status>(order.status); const handleDownload = (file: File) => { const url = URL.createObjectURL(file); const a = document.createElement("a"); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{order.id}</p><h2>{order.name}</h2><p>{order.customer} · {order.contacts} contacts</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={order.status}/></div><div><small>Schedule</small><strong>{order.schedule}</strong></div><div><small>Audio asset</small>{order.audioFile ? <button className="text-button" onClick={() => handleDownload(order.audioFile!)} title={order.audioFile.name}><Icon name="download" size={14}/>{order.audioFile.name.length > 22 ? order.audioFile.name.slice(0, 19) + "..." : order.audioFile.name}</button> : <span className="text-muted">No file</span>}</div><div><small>Contact list</small>{order.contactsFile ? <button className="text-button" onClick={() => handleDownload(order.contactsFile!)} title={order.contactsFile.name}><Icon name="download" size={14}/>{order.contactsFile.name.length > 22 ? order.contactsFile.name.slice(0, 19) + "..." : order.contactsFile.name}</button> : <span className="text-muted">No file</span>}</div></div>{order.notes && <div className="detail-note"><strong>Customer instructions</strong><p>{order.notes}</p></div>}{order.report && <div className="report-ready"><Icon name="check"/><div><strong>Performance report ready</strong><p>Report has been uploaded to this order.</p></div><button className="outline"><Icon name="download" size={14}/>Download</button></div>}{admin && <div className="admin-update"><label>Update order status<select value={status} onChange={e => setStatus(e.target.value as Status)}><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option></select></label>{status === "Completed" && <label>Performance report<input type="file" accept=".csv,.pdf,.zip"/></label>}<button className="primary" onClick={() => onUpdate(order.id, status, status === "Completed")}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>; }
+function OrderModal({ order, admin, onClose, onUpdate }: { order: Order; admin: boolean; onClose: () => void; onUpdate: (id: string, s: Status, reportFile?: File) => void }) {
+  const [status, setStatus] = useState<Status>(order.status);
+  const [reportFile, setReportFile] = useState<File | null>(null);
+
+  const handleDownload = async (key: string) => {
+    const res = await getDownloadUrl(key);
+    if (res.url) {
+      window.open(res.url, '_blank');
+    } else {
+      alert("Failed to download file.");
+    }
+  };
+
+  return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{order.id}</p><h2>{order.name}</h2><p>{order.customer} · {order.contacts} contacts</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={order.status}/></div><div><small>Schedule</small><strong>{order.schedule}</strong></div><div><small>Audio asset</small>{order.audioKey ? <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download Audio</button> : <span className="text-muted">No file</span>}</div><div><small>Contact list</small>{order.contactsKey ? <button className="text-button" onClick={() => handleDownload(order.contactsKey!)} title={order.contactsKey}><Icon name="download" size={14}/>Download Contacts</button> : <span className="text-muted">No file</span>}</div></div>{order.notes && <div className="detail-note"><strong>Customer instructions</strong><p>{order.notes}</p></div>}{order.report && <div className="report-ready"><Icon name="check"/><div><strong>Performance report ready</strong><p>Report has been uploaded to this order.</p></div><button className="outline" onClick={() => handleDownload(order.reportKey!)}><Icon name="download" size={14}/>Download</button></div>}{admin && <div className="admin-update"><label>Update order status<select value={status} onChange={e => setStatus(e.target.value as Status)}><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option></select></label>{status === "Completed" && <label>Performance report<input type="file" accept=".csv,.pdf,.zip" onChange={e => setReportFile(e.target.files?.[0] || null)}/></label>}<button className="primary" onClick={() => onUpdate(order.id, status, reportFile || undefined)}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>; }
 function TicketViewModal({ ticket, admin, onClose, onUpdate }: { ticket: Ticket; admin: boolean; onClose: () => void; onUpdate: (id: string, s: TicketStatus, reply?: string) => void }) { const [status, setStatus] = useState<TicketStatus>(ticket.status); const [reply, setReply] = useState<string>(ticket.reply || ""); return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{ticket.id}</p><h2>{ticket.subject}</h2><p>{ticket.customer} · {ticket.created}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={ticket.status}/></div><div><small>Priority</small><span className={ticket.priority === "High" ? "priority overdue" : "priority new"}>{ticket.priority}</span></div></div><div className="detail-note"><strong>Customer Message</strong><p>{ticket.message}</p></div>{ticket.reply && !admin && <div className="detail-note" style={{background: '#f0f9ff', borderColor: '#bae6fd'}}><strong>Admin Reply</strong><p>{ticket.reply}</p></div>}{admin && <div className="admin-update"><label>Update ticket status<select value={status} onChange={e => setStatus(e.target.value as TicketStatus)}><option>Open</option><option>In progress</option><option>Resolved</option></select></label><label>Reply to customer<textarea value={reply} onChange={e => setReply(e.target.value)} rows={3} placeholder="Type your response here..."/></label><button className="primary" onClick={() => onUpdate(ticket.id, status, reply)}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>; }

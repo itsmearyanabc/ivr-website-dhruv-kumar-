@@ -15,6 +15,9 @@ export async function getBroadcasts() {
       users!inner (
         company_name,
         email
+      ),
+      reports (
+        file_key
       )
     `)
     .order('created_at', { ascending: false })
@@ -41,7 +44,7 @@ export async function createBroadcast(formData: FormData) {
   if (authError || !user) return { error: 'Unauthorized' }
 
   const name = String(formData.get("name") || "")
-    const notes = String(formData.get("notes") || "")
+  const notes = String(formData.get("notes") || "")
   
   const audio = formData.get("audio") as File
   const contacts = formData.get("contacts") as File
@@ -50,10 +53,20 @@ export async function createBroadcast(formData: FormData) {
     return { error: 'Missing required fields or files.' }
   }
 
-  // Placeholder keys until actual bucket uploads are wired up if they have S3
-  const audio_key = `audio/${crypto.randomUUID()}-${audio.name}`
-  const contacts_key = `contacts/${crypto.randomUUID()}-${contacts.name}`
+  // Upload to Supabase Storage
+  const audio_key = `audio/${crypto.randomUUID()}-${audio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+  const contacts_key = `contacts/${crypto.randomUUID()}-${contacts.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
   const reference_no = `BR-${1050 + Math.floor(Math.random() * 850)}`
+
+  const [audioUpload, contactsUpload] = await Promise.all([
+    supabase.storage.from('xpack_files').upload(audio_key, audio),
+    supabase.storage.from('xpack_files').upload(contacts_key, contacts)
+  ])
+
+  if (audioUpload.error || contactsUpload.error) {
+    console.error('Storage Upload Error:', audioUpload.error || contactsUpload.error)
+    return { error: 'Failed to upload files.' }
+  }
 
   const { data, error } = await supabase
     .from('broadcasts')
@@ -79,8 +92,12 @@ export async function createBroadcast(formData: FormData) {
   return { data }
 }
 
-export async function updateBroadcastStatus(id: string, status: string, reportFile?: File) {
+export async function updateBroadcastStatus(formData: FormData) {
   const supabase = await createClient()
+
+  const id = String(formData.get("id"))
+  const status = String(formData.get("status")).toUpperCase()
+  const reportFile = formData.get("report") as File | null
 
   // RLS will enforce that only admins can update broadcasts
   const { data, error } = await supabase
@@ -95,8 +112,15 @@ export async function updateBroadcastStatus(id: string, status: string, reportFi
     return { error: 'Failed to update broadcast' }
   }
 
-  if (status.toUpperCase() === 'COMPLETED' && reportFile) {
-    const file_key = `reports/${crypto.randomUUID()}-${reportFile.name}`
+  if (status === 'COMPLETED' && reportFile && reportFile.size > 0) {
+    const file_key = `reports/${crypto.randomUUID()}-${reportFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    
+    const { error: uploadError } = await supabase.storage.from('xpack_files').upload(file_key, reportFile)
+    if (uploadError) {
+      console.error('Report Upload Error:', uploadError)
+      return { error: 'Failed to upload report file' }
+    }
+
     await supabase
       .from('reports')
       .upsert({
@@ -105,5 +129,15 @@ export async function updateBroadcastStatus(id: string, status: string, reportFi
       }, { onConflict: 'broadcast_id' })
   }
 
-  return { data }
+  return { success: true }
+}
+
+export async function getDownloadUrl(path: string) {
+  const supabase = await createClient()
+  const { data, error } = await supabase.storage.from('xpack_files').createSignedUrl(path, 60 * 60) // 1 hour
+
+  if (error || !data) {
+    return { error: 'Failed to generate download link' }
+  }
+  return { url: data.signedUrl }
 }
