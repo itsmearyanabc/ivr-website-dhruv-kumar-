@@ -100,7 +100,7 @@ export async function updateTicketStatus(id: string, status: string, replyMessag
   const { data: ticket, error } = await supabase
     .from('support_tickets')
     .update({ status: status.toUpperCase(), updated_at: new Date().toISOString() })
-    .or(`reference_no.eq.\${id},id.eq.\${id}`)
+    .or(`reference_no.eq.${id},id.eq.${id}`)
     .select()
     .single()
 

@@ -103,7 +103,7 @@ export async function updateBroadcastStatus(formData: FormData) {
   const { data, error } = await supabase
     .from('broadcasts')
     .update({ status: status.toUpperCase(), updated_at: new Date().toISOString() })
-    .or(`reference_no.eq.\${id},id.eq.\${id}`)
+    .or(`reference_no.eq.${id},id.eq.${id}`)
     .select()
     .single()
 
