@@ -80,7 +80,7 @@ export default function App() {
           status: t.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : t.status.charAt(0) + t.status.slice(1).toLowerCase(),
           message: t.message || '',
           created: new Date(t.created_at).toLocaleString(),
-          reply: t.latest_message_time && t.latest_message_time > t.created_at ? t.message : undefined,
+          reply: t.reply,
         })));
       }
     }
@@ -146,7 +146,7 @@ export default function App() {
         setTickets(tData.map((t: any) => ({
           id: t.reference_no, subject: t.subject, customer: t.customer, priority: t.priority === 'HIGH' ? 'High' : 'Normal',
           status: t.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : t.status.charAt(0) + t.status.slice(1).toLowerCase(),
-          message: t.message || '', created: new Date(t.created_at).toLocaleString(), reply: undefined,
+          message: t.message || '', created: new Date(t.created_at).toLocaleString(), reply: t.reply,
         })));
       }
     }

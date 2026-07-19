@@ -43,12 +43,14 @@ export async function getTickets() {
     const sortedMessages = t.support_messages?.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) || []
     const firstMessage = sortedMessages[0]
     const latestMessageTime = sortedMessages.length > 0 ? sortedMessages[sortedMessages.length - 1].created_at : null
+    const replyMessage = sortedMessages.length > 1 ? sortedMessages[sortedMessages.length - 1].body : undefined
 
     return {
       ...t,
       customer: t.users?.company_name || 'Unknown',
       message: firstMessage?.body || '',
-      latest_message_time: latestMessageTime
+      latest_message_time: latestMessageTime,
+      reply: replyMessage
     }
   })
 
