@@ -44,7 +44,8 @@ export async function createBroadcast(formData: FormData) {
   const supabase = isAdmin ? await createAdminClient() : await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-  if (authError || !user) return { error: 'Unauthorized' }
+  if (authError) return { error: 'Unauthorized: ' + authError.message }
+  if (!user) return { error: 'Unauthorized: No active user session.' }
 
   const name = String(formData.get("name") || "")
   const notes = String(formData.get("notes") || "")

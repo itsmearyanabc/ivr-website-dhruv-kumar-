@@ -50,7 +50,8 @@ export async function createTicket(formData: FormData) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-  if (authError || !user) return { error: 'Unauthorized' }
+  if (authError) return { error: 'Unauthorized: ' + authError.message }
+  if (!user) return { error: 'Unauthorized: No active user session.' }
 
   const subject = String(formData.get("subject") || "")
   const priority = String(formData.get("priority") || "NORMAL").toUpperCase()
