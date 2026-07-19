@@ -52,7 +52,11 @@ export async function createBroadcast(formData: FormData) {
   const supabaseAuth = await createClient()
   const { data: { user }, error: authError } = await supabaseAuth.auth.getUser()
 
-  if (authError) return { error: 'Unauthorized: ' + authError.message }
+  if (authError) {
+    const cookieStore = await import('next/headers').then(m => m.cookies());
+    const allCookies = cookieStore.getAll().map(c => c.name).join(', ');
+    return { error: 'Unauthorized: ' + authError.message + ' | Cookies: ' + allCookies }
+  }
   if (!user) return { error: 'Unauthorized: No active user session.' }
 
   const supabase = createServiceRoleClient()
