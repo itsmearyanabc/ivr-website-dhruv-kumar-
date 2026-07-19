@@ -6,10 +6,14 @@ const env = fs.readFileSync('.env', 'utf8').split('\n').reduce((acc, line) => {
 }, {});
 
 const { createClient } = require('@supabase/supabase-js');
-const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 
 async function run() {
-  const { data, error } = await supabase.auth.getUser();
-  console.log('User:', data.user ? data.user.id : null, 'Error:', error ? error.message : null);
+  const { data, error } = await supabase.from('broadcasts').select('*').limit(1);
+  if (error) {
+    console.error('Error:', error);
+  } else {
+    console.log('Success! RLS works.');
+  }
 }
 run();

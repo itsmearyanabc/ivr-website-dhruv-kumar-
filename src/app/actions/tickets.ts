@@ -1,15 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server'
 
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 
 export async function getTickets() {
   const isAdmin = await checkIsAdmin()
-  const supabase = isAdmin ? await createAdminClient() : await createClient()
+  const supabaseAuth = await createClient()
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
 
-  // RLS filters tickets automatically
-  const { data: tickets, error } = await supabase
+  const supabase = createServiceRoleClient()
+
+  let query = supabase
     .from('support_tickets')
     .select(`
       *,
@@ -22,6 +25,12 @@ export async function getTickets() {
       )
     `)
     .order('created_at', { ascending: false })
+    
+  if (!isAdmin) {
+    query = query.eq('user_id', user.id)
+  }
+
+  const { data: tickets, error } = await query
 
   if (error) {
     console.error('Fetch Tickets Error:', error)
@@ -47,11 +56,13 @@ export async function getTickets() {
 }
 
 export async function createTicket(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const supabaseAuth = await createClient()
+  const { data: { user }, error: authError } = await supabaseAuth.auth.getUser()
 
   if (authError) return { error: 'Unauthorized: ' + authError.message }
   if (!user) return { error: 'Unauthorized: No active user session.' }
+
+  const supabase = createServiceRoleClient()
 
   const subject = String(formData.get("subject") || "")
   const priority = String(formData.get("priority") || "NORMAL").toUpperCase()
@@ -99,8 +110,12 @@ export async function createTicket(formData: FormData) {
 export async function updateTicketStatus(id: string, status: string, replyMessage?: string) {
   const isAdmin = await checkIsAdmin()
   if (!isAdmin) return { error: 'Unauthorized' }
-  const supabase = await createAdminClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  
+  const supabaseAuth = await createClient()
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = createServiceRoleClient()
 
   const { data: ticket, error } = await supabase
     .from('support_tickets')
@@ -114,7 +129,7 @@ export async function updateTicketStatus(id: string, status: string, replyMessag
     return { error: 'Failed to update ticket' }
   }
 
-  if (replyMessage && user) {
+  if (replyMessage) {
     await supabase
       .from('support_messages')
       .insert([

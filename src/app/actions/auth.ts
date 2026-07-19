@@ -1,5 +1,5 @@
 'use server'
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
 
 export async function checkIsAdmin() {
   try {
@@ -7,7 +7,8 @@ export async function checkIsAdmin() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return false
 
-    const { data: profile } = await supabase
+    const supabaseAdmin = createServiceRoleClient()
+    const { data: profile } = await supabaseAdmin
       .from('users')
       .select('role')
       .eq('id', user.id)
@@ -157,7 +158,8 @@ export async function signIn(formData: FormData, isAdmin = false) {
   }
 
   // Fetch profile to return profile data
-  const { data: profile } = await supabase
+  const supabaseService = createServiceRoleClient()
+  const { data: profile } = await supabaseService
     .from('users')
     .select('full_name, company_name')
     .eq('id', data.user.id)

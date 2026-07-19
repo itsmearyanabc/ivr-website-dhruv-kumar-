@@ -202,6 +202,7 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-compiler/react-compiler
     resetCaptcha();
   }, []);
 

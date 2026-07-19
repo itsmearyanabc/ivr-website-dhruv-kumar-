@@ -1,16 +1,19 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server'
 
-import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 
 export async function getBroadcasts() {
   const isAdmin = await checkIsAdmin()
-  const supabase = isAdmin ? await createAdminClient() : await createClient()
+  
+  const supabaseAuth = await createClient()
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
 
-  // Supabase RLS will automatically filter this down to just the user's broadcasts,
-  // or all broadcasts if the user is an admin (based on the RLS policy defined in SQL)
-  const { data: broadcasts, error } = await supabase
+  const supabase = createServiceRoleClient()
+
+  let query = supabase
     .from('broadcasts')
     .select(`
       *,
@@ -23,6 +26,12 @@ export async function getBroadcasts() {
       )
     `)
     .order('created_at', { ascending: false })
+    
+  if (!isAdmin) {
+    query = query.eq('user_id', user.id)
+  }
+
+  const { data: broadcasts, error } = await query
 
   if (error) {
     console.error('Fetch Broadcasts Error:', error)
@@ -40,12 +49,13 @@ export async function getBroadcasts() {
 }
 
 export async function createBroadcast(formData: FormData) {
-  const isAdmin = await checkIsAdmin()
-  const supabase = isAdmin ? await createAdminClient() : await createClient()
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const supabaseAuth = await createClient()
+  const { data: { user }, error: authError } = await supabaseAuth.auth.getUser()
 
   if (authError) return { error: 'Unauthorized: ' + authError.message }
   if (!user) return { error: 'Unauthorized: No active user session.' }
+
+  const supabase = createServiceRoleClient()
 
   const name = String(formData.get("name") || "")
   const notes = String(formData.get("notes") || "")
@@ -99,13 +109,12 @@ export async function createBroadcast(formData: FormData) {
 export async function updateBroadcastStatus(formData: FormData) {
   const isAdmin = await checkIsAdmin()
   if (!isAdmin) return { error: 'Unauthorized' }
-  const supabase = await createAdminClient()
+  const supabase = createServiceRoleClient()
 
   const id = String(formData.get("id"))
   const status = String(formData.get("status")).toUpperCase()
   const reportFile = formData.get("report") as File | null
 
-  // RLS will enforce that only admins can update broadcasts
   const { data, error } = await supabase
     .from('broadcasts')
     .update({ status: status.toUpperCase(), updated_at: new Date().toISOString() })
@@ -139,8 +148,11 @@ export async function updateBroadcastStatus(formData: FormData) {
 }
 
 export async function getDownloadUrl(path: string) {
-  const isAdmin = await checkIsAdmin()
-  const supabase = isAdmin ? await createAdminClient() : await createClient()
+  const supabaseAuth = await createClient()
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = createServiceRoleClient()
   const { data, error } = await supabase.storage.from('xpack_files').createSignedUrl(path, 60 * 60) // 1 hour
 
   if (error || !data) {
