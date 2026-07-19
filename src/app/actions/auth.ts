@@ -154,7 +154,7 @@ export async function signIn(formData: FormData, isAdmin = false) {
   })
 
   if (error) {
-    return { error: 'Incorrect email or password.' }
+    return { error: 'Login Failed: ' + error.message }
   }
 
   // Fetch profile to return profile data
