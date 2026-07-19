@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // cspell:ignore Xpack xpack Dhruv Kaveri Proximo supabase SUPABASE
 "use client";
-+
+
 import React, { FormEvent, useEffect, useState } from "react";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl } from "@/app/actions/broadcasts";
