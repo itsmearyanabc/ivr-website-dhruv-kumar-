@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { checkIsAdmin } from '@/app/actions/auth'
 
 export async function getTickets() {
-  const supabase = await createClient()
+  const isAdmin = await checkIsAdmin()
+  const supabase = isAdmin ? await createAdminClient() : await createClient()
 
   // RLS filters tickets automatically
   const { data: tickets, error } = await supabase
@@ -45,7 +47,9 @@ export async function getTickets() {
 }
 
 export async function createTicket(formData: FormData) {
-  const supabase = await createClient()
+  const isAdmin = await checkIsAdmin()
+  if (!isAdmin) return { error: 'Unauthorized' }
+  const supabase = await createAdminClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
 
   if (authError || !user) return { error: 'Unauthorized' }

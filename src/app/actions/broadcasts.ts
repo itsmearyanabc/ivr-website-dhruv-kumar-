@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
+import { checkIsAdmin } from '@/app/actions/auth'
 
 export async function getBroadcasts() {
-  const supabase = await createClient()
+  const isAdmin = await checkIsAdmin()
+  const supabase = isAdmin ? await createAdminClient() : await createClient()
 
   // Supabase RLS will automatically filter this down to just the user's broadcasts,
   // or all broadcasts if the user is an admin (based on the RLS policy defined in SQL)
@@ -38,7 +40,8 @@ export async function getBroadcasts() {
 }
 
 export async function createBroadcast(formData: FormData) {
-  const supabase = await createClient()
+  const isAdmin = await checkIsAdmin()
+  const supabase = isAdmin ? await createAdminClient() : await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
 
   if (authError || !user) return { error: 'Unauthorized' }
@@ -93,7 +96,9 @@ export async function createBroadcast(formData: FormData) {
 }
 
 export async function updateBroadcastStatus(formData: FormData) {
-  const supabase = await createClient()
+  const isAdmin = await checkIsAdmin()
+  if (!isAdmin) return { error: 'Unauthorized' }
+  const supabase = await createAdminClient()
 
   const id = String(formData.get("id"))
   const status = String(formData.get("status")).toUpperCase()

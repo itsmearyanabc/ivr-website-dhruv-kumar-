@@ -1,31 +1,36 @@
 'use server'
-
 import { createClient } from '@/lib/supabase/server'
+import { SignJWT, jwtVerify } from 'jose'
+import { cookies } from 'next/headers'
+
+const getSecret = () => new TextEncoder().encode(process.env.SUPABASE_SERVICE_ROLE_KEY || 'default_admin_secret')
+
+export async function checkIsAdmin() {
+  const cookieStore = await cookies()
+  const token = cookieStore.get('xpack-admin')?.value
+  if (!token) return false
+  try {
+    await jwtVerify(token, getSecret())
+    return true
+  } catch {
+    return false
+  }
+}
 
 export async function signUp(formData: FormData) {
   const email = String(formData.get("email") || "").trim().toLowerCase()
   const password = String(formData.get("password") || "")
-  const confirm = String(formData.get("confirm") || "")
-  const name = String(formData.get("name") || "").trim()
-  const company = String(formData.get("company") || "").trim()
-  const phone = String(formData.get("phone") || "").trim()
+  const name = String(formData.get("name") || "")
+  const company = String(formData.get("company") || "")
+  const phone = String(formData.get("phone") || "")
 
   if (!email || !password || !name) {
-    return { error: 'Please complete all required fields.' }
-  }
-
-  if (password.length < 8) {
-    return { error: 'Password must be at least 8 characters long.' }
-  }
-
-  if (password !== confirm) {
-    return { error: 'Passwords do not match.' }
+    return { error: 'Please fill out all required fields.' }
   }
 
   const supabase = await createClient()
 
-  // Sign up with Supabase Auth
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -55,8 +60,24 @@ export async function signIn(formData: FormData, isAdmin = false) {
     return { error: 'Please enter both email and password.' }
   }
 
-  const supabase = await createClient()
+  if (isAdmin) {
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@xpack.in').toLowerCase()
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
+    
+    if (email === adminEmail && password === adminPassword) {
+      const token = await new SignJWT({ admin: true })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setExpirationTime('7d')
+        .sign(getSecret())
+        
+      const cookieStore = await cookies()
+      cookieStore.set('xpack-admin', token, { httpOnly: true, secure: true, sameSite: 'strict', maxAge: 60*60*24*7 })
+      return { success: true }
+    }
+    return { error: 'Incorrect administrator username or password.' }
+  }
 
+  const supabase = await createClient()
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -66,24 +87,13 @@ export async function signIn(formData: FormData, isAdmin = false) {
     return { error: 'Incorrect email or password.' }
   }
 
-  // If we need to verify admin role, check the public.users table
-  if (isAdmin) {
-    const { data: userRecord } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', data.user.id)
-      .single()
-
-    if (!userRecord || userRecord.role !== 'ADMIN') {
-      await supabase.auth.signOut()
-      return { error: 'Incorrect administrator username or password.' }
-    }
-  }
-
   return { success: true }
 }
 
 export async function signOut() {
+  const cookieStore = await cookies()
+  cookieStore.delete('xpack-admin')
+  
   const supabase = await createClient()
   await supabase.auth.signOut()
 }
