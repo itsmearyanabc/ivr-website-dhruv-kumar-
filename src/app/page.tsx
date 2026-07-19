@@ -1,8 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // cspell:ignore Xpack xpack Dhruv Kaveri Proximo supabase SUPABASE
 "use client";
 
 import React, { FormEvent, useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { signUp, signIn, signOut } from "@/app/actions/auth";
+import { getBroadcasts, createBroadcast, updateBroadcastStatus } from "@/app/actions/broadcasts";
+import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 
 type Role = "customer" | "admin";
 type Status = "Placed" | "In progress" | "Completed" | "Cancelled";
@@ -12,8 +15,6 @@ type Order = { id: string; name: string; customer: string; email: string; create
 type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
 
 const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@xpack.in";
-const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "XpackAdmin@2026";
-const customerSeed: Session = { role: "customer", name: "Dhruv Kumar", email: "customer@xpack.demo", company: "Dhruv Kumar & Co." };
 const initialOrders: Order[] = [
   { id: "BR-1048", name: "Monsoon renewal reminder", customer: "Dhruv Kumar & Co.", email: "customer@xpack.demo", created: "Today, 10:42 AM", contacts: "12,450", status: "Placed", schedule: "Start on processing" },
   { id: "BR-1047", name: "Dealer incentive update", customer: "Kaveri Retail Group", email: "ops@kaveriretail.in", created: "Yesterday, 4:18 PM", contacts: "8,200", status: "In progress", schedule: "Jul 18, 10:00 AM" },
@@ -25,9 +26,6 @@ const initialTickets: Ticket[] = [
   { id: "TK-207", subject: "Report metrics clarification", customer: "Kaveri Retail Group", priority: "High", status: "In progress", message: "We need clarity on the delivered and answered values.", created: "Yesterday" },
 ];
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://dehwarnjivtnyqyeurvx.supabase.co";
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_i17mynZC650zca-KNAmBiw_eZqaGMhX";
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
   const p: Record<string, React.ReactNode> = {
@@ -59,55 +57,113 @@ export default function App() {
     }
     
     async function fetchData() {
-      if (!supabaseUrl) return;
-      const { data: oData } = await supabase.from('orders').select('*');
-      if (oData && oData.length > 0) setOrders(oData as Order[]);
-      const { data: tData } = await supabase.from('tickets').select('*');
-      if (tData && tData.length > 0) setTickets(tData as Ticket[]);
+      const { data: bData } = await getBroadcasts();
+      if (bData && bData.length > 0) {
+        // Map database broadcasts to frontend orders
+        setOrders(bData.map((b: any) => ({
+          id: b.reference_no,
+          name: b.name,
+          customer: b.customer,
+          email: b.email,
+          created: new Date(b.created_at).toLocaleString(),
+          contacts: b.contact_count || 'Pending',
+          status: b.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : b.status.charAt(0) + b.status.slice(1).toLowerCase(),
+          schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing',
+          notes: b.description,
+          report: b.status === 'COMPLETED',
+        })));
+      }
+      
+      const { data: tData } = await getTickets();
+      if (tData && tData.length > 0) {
+        setTickets(tData.map((t: any) => ({
+          id: t.reference_no,
+          subject: t.subject,
+          customer: t.customer,
+          priority: t.priority === 'HIGH' ? 'High' : 'Normal',
+          status: t.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : t.status.charAt(0) + t.status.slice(1).toLowerCase(),
+          message: t.message || '',
+          created: new Date(t.created_at).toLocaleString(),
+          reply: t.latest_message_time && t.latest_message_time > t.created_at ? t.message : undefined,
+        })));
+      }
     }
     fetchData();
   }, []);
 
   const message = (text: string) => { setToast(text); window.setTimeout(() => setToast(""), 3600); };
   const login = (next: Session) => { localStorage.setItem("xpack-session", JSON.stringify(next)); setSession(next); setView("Overview"); };
-  const logout = () => { localStorage.removeItem("xpack-session"); setSession(null); setSelected(null); setSelectedTicket(null); };
+  const logout = async () => { await signOut(); localStorage.removeItem("xpack-session"); setSession(null); setSelected(null); setSelectedTicket(null); };
 
   const addOrder = async (order: Order) => { 
-    setOrders([order, ...orders]); 
     setShowBroadcast(false); 
-    message("Broadcast request submitted for review."); 
-    if (supabaseUrl) {
-      const orderData = { ...order };
-      delete orderData.audioFile;
-      delete orderData.contactsFile;
-      await supabase.from('orders').insert([orderData]);
+    const formData = new FormData();
+    formData.append("name", order.name);
+    formData.append("schedule", order.schedule);
+    formData.append("notes", order.notes || "");
+    if (order.audioFile) formData.append("audio", order.audioFile);
+    if (order.contactsFile) formData.append("contacts", order.contactsFile);
+    
+    const { error } = await createBroadcast(formData);
+    if (error) {
+      message(error);
+    } else {
+      message("Broadcast request submitted for review.");
+      // fetch data again to update
+      const { data: bData } = await getBroadcasts();
+      if (bData && bData.length > 0) {
+        setOrders(bData.map((b: any) => ({
+          id: b.reference_no, name: b.name, customer: b.customer, email: b.email, created: new Date(b.created_at).toLocaleString(),
+          contacts: b.contact_count || 'Pending', status: b.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : b.status.charAt(0) + b.status.slice(1).toLowerCase(),
+          schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing', notes: b.description, report: b.status === 'COMPLETED',
+        })));
+      }
     }
   };
 
   const addTicket = async (ticket: Ticket) => { 
-    setTickets([ticket, ...tickets]); 
     setShowTicket(false); 
-    message("Support ticket created. Our team has been notified."); 
-    if (supabaseUrl) {
-      await supabase.from('tickets').insert([ticket]);
+    const formData = new FormData();
+    formData.append("subject", ticket.subject);
+    formData.append("priority", ticket.priority);
+    formData.append("message", ticket.message);
+    const { error } = await createTicket(formData);
+    if (error) {
+      message(error);
+    } else {
+      message("Support ticket created. Our team has been notified.");
+      const { data: tData } = await getTickets();
+      if (tData && tData.length > 0) {
+        setTickets(tData.map((t: any) => ({
+          id: t.reference_no, subject: t.subject, customer: t.customer, priority: t.priority === 'HIGH' ? 'High' : 'Normal',
+          status: t.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : t.status.charAt(0) + t.status.slice(1).toLowerCase(),
+          message: t.message || '', created: new Date(t.created_at).toLocaleString(), reply: undefined,
+        })));
+      }
     }
   };
 
   const updateOrder = async (id: string, status: Status, report = false) => { 
-    setOrders(orders.map(o => o.id === id ? { ...o, status, report: o.report || report } : o)); 
     setSelected(null); 
-    message(status === "Completed" ? "Order completed and report shared with customer." : `Order updated to ${status}.`); 
-    if (supabaseUrl) {
-      await supabase.from('orders').update({ status, report }).eq('id', id);
+    const dbStatus = status.toUpperCase().replace(' ', '_');
+    const { error } = await updateBroadcastStatus(id, dbStatus);
+    if (error) {
+      message(error);
+    } else {
+      message(status === "Completed" ? "Order completed and report shared with customer." : `Order updated to ${status}.`);
+      setOrders(orders.map(o => o.id === id ? { ...o, status, report: o.report || report } : o));
     }
   };
 
   const updateTicket = async (id: string, status: TicketStatus, reply?: string) => { 
-    setTickets(tickets.map(t => t.id === id ? { ...t, status, reply: reply || t.reply } : t)); 
     setSelectedTicket(null); 
-    message(status === "Resolved" ? "Ticket resolved and reply sent." : `Ticket updated to ${status}.`); 
-    if (supabaseUrl) {
-      await supabase.from('tickets').update({ status, reply }).eq('id', id);
+    const dbStatus = status.toUpperCase().replace(' ', '_');
+    const { error } = await updateTicketStatus(id, dbStatus, reply);
+    if (error) {
+      message(error);
+    } else {
+      message(status === "Resolved" ? "Ticket resolved and reply sent." : `Ticket updated to ${status}.`);
+      setTickets(tickets.map(t => t.id === id ? { ...t, status, reply: reply || t.reply } : t));
     }
   };
   if (!session) return <Auth onLogin={login} />;
@@ -153,7 +209,7 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
     return () => clearInterval(interval);
   }, [lockoutUntil]);
 
-  const submit = (e: FormEvent<HTMLFormElement>) => {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (lockoutUntil && Date.now() < lockoutUntil.getTime()) {
       return setError(`Too many failed attempts. Try again in ${timeRemaining} seconds.`);
@@ -161,8 +217,7 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
 
     const data = new FormData(e.currentTarget);
     const email = String(data.get("email") || "").trim().toLowerCase();
-    const password = String(data.get("password") || "");
-
+    
     if (mode !== "forgot") {
       if (parseInt(captchaAnswer) !== captchaQ.n1 + captchaQ.n2) {
         resetCaptcha();
@@ -189,35 +244,31 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
       resetCaptcha();
     };
 
-    if (mode === "admin") {
-      if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) return handleFailure("Incorrect administrator username or password.");
+    if (mode === "admin" || mode === "login") {
+      const result = await signIn(data, mode === "admin");
+      if (result.error) {
+        return handleFailure(result.error);
+      }
       setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
-      onLogin({ role: "admin", name: "Xpack Admin", email });
+      // Wait for session propagation, usually Next.js requires router.refresh(), but we can just use the provided login fn
+      onLogin({ role: mode === "admin" ? "admin" : "customer", name: "User", email, company: "" });
       return;
     }
+    
     if (mode === "forgot") {
       setError("If that email exists, a password reset link has been queued.");
       return;
     }
-    const name = String(data.get("name") || "").trim();
-    const company = String(data.get("company") || "").trim();
+
     if (mode === "signup") {
-      if (email === customerSeed.email || email === ADMIN_EMAIL) {
+      const result = await signUp(data);
+      if (result.error) {
         resetCaptcha();
-        return setError("This email is already registered. Try login instead.");
-      }
-      if (!name || password.length < 8 || password !== String(data.get("confirm") || "")) {
-        resetCaptcha();
-        return setError("Please complete all required fields and use matching 8+ character passwords.");
+        return setError(result.error);
       }
       setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
-      onLogin({ role: "customer", name, email, company: company || name });
+      onLogin({ role: "customer", name: String(data.get("name")), email, company: String(data.get("company")) });
       return;
-    }
-    if (mode === "login") {
-      if (email !== customerSeed.email || password !== "password123") return handleFailure("Incorrect email or password.");
-      setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
-      onLogin({ role: "customer", name: customerSeed.name, email: customerSeed.email, company: customerSeed.company });
     }
   };
 
