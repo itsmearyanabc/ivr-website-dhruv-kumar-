@@ -1,17 +1,19 @@
 'use server'
-import { createClient } from '@/lib/supabase/server'
-import { SignJWT, jwtVerify } from 'jose'
-import { cookies } from 'next/headers'
-
-const getSecret = () => new TextEncoder().encode(process.env.SUPABASE_SERVICE_ROLE_KEY || 'default_admin_secret')
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 
 export async function checkIsAdmin() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get('xpack-admin')?.value
-  if (!token) return false
   try {
-    await jwtVerify(token, getSecret())
-    return true
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return false
+
+    const { data: profile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    return profile?.role === 'ADMIN'
   } catch {
     return false
   }
@@ -60,24 +62,72 @@ export async function signIn(formData: FormData, isAdmin = false) {
     return { error: 'Please enter both email and password.' }
   }
 
+  const supabase = await createClient()
+
   if (isAdmin) {
     const adminEmail = (process.env.ADMIN_EMAIL || 'admin@xpack.in').toLowerCase()
     const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
     
-    if (email === adminEmail && password === adminPassword) {
-      const token = await new SignJWT({ admin: true })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setExpirationTime('7d')
-        .sign(getSecret())
-        
-      const cookieStore = await cookies()
-      cookieStore.set('xpack-admin', token, { httpOnly: true, secure: true, sameSite: 'strict', maxAge: 60*60*24*7 })
-      return { success: true }
+    if (email !== adminEmail || password !== adminPassword) {
+      return { error: 'Incorrect administrator username or password.' }
     }
-    return { error: 'Incorrect administrator username or password.' }
+
+    try {
+      const adminSupabase = await createAdminClient()
+
+      // Look up user by email to get ID
+      const { data: { users }, error: listError } = await adminSupabase.auth.admin.listUsers()
+      if (listError) {
+        console.error('Admin listUsers error:', listError)
+        return { error: 'Admin database sync failed. Check your supabase environment variables.' }
+      }
+
+      const matchedUser = users.find(u => u.email?.toLowerCase() === adminEmail)
+
+      let userId: string
+      if (!matchedUser) {
+        // Create Admin user in Auth
+        const { data: newUser, error: createError } = await adminSupabase.auth.admin.createUser({
+          email: adminEmail,
+          password: adminPassword,
+          email_confirm: true,
+          user_metadata: { name: 'Admin', company: 'Xpack Operations' }
+        })
+
+        if (createError || !newUser.user) {
+          console.error('Admin createUser error:', createError)
+          return { error: 'Failed to create operational Admin account in auth.' }
+        }
+        userId = newUser.user.id
+      } else {
+        userId = matchedUser.id
+        // Sync password
+        const { error: updateError } = await adminSupabase.auth.admin.updateUserById(userId, {
+          password: adminPassword
+        })
+        if (updateError) {
+          console.error('Admin password update error:', updateError)
+          return { error: 'Failed to sync operational Admin password.' }
+        }
+      }
+
+      // Sync role in public.users to ADMIN
+      const { error: roleError } = await adminSupabase
+        .from('users')
+        .update({ role: 'ADMIN' })
+        .eq('id', userId)
+
+      if (roleError) {
+        console.error('Admin role update error:', roleError)
+        return { error: 'Failed to update database Admin role.' }
+      }
+    } catch (e) {
+      console.error('Failed to sync Admin profile:', e)
+      return { error: 'Admin database synchronization failed.' }
+    }
   }
 
-  const supabase = await createClient()
+  // Sign in natively
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
@@ -87,13 +137,27 @@ export async function signIn(formData: FormData, isAdmin = false) {
     return { error: 'Incorrect email or password.' }
   }
 
-  return { success: true }
+  // Fetch profile to return profile data
+  const { data: profile } = await supabase
+    .from('users')
+    .select('full_name, company_name')
+    .eq('id', data.user.id)
+    .single()
+
+  return {
+    success: true,
+    user: {
+      name: profile?.full_name || 'User',
+      company: profile?.company_name || ''
+    }
+  }
 }
 
 export async function signOut() {
-  const cookieStore = await cookies()
-  cookieStore.delete('xpack-admin')
-  
-  const supabase = await createClient()
-  await supabase.auth.signOut()
+  try {
+    const supabase = await createClient()
+    await supabase.auth.signOut()
+  } catch (error) {
+    console.error('SignOut Error:', error)
+  }
 }

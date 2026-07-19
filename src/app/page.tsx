@@ -15,16 +15,8 @@ type Order = { id: string; name: string; customer: string; email: string; create
 type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
 
 const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@xpack.in";
-const initialOrders: Order[] = [
-  { id: "BR-1048", name: "Monsoon renewal reminder", customer: "Dhruv Kumar & Co.", email: "customer@xpack.demo", created: "Today, 10:42 AM", contacts: "12,450", status: "Placed", schedule: "Start on processing" },
-  { id: "BR-1047", name: "Dealer incentive update", customer: "Kaveri Retail Group", email: "ops@kaveriretail.in", created: "Yesterday, 4:18 PM", contacts: "8,200", status: "In progress", schedule: "Jul 18, 10:00 AM" },
-  { id: "BR-1046", name: "New product launch", customer: "Dhruv Kumar & Co.", email: "customer@xpack.demo", created: "Jul 13, 2:05 PM", contacts: "24,000", status: "Completed", schedule: "Completed Jul 14", report: true },
-  { id: "BR-1045", name: "Payment due alert", customer: "Proximo Finance", email: "team@proximo.in", created: "Jul 10, 9:25 AM", contacts: "3,840", status: "Completed", schedule: "Completed Jul 11", report: true },
-];
-const initialTickets: Ticket[] = [
-  { id: "TK-208", subject: "Help with contact list format", customer: "Dhruv Kumar & Co.", priority: "Normal", status: "Open", message: "Could you confirm the required phone-number column format?", created: "Today, 9:30 AM" },
-  { id: "TK-207", subject: "Report metrics clarification", customer: "Kaveri Retail Group", priority: "High", status: "In progress", message: "We need clarity on the delivered and answered values.", created: "Yesterday" },
-];
+const initialOrders: Order[] = [];
+const initialTickets: Ticket[] = [];
 
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
@@ -97,7 +89,20 @@ export default function App() {
 
   const message = (text: string) => { setToast(text); window.setTimeout(() => setToast(""), 3600); };
   const login = (next: Session) => { localStorage.setItem("xpack-session", JSON.stringify(next)); setSession(next); setView("Overview"); };
-  const logout = async () => { await signOut(); localStorage.removeItem("xpack-session"); setSession(null); setSelected(null); setSelectedTicket(null); };
+  const logout = async () => { 
+    if (window.confirm("Are you sure you want to log out?")) {
+      try {
+        await signOut();
+      } catch (e) {
+        console.error("Signout error:", e);
+      } finally {
+        localStorage.removeItem("xpack-session"); 
+        setSession(null); 
+        setSelected(null); 
+        setSelectedTicket(null);
+      }
+    }
+  };
 
   const addOrder = async (order: Order) => { 
     setShowBroadcast(false); 
@@ -259,8 +264,12 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
         return handleFailure(result.error);
       }
       setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
-      // Wait for session propagation, usually Next.js requires router.refresh(), but we can just use the provided login fn
-      onLogin({ role: mode === "admin" ? "admin" : "customer", name: "User", email, company: "" });
+      onLogin({ 
+        role: mode === "admin" ? "admin" : "customer", 
+        name: result.user?.name || (mode === "admin" ? "Admin" : "User"), 
+        email, 
+        company: result.user?.company || "" 
+      });
       return;
     }
     
@@ -291,17 +300,95 @@ function CustomerPage({ view, orders, tickets, setView, create, ticket, select, 
   if (view === "My broadcasts") return <><Heading eyebrow="CUSTOMER PORTAL" title="My broadcasts" text="Every IVR broadcast request in one place." action="New broadcast" onAction={create}/><section className="panel data-panel"><OrderTable orders={orders} onSelect={select}/></section></>;
   if (view === "Support centre") return <><Heading eyebrow="SUPPORT CENTRE" title="How can we help?" text="Create a ticket and keep every conversation in one thread." action="New ticket" onAction={ticket}/><section className="support-layout"><section className="panel data-panel"><TicketTable tickets={tickets} onSelect={selectTicket}/></section><aside className="panel support-aside"><Icon name="help" size={26}/><h2>Priority support</h2><p>Our operations team typically responds within one business day.</p><button className="outline" onClick={ticket}>Raise a ticket</button></aside></section></>;
   if (view === "Settings") return <><Heading eyebrow="ACCOUNT SETTINGS" title="Profile and preferences" text="Keep your account and notification preferences up to date."/><section className="panel settings-panel"><div className="setting-section"><h2>Profile information</h2><p>These details appear on your broadcast requests.</p><div className="form-grid"><label>Full name<input defaultValue={session.name}/></label><label>Company<input defaultValue={session.company}/></label><label>Email address<input defaultValue={session.email}/></label><label>Phone number<input placeholder="Add a phone number"/></label></div><button className="primary" onClick={() => alert("Profile changes are saved in the production database once connected.")}>Save changes</button></div><div className="setting-section"><h2>Notification preferences</h2><p>Receive an email when a broadcast changes status or a report is ready.</p><label className="toggle-row">Email status updates<input type="checkbox" defaultChecked/></label></div></section></>;
+  
   const placed = orders.filter((o: Order) => o.status === "Placed").length, progressing = orders.filter((o: Order) => o.status === "In progress").length, completed = orders.filter((o: Order) => o.status === "Completed").length;
-  return <><Heading eyebrow="CUSTOMER PORTAL" title={`Good morning, ${session.name.split(" ")[0]}`} text="Here’s what’s happening with your broadcasts." action="New broadcast" onAction={create}/><div className="metric-grid"><Metric icon="radio" label="Total broadcasts" value={orders.length} detail="All time"/><Metric icon="clock" label="Pending orders" value={placed} detail="Awaiting review" warning/><Metric icon="activity" label="In progress" value={progressing} detail="Being processed"/><Metric icon="chart" label="Completed" value={completed} detail="Reports ready" success/></div><div className="dashboard-grid"><section className="panel"><PanelTop title="Recent broadcasts" text="Your latest broadcast requests." action="View all" onAction={() => setView("My broadcasts")}/><OrderTable orders={orders.slice(0, 4)} onSelect={select}/></section><aside className="activity-panel panel"><PanelTop title="Recent activity" text="Across your account."/><div className="timeline"><Timeline color="blue" title="Broadcast submitted" text="Monsoon renewal reminder is awaiting review." time="Today, 10:42 AM"/><Timeline color="green" title="Report is ready" text="New product launch report was uploaded." time="Yesterday"/><Timeline color="red" title="Support ticket opened" text="Your request has been assigned to the team." time="Yesterday"/></div><button className="outline full" onClick={() => setView("Support centre")}>Open support centre</button></aside></div><section className="quick-section"><div><p className="eyebrow">QUICK ACTIONS</p><h2>Manage your broadcasts with ease</h2><p>Everything needed for a successful IVR campaign.</p></div><div className="quick-actions"><button onClick={create}><span className="icon-box blue"><Icon name="plus"/></span><span><strong>Create a broadcast</strong><small>Upload audio and contact list</small></span><Icon name="arrow" size={18}/></button><button onClick={() => setView("My broadcasts")}><span className="icon-box green"><Icon name="file"/></span><span><strong>View campaign reports</strong><small>Download completed results</small></span><Icon name="arrow" size={18}/></button></div></section></>;
+
+  // Generate dynamic customer events
+  const parseDate = (dStr: string) => {
+    const d = new Date(dStr);
+    return isNaN(d.getTime()) ? new Date() : d;
+  };
+  const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
+  orders.forEach(o => {
+    events.push({
+      title: "Broadcast submitted",
+      text: `${o.name} is awaiting review.`,
+      time: o.created,
+      dateObj: parseDate(o.created),
+      color: "blue"
+    });
+    if (o.status === "Completed") {
+      events.push({
+        title: "Report is ready",
+        text: `${o.name} report was uploaded.`,
+        time: o.created,
+        dateObj: parseDate(o.created),
+        color: "green"
+      });
+    }
+  });
+  tickets.forEach(t => {
+    events.push({
+      title: "Support ticket opened",
+      text: `Your request "${t.subject}" has been assigned to the team.`,
+      time: t.created,
+      dateObj: parseDate(t.created),
+      color: "red"
+    });
+  });
+  events.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
+
+  return <><Heading eyebrow="CUSTOMER PORTAL" title={`Good morning, ${session.name.split(" ")[0]}`} text="Here’s what’s happening with your broadcasts." action="New broadcast" onAction={create}/><div className="metric-grid"><Metric icon="radio" label="Total broadcasts" value={orders.length} detail="All time"/><Metric icon="clock" label="Pending orders" value={placed} detail="Awaiting review" warning/><Metric icon="activity" label="In progress" value={progressing} detail="Being processed"/><Metric icon="chart" label="Completed" value={completed} detail="Reports ready" success/></div><div className="dashboard-grid"><section className="panel"><PanelTop title="Recent broadcasts" text="Your latest broadcast requests." action="View all" onAction={() => setView("My broadcasts")}/><OrderTable orders={orders.slice(0, 4)} onSelect={select}/></section><aside className="activity-panel panel"><PanelTop title="Recent activity" text="Across your account."/><div className="timeline">{events.length > 0 ? events.slice(0, 3).map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />) : <p className="text-muted" style={{ padding: '24px 0', textAlign: 'center' }}>No recent activity.</p>}</div><button className="outline full" onClick={() => setView("Support centre")}>Open support centre</button></aside></div><section className="quick-section"><div><p className="eyebrow">QUICK ACTIONS</p><h2>Manage your broadcasts with ease</h2><p>Everything needed for a successful IVR campaign.</p></div><div className="quick-actions"><button onClick={create}><span className="icon-box blue"><Icon name="plus"/></span><span><strong>Create a broadcast</strong><small>Upload audio and contact list</small></span><Icon name="arrow" size={18}/></button><button onClick={() => setView("My broadcasts")}><span className="icon-box green"><Icon name="file"/></span><span><strong>View campaign reports</strong><small>Download completed results</small></span><Icon name="arrow" size={18}/></button></div></section></>;
 }
 
 function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void }) {
+  const parseDate = (dStr: string) => {
+    const d = new Date(dStr);
+    return isNaN(d.getTime()) ? new Date() : d;
+  };
+
   if (view === "Broadcast management") return <><Heading eyebrow="ADMIN PORTAL" title="Broadcast management" text="Review requests, access assets, and manage fulfillment."/><section className="panel data-panel"><div className="table-tools"><div className="search"><Icon name="search" size={16}/><input placeholder="Search order, customer, or reference"/></div><select><option>All statuses</option><option>Placed</option><option>In progress</option><option>Completed</option></select></div><OrderTable orders={orders} admin onSelect={select}/></section></>;
   if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Last activity</th><th>Account</th></tr></thead><tbody>{[...new Map<string, Order>(orders.map((o: Order): [string, Order] => [o.email, o])).values()].map((o: Order) => <tr key={o.email}><td><strong>{o.customer}</strong></td><td>{o.email}</td><td>{orders.filter((x: Order) => x.email === o.email).length}</td><td>{o.created}</td><td><Badge status="Active"/></td></tr>)}</tbody></table></section></>;
   if (view === "Support desk") return <><Heading eyebrow="ADMIN PORTAL" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
-  if (view === "Activity log") return <><Heading eyebrow="ADMIN PORTAL" title="Activity log" text="A complete audit trail of operational activity."/><section className="panel activity-log"><Timeline color="blue" title="BR-1048 created" text="Dhruv Kumar & Co. submitted a new broadcast request." time="Today, 10:42 AM"/><Timeline color="green" title="Report uploaded" text="Admin completed BR-1046 and shared performance report." time="Yesterday, 4:22 PM"/><Timeline color="blue" title="Support ticket opened" text="Customer opened TK-208." time="Yesterday, 9:30 AM"/></section></>;
+  
+  if (view === "Activity log") {
+    const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
+    orders.forEach(o => {
+      events.push({
+        title: `${o.id} created`,
+        text: `${o.customer} submitted a new broadcast request.`,
+        time: o.created,
+        dateObj: parseDate(o.created),
+        color: "blue"
+      });
+      if (o.status === "Completed") {
+        events.push({
+          title: "Report uploaded",
+          text: `Admin completed ${o.id} and shared performance report.`,
+          time: o.created,
+          dateObj: parseDate(o.created),
+          color: "green"
+        });
+      }
+    });
+    tickets.forEach(t => {
+      events.push({
+        title: "Support ticket opened",
+        text: `Customer opened ${t.id}.`,
+        time: t.created,
+        dateObj: parseDate(t.created),
+        color: "blue"
+      });
+    });
+    events.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
+
+    return <><Heading eyebrow="ADMIN PORTAL" title="Activity log" text="A complete audit trail of operational activity."/><section className="panel activity-log">{events.length > 0 ? events.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />) : <p className="text-muted" style={{ padding: '24px', textAlign: 'center' }}>No activities recorded yet.</p>}</section></>;
+  }
+
   const pending = orders.filter((o: Order) => o.status === "Placed").length, active = orders.filter((o: Order) => o.status === "In progress").length, done = orders.filter((o: Order) => o.status === "Completed").length;
-  return <><Heading eyebrow="ADMIN PORTAL" title="Operations overview" text="A live view of your broadcast operations."/><div className="metric-grid"><Metric icon="users" label="Total customers" value={new Set(orders.map((o: Order) => o.email)).size} detail="Across all accounts"/><Metric icon="clock" label="Pending orders" value={pending} detail="Orders waiting for review" warning/><Metric icon="activity" label="In progress" value={active} detail="Currently processing"/><Metric icon="chart" label="Completed" value={done} detail="Reports delivered" success/></div><div className="dashboard-grid"><section className="panel urgent"><PanelTop title="Orders needing action" text="New requests and orders that need attention." action="Manage orders" onAction={() => setView("Broadcast management")}/><div className="urgent-list">{orders.filter((o: Order) => o.status !== "Completed").slice(0,3).map((o: Order, i: number) => <div className="urgent-row" key={o.id}><span className={`priority ${i === 0 ? "new" : "due-soon"}`}>{i === 0 ? "New" : "Due soon"}</span><div><strong>{o.id} · {o.customer}</strong><p>{o.contacts} contacts · {o.created}</p></div><button className="outline small" onClick={() => select(o)}>Review <Icon name="arrow" size={14}/></button></div>)}</div></section><aside className="panel queue"><PanelTop title="Support queue" text="Current ticket workload." action="Open desk" onAction={() => setView("Support desk")}/><div className="queue-stats"><div><b>{tickets.filter((t: Ticket) => t.status === "Open").length}</b><span>Open</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "In progress").length}</b><span>In progress</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "Resolved").length}</b><span>Resolved</span></div></div><div className="sla"><span className="icon-box red"><Icon name="clock"/></span><div><strong>2 tickets nearing SLA</strong><p>Respond within the next 2 hours.</p></div></div></aside></div><section className="panel operations"><PanelTop title="Today’s processing pipeline" text="Broadcast order health by status."/><div className="pipeline"><div><span className="pipe-number blue-fill">{pending}</span><strong>Placed</strong><p>Awaiting review</p></div><span className="pipe-line"/><div><span className="pipe-number yellow-fill">{active}</span><strong>In progress</strong><p>On IVR system</p></div><span className="pipe-line"/><div><span className="pipe-number green-fill">{done}</span><strong>Completed</strong><p>Reports delivered</p></div></div></section></>;
+  const urgentTickets = tickets.filter((t: Ticket) => t.status !== "Resolved" && t.status !== "Closed" && t.priority === "High").length;
+
+  return <><Heading eyebrow="ADMIN PORTAL" title="Operations overview" text="A live view of your broadcast operations."/><div className="metric-grid"><Metric icon="users" label="Total customers" value={new Set(orders.map((o: Order) => o.email)).size} detail="Across all accounts"/><Metric icon="clock" label="Pending orders" value={pending} detail="Orders waiting for review" warning/><Metric icon="activity" label="In progress" value={active} detail="Currently processing"/><Metric icon="chart" label="Completed" value={done} detail="Reports delivered" success/></div><div className="dashboard-grid"><section className="panel urgent"><PanelTop title="Orders needing action" text="New requests and orders that need attention." action="Manage orders" onAction={() => setView("Broadcast management")}/><div className="urgent-list">{orders.filter((o: Order) => o.status !== "Completed").slice(0,3).map((o: Order, i: number) => <div className="urgent-row" key={o.id}><span className={`priority ${i === 0 ? "new" : "due-soon"}`}>{i === 0 ? "New" : "Due soon"}</span><div><strong>{o.id} · {o.customer}</strong><p>{o.contacts} contacts · {o.created}</p></div><button className="outline small" onClick={() => select(o)}>Review <Icon name="arrow" size={14}/></button></div>)}</div></section><aside className="panel queue"><PanelTop title="Support queue" text="Current ticket workload." action="Open desk" onAction={() => setView("Support desk")}/><div className="queue-stats"><div><b>{tickets.filter((t: Ticket) => t.status === "Open").length}</b><span>Open</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "In progress").length}</b><span>In progress</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "Resolved").length}</b><span>Resolved</span></div></div>{urgentTickets > 0 ? <div className="sla"><span className="icon-box red"><Icon name="clock"/></span><div><strong>{urgentTickets} tickets nearing SLA</strong><p>High priority tickets require immediate response.</p></div></div> : <div className="sla" style={{ borderColor: '#e2e8f0', background: '#f8fafc' }}><span className="icon-box green"><Icon name="check"/></span><div><strong>All caught up!</strong><p>No high-priority tickets pending.</p></div></div>}</aside></div><section className="panel operations"><PanelTop title="Today’s processing pipeline" text="Broadcast order health by status."/><div className="pipeline"><div><span className="pipe-number blue-fill">{pending}</span><strong>Placed</strong><p>Awaiting review</p></div><span className="pipe-line"/><div><span className="pipe-number yellow-fill">{active}</span><strong>In progress</strong><p>On IVR system</p></div><span className="pipe-line"/><div><span className="pipe-number green-fill">{done}</span><strong>Completed</strong><p>Reports delivered</p></div></div></section></>;
 }
 
 function Heading({ eyebrow, title, text, action, onAction }: { eyebrow: string; title: string; text: string; action?: string; onAction?: () => void }) { return <div className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{text}</p></div>{action && <button className="primary" onClick={onAction}><Icon name="plus"/>{action}</button>}</div>; }

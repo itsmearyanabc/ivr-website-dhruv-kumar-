@@ -47,9 +47,7 @@ export async function getTickets() {
 }
 
 export async function createTicket(formData: FormData) {
-  const isAdmin = await checkIsAdmin()
-  if (!isAdmin) return { error: 'Unauthorized' }
-  const supabase = await createAdminClient()
+  const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
 
   if (authError || !user) return { error: 'Unauthorized' }
@@ -62,7 +60,7 @@ export async function createTicket(formData: FormData) {
     return { error: 'Missing subject or message.' }
   }
 
-  const reference_no = `TK-${209 + Math.floor(Math.random() * 90)}`
+  const reference_no = `TK-${Date.now().toString().slice(-4)}${Math.floor(10 + Math.random() * 90)}`
 
   const { data: ticket, error } = await supabase
     .from('support_tickets')
@@ -98,7 +96,9 @@ export async function createTicket(formData: FormData) {
 }
 
 export async function updateTicketStatus(id: string, status: string, replyMessage?: string) {
-  const supabase = await createClient()
+  const isAdmin = await checkIsAdmin()
+  if (!isAdmin) return { error: 'Unauthorized' }
+  const supabase = await createAdminClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   const { data: ticket, error } = await supabase

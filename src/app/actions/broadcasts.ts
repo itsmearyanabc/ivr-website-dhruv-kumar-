@@ -59,7 +59,7 @@ export async function createBroadcast(formData: FormData) {
   // Upload to Supabase Storage
   const audio_key = `audio/${crypto.randomUUID()}-${audio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
   const contacts_key = `contacts/${crypto.randomUUID()}-${contacts.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-  const reference_no = `BR-${1050 + Math.floor(Math.random() * 850)}`
+  const reference_no = `BR-${Date.now().toString().slice(-4)}${Math.floor(10 + Math.random() * 90)}`
 
   const [audioUpload, contactsUpload] = await Promise.all([
     supabase.storage.from('xpack_files').upload(audio_key, audio),
@@ -138,7 +138,8 @@ export async function updateBroadcastStatus(formData: FormData) {
 }
 
 export async function getDownloadUrl(path: string) {
-  const supabase = await createClient()
+  const isAdmin = await checkIsAdmin()
+  const supabase = isAdmin ? await createAdminClient() : await createClient()
   const { data, error } = await supabase.storage.from('xpack_files').createSignedUrl(path, 60 * 60) // 1 hour
 
   if (error || !data) {
