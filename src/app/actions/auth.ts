@@ -51,11 +51,24 @@ export async function signUp(formData: FormData) {
     return { error: error.message }
   }
 
+  if (data.user) {
+    const adminSupabase = await createAdminClient()
+    const { error: confirmError } = await adminSupabase.auth.admin.updateUserById(data.user.id, { email_confirm: true })
+    if (confirmError) {
+      console.error('Failed to auto-confirm email:', confirmError)
+    }
+  }
+
   // Automatically sign in the user to set session cookies
-  await supabase.auth.signInWithPassword({
+  const { error: signInError } = await supabase.auth.signInWithPassword({
     email,
     password
   })
+
+  if (signInError) {
+    console.error('Auto-signin error after signup:', signInError)
+    return { error: 'Account created but automatic sign-in failed. Please sign in manually.' }
+  }
 
   return { success: true }
 }

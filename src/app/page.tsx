@@ -201,6 +201,10 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
     setCaptchaAnswer("");
   };
 
+  useEffect(() => {
+    resetCaptcha();
+  }, []);
+
   const changeMode = (newMode: typeof mode) => {
     setMode(newMode);
     setError("");
