@@ -85,6 +85,16 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean AS $
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.users
+    WHERE id = auth.uid() AND role = 'ADMIN'
+  );
+END;
+$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- 4. Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.broadcasts ENABLE ROW LEVEL SECURITY;
@@ -96,19 +106,19 @@ ALTER TABLE public.support_messages ENABLE ROW LEVEL SECURITY;
 -- Users can only see their own profile
 CREATE POLICY "Users can view their own profile" ON public.users FOR SELECT USING (auth.uid() = id);
 -- Admins can view all profiles
-CREATE POLICY "Admins can view all profiles" ON public.users FOR SELECT USING (EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'ADMIN'));
+CREATE POLICY "Admins can view all profiles" ON public.users FOR SELECT USING (public.is_admin());
 
 -- Broadcasts: Customers see their own, Admins see all
 CREATE POLICY "Customers view own broadcasts" ON public.broadcasts FOR SELECT USING (user_id = auth.uid());
 CREATE POLICY "Customers insert own broadcasts" ON public.broadcasts FOR INSERT WITH CHECK (user_id = auth.uid());
-CREATE POLICY "Admins view all broadcasts" ON public.broadcasts FOR SELECT USING (EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'ADMIN'));
-CREATE POLICY "Admins update all broadcasts" ON public.broadcasts FOR UPDATE USING (EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'ADMIN'));
+CREATE POLICY "Admins view all broadcasts" ON public.broadcasts FOR SELECT USING (public.is_admin());
+CREATE POLICY "Admins update all broadcasts" ON public.broadcasts FOR UPDATE USING (public.is_admin());
 
 -- Tickets: Customers see their own, Admins see all
 CREATE POLICY "Customers view own tickets" ON public.support_tickets FOR SELECT USING (user_id = auth.uid());
 CREATE POLICY "Customers insert own tickets" ON public.support_tickets FOR INSERT WITH CHECK (user_id = auth.uid());
-CREATE POLICY "Admins view all tickets" ON public.support_tickets FOR SELECT USING (EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'ADMIN'));
-CREATE POLICY "Admins update all tickets" ON public.support_tickets FOR UPDATE USING (EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'ADMIN'));
+CREATE POLICY "Admins view all tickets" ON public.support_tickets FOR SELECT USING (public.is_admin());
+CREATE POLICY "Admins update all tickets" ON public.support_tickets FOR UPDATE USING (public.is_admin());
 
 -- Messages: Can view if they have access to the parent ticket
 CREATE POLICY "View messages for accessible tickets" ON public.support_messages FOR SELECT USING (

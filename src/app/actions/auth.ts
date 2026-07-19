@@ -51,6 +51,12 @@ export async function signUp(formData: FormData) {
     return { error: error.message }
   }
 
+  // Automatically sign in the user to set session cookies
+  await supabase.auth.signInWithPassword({
+    email,
+    password
+  })
+
   return { success: true }
 }
 
