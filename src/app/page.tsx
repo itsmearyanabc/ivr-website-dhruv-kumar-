@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // cspell:ignore Xpack xpack Dhruv Kaveri Proximo supabase SUPABASE
 "use client";
-
++
 import React, { FormEvent, useEffect, useState } from "react";
-import { signUp, signIn, signOut } from "@/app/actions/auth";
+import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 
@@ -14,7 +14,6 @@ type Session = { role: Role; name: string; email: string; company?: string };
 type Order = { id: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean; audioKey?: string; contactsKey?: string; reportKey?: string; audioFile?: File; contactsFile?: File };
 type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
 
-const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@xpack.in";
 const initialOrders: Order[] = [];
 const initialTickets: Ticket[] = [];
 
@@ -28,6 +27,14 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{p[name]}</svg>;
 }
+function formatStatus(raw: string): Status | TicketStatus {
+  const map: Record<string, string> = {
+    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'CANCELLED': 'Cancelled',
+    'OPEN': 'Open', 'RESOLVED': 'Resolved', 'CLOSED': 'Closed',
+  };
+  return (map[raw] || raw.charAt(0) + raw.slice(1).toLowerCase()) as Status | TicketStatus;
+}
+
 function Badge({ status }: { status: string }) { return <span className={`badge ${status.toLowerCase().replaceAll(" ", "-")}`}><i />{status}</span>; }
 
 export default function App() {
@@ -41,18 +48,20 @@ export default function App() {
   const [selected, setSelected] = useState<Order | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
 
-  useEffect(() => { 
-    const saved = localStorage.getItem("xpack-session"); 
-    if (saved) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSession(JSON.parse(saved)); 
+  useEffect(() => {
+    let mounted = true;
+    
+    async function initSession() {
+      const { session: serverSession } = await getUserSession();
+      if (mounted && serverSession) {
+        setSession(serverSession as Session);
+        fetchData();
+      }
     }
     
     async function fetchData() {
       const { data: bData } = await getBroadcasts();
-      if (bData && bData.length > 0) {
-        // Map database broadcasts to frontend orders
-        // Map database broadcasts to frontend orders
+      if (mounted && bData && bData.length > 0) {
         setOrders(bData.map((b: any) => ({
           id: b.reference_no,
           name: b.name,
@@ -60,7 +69,7 @@ export default function App() {
           email: b.email,
           created: new Date(b.created_at).toLocaleString(),
           contacts: b.contact_count || 'Pending',
-          status: b.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : b.status.charAt(0) + b.status.slice(1).toLowerCase(),
+          status: formatStatus(b.status) as Status,
           schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing',
           notes: b.description,
           audioKey: b.audio_key,
@@ -71,24 +80,26 @@ export default function App() {
       }
       
       const { data: tData } = await getTickets();
-      if (tData && tData.length > 0) {
+      if (mounted && tData && tData.length > 0) {
         setTickets(tData.map((t: any) => ({
           id: t.reference_no,
           subject: t.subject,
           customer: t.customer,
           priority: t.priority === 'HIGH' ? 'High' : 'Normal',
-          status: t.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : t.status.charAt(0) + t.status.slice(1).toLowerCase(),
+          status: formatStatus(t.status) as TicketStatus,
           message: t.message || '',
           created: new Date(t.created_at).toLocaleString(),
           reply: t.reply,
         })));
       }
     }
-    fetchData();
+    
+    initSession();
+    return () => { mounted = false; };
   }, []);
 
   const message = (text: string) => { setToast(text); window.setTimeout(() => setToast(""), 3600); };
-  const login = (next: Session) => { localStorage.setItem("xpack-session", JSON.stringify(next)); setSession(next); setView("Overview"); };
+  const login = (next: Session) => { setSession(next); setView("Overview"); };
   const logout = async () => { 
     if (window.confirm("Are you sure you want to log out?")) {
       try {
@@ -96,7 +107,6 @@ export default function App() {
       } catch (e) {
         console.error("Signout error:", e);
       } finally {
-        localStorage.removeItem("xpack-session"); 
         setSession(null); 
         setSelected(null); 
         setSelectedTicket(null);
@@ -122,9 +132,19 @@ export default function App() {
       const { data: bData } = await getBroadcasts();
       if (bData && bData.length > 0) {
         setOrders(bData.map((b: any) => ({
-          id: b.reference_no, name: b.name, customer: b.customer, email: b.email, created: new Date(b.created_at).toLocaleString(),
-          contacts: b.contact_count || 'Pending', status: b.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : b.status.charAt(0) + b.status.slice(1).toLowerCase(),
-          schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing', notes: b.description, report: b.status === 'COMPLETED',
+          id: b.reference_no,
+          name: b.name,
+          customer: b.customer,
+          email: b.email,
+          created: new Date(b.created_at).toLocaleString(),
+          contacts: b.contact_count || 'Pending',
+          status: formatStatus(b.status) as Status,
+          schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing',
+          notes: b.description,
+          audioKey: b.audio_key,
+          contactsKey: b.contacts_key,
+          reportKey: b.reports?.[0]?.file_key,
+          report: b.status === 'COMPLETED' && !!b.reports?.[0]?.file_key,
         })));
       }
     }
@@ -145,7 +165,7 @@ export default function App() {
       if (tData && tData.length > 0) {
         setTickets(tData.map((t: any) => ({
           id: t.reference_no, subject: t.subject, customer: t.customer, priority: t.priority === 'HIGH' ? 'High' : 'Normal',
-          status: t.status.replace('_', ' ') === 'IN PROGRESS' ? 'In progress' : t.status.charAt(0) + t.status.slice(1).toLowerCase(),
+          status: formatStatus(t.status) as TicketStatus,
           message: t.message || '', created: new Date(t.created_at).toLocaleString(), reply: t.reply,
         })));
       }
@@ -298,7 +318,7 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   const title = mode === "admin" ? "Administrator sign in" : mode === "signup" ? "Create your Xpack account" : mode === "forgot" ? "Reset your password" : "Welcome back";
   const isLocked = lockoutUntil !== null;
 
-  return <main className="auth-shell"><section className="auth-brand"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div><div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>{mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}<label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? ADMIN_EMAIL : undefined} disabled={isLocked}/></label>{mode !== "forgot" && <label>Password<div style={{position: 'relative'}}><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined} style={{paddingRight: '36px'}} disabled={isLocked}/><button type="button" onClick={() => setShowPassword(!showPassword)} style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px'}} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}{mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}{mode !== "forgot" && <label>Security Check: What is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}{mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}{error && <p className="auth-error">{error}</p>}<button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>{mode === "admin" ? <button type="button" className="plain-link" onClick={() => changeMode("login")} disabled={isLocked}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => changeMode("admin")} disabled={isLocked}><Icon name="lock" size={14}/>Administrator sign in</button></>}</form></section></main>;
+  return <main className="auth-shell"><section className="auth-brand"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div><div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>{mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}<label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? "admin@xpack.in" : undefined} disabled={isLocked}/></label>{mode !== "forgot" && <label>Password<div style={{position: 'relative'}}><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined} style={{paddingRight: '36px'}} disabled={isLocked}/><button type="button" onClick={() => setShowPassword(!showPassword)} style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px'}} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}{mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}{mode !== "forgot" && <label>Security Check: What is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}{mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}{error && <p className="auth-error">{error}</p>}<button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>{mode === "admin" ? <button type="button" className="plain-link" onClick={() => changeMode("login")} disabled={isLocked}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => changeMode("admin")} disabled={isLocked}><Icon name="lock" size={14}/>Administrator sign in</button></>}</form></section></main>;
 }
 
 function CustomerPage({ view, orders, tickets, setView, create, ticket, select, selectTicket, session }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session }) {

@@ -10,7 +10,7 @@ export async function getTickets() {
   const { data: { user } } = await supabaseAuth.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
 
-  const supabase = createServiceRoleClient()
+  const supabase = await createServiceRoleClient()
 
   let query = supabase
     .from('support_tickets')
@@ -64,7 +64,7 @@ export async function createTicket(formData: FormData) {
   if (authError) return { error: 'Unauthorized: ' + authError.message }
   if (!user) return { error: 'Unauthorized: No active user session.' }
 
-  const supabase = createServiceRoleClient()
+  const supabase = await createServiceRoleClient()
 
   const subject = String(formData.get("subject") || "")
   const priority = String(formData.get("priority") || "NORMAL").toUpperCase()
@@ -74,7 +74,7 @@ export async function createTicket(formData: FormData) {
     return { error: 'Missing subject or message.' }
   }
 
-  const reference_no = `TK-${Date.now().toString().slice(-4)}${Math.floor(10 + Math.random() * 90)}`
+  const reference_no = `TK-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
 
   const { data: ticket, error } = await supabase
     .from('support_tickets')
@@ -96,7 +96,7 @@ export async function createTicket(formData: FormData) {
   }
 
   // Insert initial message
-  await supabase
+  const { error: msgError } = await supabase
     .from('support_messages')
     .insert([
       {
@@ -105,6 +105,10 @@ export async function createTicket(formData: FormData) {
         body: message
       }
     ])
+
+  if (msgError) {
+    console.error('Create Ticket Message Error:', msgError)
+  }
 
   return { data: ticket }
 }
@@ -117,7 +121,12 @@ export async function updateTicketStatus(id: string, status: string, replyMessag
   const { data: { user } } = await supabaseAuth.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
 
-  const supabase = createServiceRoleClient()
+  const supabase = await createServiceRoleClient()
+
+  const validTicketStatuses = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']
+  if (!validTicketStatuses.includes(status.toUpperCase())) {
+    return { error: 'Invalid status value.' }
+  }
 
   const { data: ticket, error } = await supabase
     .from('support_tickets')

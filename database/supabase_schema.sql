@@ -5,6 +5,7 @@
 CREATE TYPE public.user_role AS ENUM ('CUSTOMER', 'ADMIN');
 CREATE TYPE public.broadcast_status AS ENUM ('PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED');
 CREATE TYPE public.ticket_status AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
+CREATE TYPE public.ticket_priority AS ENUM ('NORMAL', 'HIGH');
 
 -- 2. Tables
 -- Users table syncs with auth.users
@@ -49,7 +50,7 @@ CREATE TABLE public.support_tickets (
   user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   reference_no TEXT UNIQUE NOT NULL,
   subject TEXT NOT NULL,
-  priority TEXT NOT NULL DEFAULT 'NORMAL',
+  priority ticket_priority NOT NULL DEFAULT 'NORMAL',
   status ticket_status NOT NULL DEFAULT 'OPEN',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -129,5 +130,5 @@ CREATE POLICY "Insert messages for accessible tickets" ON public.support_message
 );
 
 -- 6. Storage Buckets Setup
--- You will need to manually create 2 buckets in Supabase Storage: 'assets' and 'reports'
--- After creating them, the backend will interact with them automatically.
+-- You will need to manually create 1 bucket in Supabase Storage: 'xpack_files' (Make sure to set it to PRIVATE)
+-- After creating it, the backend will interact with it automatically.

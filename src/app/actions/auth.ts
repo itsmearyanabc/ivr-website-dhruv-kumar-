@@ -7,7 +7,7 @@ export async function checkIsAdmin() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return false
 
-    const supabaseAdmin = createServiceRoleClient()
+    const supabaseAdmin = await createServiceRoleClient()
     const { data: profile } = await supabaseAdmin
       .from('users')
       .select('role')
@@ -27,8 +27,14 @@ export async function signUp(formData: FormData) {
   const company = String(formData.get("company") || "")
   const phone = String(formData.get("phone") || "")
 
+  const confirm = String(formData.get("confirm") || "")
+
   if (!email || !password || !name) {
     return { error: 'Please fill out all required fields.' }
+  }
+  
+  if (password !== confirm) {
+    return { error: 'Passwords do not match.' }
   }
 
   const supabase = await createClient()
@@ -85,8 +91,14 @@ export async function signIn(formData: FormData, isAdmin = false) {
   const supabase = await createClient()
 
   if (isAdmin) {
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@xpack.in').toLowerCase()
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
+    const adminEmail = process.env.ADMIN_EMAIL
+    const adminPassword = process.env.ADMIN_PASSWORD
+    
+    if (!adminEmail || !adminPassword) {
+      return { error: 'System configuration error: ADMIN_EMAIL and ADMIN_PASSWORD must be set.' }
+    }
+
+    const adminEmailLower = adminEmail.toLowerCase()
     
     if (email !== adminEmail || password !== adminPassword) {
       return { error: 'Incorrect administrator username or password.' }
@@ -96,19 +108,19 @@ export async function signIn(formData: FormData, isAdmin = false) {
       const adminSupabase = await createAdminClient()
 
       // Look up user by email to get ID
-      const { data: { users }, error: listError } = await adminSupabase.auth.admin.listUsers()
+      const { data: { users }, error: listError } = await adminSupabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
       if (listError) {
         console.error('Admin listUsers error:', listError)
         return { error: 'Admin database sync failed. Check your supabase environment variables.' }
       }
 
-      const matchedUser = users.find(u => u.email?.toLowerCase() === adminEmail)
+      const matchedUser = users.find(u => u.email?.toLowerCase() === adminEmailLower)
 
       let userId: string
       if (!matchedUser) {
         // Create Admin user in Auth
         const { data: newUser, error: createError } = await adminSupabase.auth.admin.createUser({
-          email: adminEmail,
+          email: adminEmailLower,
           password: adminPassword,
           email_confirm: true,
           user_metadata: { name: 'Admin', company: 'Xpack Operations' }
@@ -123,6 +135,7 @@ export async function signIn(formData: FormData, isAdmin = false) {
         userId = matchedUser.id
         // Sync password
         const { error: updateError } = await adminSupabase.auth.admin.updateUserById(userId, {
+          email: adminEmailLower,
           password: adminPassword
         })
         if (updateError) {
@@ -158,7 +171,7 @@ export async function signIn(formData: FormData, isAdmin = false) {
   }
 
   // Fetch profile to return profile data
-  const supabaseService = createServiceRoleClient()
+  const supabaseService = await createServiceRoleClient()
   const { data: profile } = await supabaseService
     .from('users')
     .select('full_name, company_name')
@@ -180,5 +193,33 @@ export async function signOut() {
     await supabase.auth.signOut()
   } catch (error) {
     console.error('SignOut Error:', error)
+  }
+}
+
+export async function getUserSession() {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) return { session: null }
+
+    const supabaseService = await createServiceRoleClient()
+    const { data: profile } = await supabaseService
+      .from('users')
+      .select('role, full_name, company_name')
+      .eq('id', user.id)
+      .single()
+
+    return {
+      session: {
+        role: profile?.role === 'ADMIN' ? 'admin' : 'customer',
+        name: profile?.full_name || 'User',
+        email: user.email || '',
+        company: profile?.company_name || ''
+      }
+    }
+  } catch (e) {
+    console.error('Session verification error:', e)
+    return { session: null }
   }
 }
