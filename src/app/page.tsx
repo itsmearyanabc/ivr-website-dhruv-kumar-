@@ -4,14 +4,14 @@
 
 import React, { FormEvent, useEffect, useState } from "react";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
-import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl } from "@/app/actions/broadcasts";
+import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 
 type Role = "customer" | "admin";
-type Status = "Placed" | "In progress" | "Completed" | "Cancelled";
+type Status = "Placed" | "In progress" | "Completed" | "Cancelled" | "On hold";
 type TicketStatus = "Open" | "In progress" | "Resolved" | "Closed";
 type Session = { role: Role; name: string; email: string; company?: string };
-type Order = { id: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean; audioKey?: string; contactsKey?: string; reportKey?: string; audioFile?: File; contactsFile?: File };
+type Order = { id: string; broadcastNo: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean; audioKey?: string; contactsKey?: string; reportKey?: string; audioFile?: File; contactsFile?: File; holdReason?: string };
 type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
 
 const initialOrders: Order[] = [];
@@ -23,19 +23,39 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
     radio: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h.01M11 15h.01M15 15h2M7 9h10"/></>, users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
     help: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4.58 1.68c-1.15 1.06-2.08 1.38-2.08 3.32M12 17h.01"/></>, settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06A1.7 1.7 0 0 0 15.76 18a1.7 1.7 0 0 0-1 1.54V20h-3v-.46A1.7 1.7 0 0 0 10.76 18a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.12 14a1.7 1.7 0 0 0-1.54-1H5.1v-3h.48A1.7 1.7 0 0 0 7.12 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06A1.7 1.7 0 0 0 10.76 5a1.7 1.7 0 0 0 1-1.54V3h3v.46A1.7 1.7 0 0 0 15.76 5a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.54 1h.48v3h-.48A1.7 1.7 0 0 0 19.4 15Z"/></>,
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>, plus: <><path d="M12 5v14M5 12h14"/></>, chart: <><path d="M4 19V5M4 19h17M8 15v-3M12 15V8M16 15V5M20 15v-7"/></>, clock: <><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></>, arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>, search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>, file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></>, more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>, close: <><path d="m6 6 12 12M18 6 6 18"/></>, upload: <><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></>, activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>, check: <><path d="m5 12 4 4L19 6"/></>, lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>, logout: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-4"/></>, download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>, eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></>, "eye-off": <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/></>
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>, plus: <><path d="M12 5v14M5 12h14"/></>, chart: <><path d="M4 19V5M4 19h17M8 15v-3M12 15V8M16 15V5M20 15v-7"/></>, clock: <><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></>, arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>, search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>, file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></>, more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>, close: <><path d="m6 6 12 12M18 6 6 18"/></>, upload: <><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></>, activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>, check: <><path d="m5 12 4 4L19 6"/></>, lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>, logout: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-4"/></>, download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>, eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></>, "eye-off": <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/></>, pause: <><path d="M10 4H6v16h4V4ZM18 4h-4v16h4V4Z"/></>
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{p[name]}</svg>;
 }
 function formatStatus(raw: string): Status | TicketStatus {
   const map: Record<string, string> = {
-    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'CANCELLED': 'Cancelled',
+    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold',
     'OPEN': 'Open', 'RESOLVED': 'Resolved', 'CLOSED': 'Closed',
   };
   return (map[raw] || raw.charAt(0) + raw.slice(1).toLowerCase()) as Status | TicketStatus;
 }
 
 function Badge({ status }: { status: string }) { return <span className={`badge ${status.toLowerCase().replaceAll(" ", "-")}`}><i />{status}</span>; }
+
+function mapBroadcast(b: any, index: number) {
+  return {
+    id: b.reference_no,
+    broadcastNo: `BR-${index + 1}`,
+    name: b.name,
+    customer: b.customer,
+    email: b.email,
+    created: new Date(b.created_at).toLocaleString(),
+    contacts: b.email || 'Unknown',
+    status: formatStatus(b.status) as Status,
+    schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing',
+    notes: b.description,
+    audioKey: b.audio_key,
+    contactsKey: b.contacts_key,
+    reportKey: b.reports?.[0]?.file_key,
+    report: b.status === 'COMPLETED' && !!b.reports?.[0]?.file_key,
+    holdReason: b.hold_reason || '',
+  };
+}
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -62,21 +82,7 @@ export default function App() {
     async function fetchData() {
       const { data: bData } = await getBroadcasts();
       if (mounted && bData && bData.length > 0) {
-        setOrders(bData.map((b: any) => ({
-          id: b.reference_no,
-          name: b.name,
-          customer: b.customer,
-          email: b.email,
-          created: new Date(b.created_at).toLocaleString(),
-          contacts: b.contact_count || 'Pending',
-          status: formatStatus(b.status) as Status,
-          schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing',
-          notes: b.description,
-          audioKey: b.audio_key,
-          contactsKey: b.contacts_key,
-          reportKey: b.reports?.[0]?.file_key,
-          report: b.status === 'COMPLETED' && !!b.reports?.[0]?.file_key,
-        })));
+        setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
       }
       
       const { data: tData } = await getTickets();
@@ -114,6 +120,13 @@ export default function App() {
     }
   };
 
+  const refreshBroadcasts = async () => {
+    const { data: bData } = await getBroadcasts();
+    if (bData && bData.length > 0) {
+      setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
+    }
+  };
+
   const addOrder = async (order: Order) => { 
     setShowBroadcast(false); 
     const formData = new FormData();
@@ -128,25 +141,7 @@ export default function App() {
       message(error);
     } else {
       message("Broadcast request submitted for review.");
-      // fetch data again to update
-      const { data: bData } = await getBroadcasts();
-      if (bData && bData.length > 0) {
-        setOrders(bData.map((b: any) => ({
-          id: b.reference_no,
-          name: b.name,
-          customer: b.customer,
-          email: b.email,
-          created: new Date(b.created_at).toLocaleString(),
-          contacts: b.contact_count || 'Pending',
-          status: formatStatus(b.status) as Status,
-          schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing',
-          notes: b.description,
-          audioKey: b.audio_key,
-          contactsKey: b.contacts_key,
-          reportKey: b.reports?.[0]?.file_key,
-          report: b.status === 'COMPLETED' && !!b.reports?.[0]?.file_key,
-        })));
-      }
+      await refreshBroadcasts();
     }
   };
 
@@ -172,20 +167,37 @@ export default function App() {
     }
   };
 
-  const updateOrder = async (id: string, status: Status, reportFile?: File) => { 
+  const updateOrder = async (id: string, status: Status, reportFile?: File, holdReason?: string) => { 
     setSelected(null); 
     const dbStatus = status.toUpperCase().replace(' ', '_');
     const formData = new FormData();
     formData.append("id", id);
     formData.append("status", dbStatus);
     if (reportFile) formData.append("report", reportFile);
+    if (holdReason) formData.append("holdReason", holdReason);
 
     const { error } = await updateBroadcastStatus(formData);
     if (error) {
       message(error);
     } else {
-      message(status === "Completed" ? "Order completed and report shared with customer." : `Order updated to ${status}.`);
-      setOrders(orders.map(o => o.id === id ? { ...o, status, report: o.report || !!reportFile } : o));
+      message(status === "Completed" ? "Order completed and report shared with customer." : status === "On hold" ? "Order placed on hold. Customer has been notified." : `Order updated to ${status}.`);
+      await refreshBroadcasts();
+    }
+  };
+
+  const handleResubmit = async (id: string, audioFile?: File, contactsFile?: File) => {
+    setSelected(null);
+    const formData = new FormData();
+    formData.append("id", id);
+    if (audioFile) formData.append("audio", audioFile);
+    if (contactsFile) formData.append("contacts", contactsFile);
+
+    const { error } = await resubmitFiles(formData);
+    if (error) {
+      message(error);
+    } else {
+      message("Files resubmitted successfully. Your order has been moved back to Placed.");
+      await refreshBroadcasts();
     }
   };
 
@@ -202,7 +214,7 @@ export default function App() {
   };
   if (!session) return <Auth onLogin={login} />;
   const nav = session.role === "customer" ? [["Overview", "grid"], ["My broadcasts", "radio"], ["Support centre", "help"], ["Settings", "settings"]] : [["Overview", "grid"], ["Broadcast management", "radio"], ["Customers", "users"], ["Support desk", "help"], ["Activity log", "activity"]];
-  return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div><nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">?</span><div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div></div><div className="user-card"><span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span><div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div><button title="Sign out" onClick={logout}><Icon name="logout"/></button></div></div></aside><section className="content"><header><div className="mobile-brand">Xpack</div><div className="header-actions"><span className="access-label"><Icon name={session.role === "admin" ? "lock" : "users"} size={14}/>{session.role === "admin" ? "Admin access" : "Customer portal"}</span><button className="notification"><Icon name="bell"/><em>3</em></button><span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span></div></header><div className="page">{session.role === "customer" ? <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} /> : <AdminPage view={view} orders={orders} tickets={tickets} setView={setView} select={setSelected} selectTicket={setSelectedTicket} />}</div></section>{showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session}/>} {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder}/>} {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}</main>;
+  return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div><nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">?</span><div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div></div><div className="user-card"><span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span><div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div><button title="Sign out" onClick={logout}><Icon name="logout"/></button></div></div></aside><section className="content"><header><div className="mobile-brand">Xpack</div><div className="header-actions"><span className="access-label"><Icon name={session.role === "admin" ? "lock" : "users"} size={14}/>{session.role === "admin" ? "Admin access" : "Customer portal"}</span><button className="notification"><Icon name="bell"/><em>3</em></button><span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span></div></header><div className="page">{session.role === "customer" ? <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} /> : <AdminPage view={view} orders={orders} tickets={tickets} setView={setView} select={setSelected} selectTicket={setSelectedTicket} />}</div></section>{showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session}/>} {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>} {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}</main>;
 }
 
 function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
@@ -363,16 +375,38 @@ function CustomerPage({ view, orders, tickets, setView, create, ticket, select, 
   });
   events.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
 
-  return <><Heading eyebrow="CUSTOMER PORTAL" title={`Good morning, ${session.name.split(" ")[0]}`} text="Here’s what’s happening with your broadcasts." action="New broadcast" onAction={create}/><div className="metric-grid"><Metric icon="radio" label="Total broadcasts" value={orders.length} detail="All time"/><Metric icon="clock" label="Pending orders" value={placed} detail="Awaiting review" warning/><Metric icon="activity" label="In progress" value={progressing} detail="Being processed"/><Metric icon="chart" label="Completed" value={completed} detail="Reports ready" success/></div><div className="dashboard-grid"><section className="panel"><PanelTop title="Recent broadcasts" text="Your latest broadcast requests." action="View all" onAction={() => setView("My broadcasts")}/><OrderTable orders={orders.slice(0, 4)} onSelect={select}/></section><aside className="activity-panel panel"><PanelTop title="Recent activity" text="Across your account."/><div className="timeline">{events.length > 0 ? events.slice(0, 3).map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />) : <p className="text-muted" style={{ padding: '24px 0', textAlign: 'center' }}>No recent activity.</p>}</div><button className="outline full" onClick={() => setView("Support centre")}>Open support centre</button></aside></div><section className="quick-section"><div><p className="eyebrow">QUICK ACTIONS</p><h2>Manage your broadcasts with ease</h2><p>Everything needed for a successful IVR campaign.</p></div><div className="quick-actions"><button onClick={create}><span className="icon-box blue"><Icon name="plus"/></span><span><strong>Create a broadcast</strong><small>Upload audio and contact list</small></span><Icon name="arrow" size={18}/></button><button onClick={() => setView("My broadcasts")}><span className="icon-box green"><Icon name="file"/></span><span><strong>View campaign reports</strong><small>Download completed results</small></span><Icon name="arrow" size={18}/></button></div></section></>;
+  return <><Heading eyebrow="CUSTOMER PORTAL" title={`Good morning, ${session.name.split(" ")[0]}`} text="Here's what's happening with your broadcasts." action="New broadcast" onAction={create}/><div className="metric-grid"><Metric icon="radio" label="Total broadcasts" value={orders.length} detail="All time"/><Metric icon="clock" label="Pending orders" value={placed} detail="Awaiting review" warning/><Metric icon="activity" label="In progress" value={progressing} detail="Being processed"/><Metric icon="chart" label="Completed" value={completed} detail="Reports ready" success/></div><div className="dashboard-grid"><section className="panel"><PanelTop title="Recent broadcasts" text="Your latest broadcast requests." action="View all" onAction={() => setView("My broadcasts")}/><OrderTable orders={orders.slice(0, 4)} onSelect={select}/></section><aside className="activity-panel panel"><PanelTop title="Recent activity" text="Across your account."/><div className="timeline">{events.length > 0 ? events.slice(0, 3).map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />) : <p className="text-muted" style={{ padding: '24px 0', textAlign: 'center' }}>No recent activity.</p>}</div><button className="outline full" onClick={() => setView("Support centre")}>Open support centre</button></aside></div><section className="quick-section"><div><p className="eyebrow">QUICK ACTIONS</p><h2>Manage your broadcasts with ease</h2><p>Everything needed for a successful IVR campaign.</p></div><div className="quick-actions"><button onClick={create}><span className="icon-box blue"><Icon name="plus"/></span><span><strong>Create a broadcast</strong><small>Upload audio and contact list</small></span><Icon name="arrow" size={18}/></button><button onClick={() => setView("My broadcasts")}><span className="icon-box green"><Icon name="file"/></span><span><strong>View campaign reports</strong><small>Download completed results</small></span><Icon name="arrow" size={18}/></button></div></section></>;
 }
 
 function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void }) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All statuses");
+
   const parseDate = (dStr: string) => {
     const d = new Date(dStr);
     return isNaN(d.getTime()) ? new Date() : d;
   };
 
-  if (view === "Broadcast management") return <><Heading eyebrow="ADMIN PORTAL" title="Broadcast management" text="Review requests, access assets, and manage fulfillment."/><section className="panel data-panel"><div className="table-tools"><div className="search"><Icon name="search" size={16}/><input placeholder="Search order, customer, or reference"/></div><select><option>All statuses</option><option>Placed</option><option>In progress</option><option>Completed</option></select></div><OrderTable orders={orders} admin onSelect={select}/></section></>;
+  if (view === "Broadcast management") {
+    // Apply search filter
+    let filtered = orders;
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(o =>
+        o.name.toLowerCase().includes(term) ||
+        o.customer.toLowerCase().includes(term) ||
+        o.id.toLowerCase().includes(term) ||
+        o.email.toLowerCase().includes(term) ||
+        o.broadcastNo.toLowerCase().includes(term)
+      );
+    }
+    // Apply status filter
+    if (statusFilter !== "All statuses") {
+      filtered = filtered.filter(o => o.status === statusFilter);
+    }
+
+    return <><Heading eyebrow="ADMIN PORTAL" title="Broadcast management" text="Review requests, access assets, and manage fulfillment."/><section className="panel data-panel"><div className="table-tools"><div className="search"><Icon name="search" size={16}/><input placeholder="Search order, customer, or reference" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/></div><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>All statuses</option><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option><option>On hold</option></select></div><OrderTable orders={filtered} admin onSelect={select} onViewCustomer={(email) => { setView("Customers"); }}/></section></>;
+  }
   if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Last activity</th><th>Account</th></tr></thead><tbody>{[...new Map<string, Order>(orders.map((o: Order): [string, Order] => [o.email, o])).values()].map((o: Order) => <tr key={o.email}><td><strong>{o.customer}</strong></td><td>{o.email}</td><td>{orders.filter((x: Order) => x.email === o.email).length}</td><td>{o.created}</td><td><Badge status="Active"/></td></tr>)}</tbody></table></section></>;
   if (view === "Support desk") return <><Heading eyebrow="ADMIN PORTAL" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
@@ -380,7 +414,7 @@ function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { v
     const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
     orders.forEach(o => {
       events.push({
-        title: `${o.id} created`,
+        title: `${o.broadcastNo} created`,
         text: `${o.customer} submitted a new broadcast request.`,
         time: o.created,
         dateObj: parseDate(o.created),
@@ -389,7 +423,7 @@ function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { v
       if (o.status === "Completed") {
         events.push({
           title: "Report uploaded",
-          text: `Admin completed ${o.id} and shared performance report.`,
+          text: `Admin completed ${o.broadcastNo} and shared performance report.`,
           time: o.created,
           dateObj: parseDate(o.created),
           color: "green"
@@ -411,22 +445,26 @@ function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { v
   }
 
   const pending = orders.filter((o: Order) => o.status === "Placed").length, active = orders.filter((o: Order) => o.status === "In progress").length, done = orders.filter((o: Order) => o.status === "Completed").length;
+  const onHoldCount = orders.filter((o: Order) => o.status === "On hold").length;
   const urgentTickets = tickets.filter((t: Ticket) => t.status !== "Resolved" && t.status !== "Closed" && t.priority === "High").length;
 
-  return <><Heading eyebrow="ADMIN PORTAL" title="Operations overview" text="A live view of your broadcast operations."/><div className="metric-grid"><Metric icon="users" label="Total customers" value={new Set(orders.map((o: Order) => o.email)).size} detail="Across all accounts"/><Metric icon="clock" label="Pending orders" value={pending} detail="Orders waiting for review" warning/><Metric icon="activity" label="In progress" value={active} detail="Currently processing"/><Metric icon="chart" label="Completed" value={done} detail="Reports delivered" success/></div><div className="dashboard-grid"><section className="panel urgent"><PanelTop title="Orders needing action" text="New requests and orders that need attention." action="Manage orders" onAction={() => setView("Broadcast management")}/><div className="urgent-list">{orders.filter((o: Order) => o.status !== "Completed").slice(0,3).map((o: Order, i: number) => <div className="urgent-row" key={o.id}><span className={`priority ${i === 0 ? "new" : "due-soon"}`}>{i === 0 ? "New" : "Due soon"}</span><div><strong>{o.id} · {o.customer}</strong><p>{o.contacts} contacts · {o.created}</p></div><button className="outline small" onClick={() => select(o)}>Review <Icon name="arrow" size={14}/></button></div>)}</div></section><aside className="panel queue"><PanelTop title="Support queue" text="Current ticket workload." action="Open desk" onAction={() => setView("Support desk")}/><div className="queue-stats"><div><b>{tickets.filter((t: Ticket) => t.status === "Open").length}</b><span>Open</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "In progress").length}</b><span>In progress</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "Resolved").length}</b><span>Resolved</span></div></div>{urgentTickets > 0 ? <div className="sla"><span className="icon-box red"><Icon name="clock"/></span><div><strong>{urgentTickets} tickets nearing SLA</strong><p>High priority tickets require immediate response.</p></div></div> : <div className="sla" style={{ borderColor: '#e2e8f0', background: '#f8fafc' }}><span className="icon-box green"><Icon name="check"/></span><div><strong>All caught up!</strong><p>No high-priority tickets pending.</p></div></div>}</aside></div><section className="panel operations"><PanelTop title="Today’s processing pipeline" text="Broadcast order health by status."/><div className="pipeline"><div><span className="pipe-number blue-fill">{pending}</span><strong>Placed</strong><p>Awaiting review</p></div><span className="pipe-line"/><div><span className="pipe-number yellow-fill">{active}</span><strong>In progress</strong><p>On IVR system</p></div><span className="pipe-line"/><div><span className="pipe-number green-fill">{done}</span><strong>Completed</strong><p>Reports delivered</p></div></div></section></>;
+  return <><Heading eyebrow="ADMIN PORTAL" title="Operations overview" text="A live view of your broadcast operations."/><div className="metric-grid"><Metric icon="users" label="Total customers" value={new Set(orders.map((o: Order) => o.email)).size} detail="Across all accounts"/><Metric icon="clock" label="Pending orders" value={pending} detail="Orders waiting for review" warning/><Metric icon="activity" label="In progress" value={active} detail="Currently processing"/><Metric icon="chart" label="Completed" value={done} detail="Reports delivered" success/></div><div className="dashboard-grid"><section className="panel urgent"><PanelTop title="Orders needing action" text="New requests and orders that need attention." action="Manage orders" onAction={() => setView("Broadcast management")}/><div className="urgent-list">{orders.filter((o: Order) => o.status !== "Completed").slice(0,3).map((o: Order, i: number) => <div className="urgent-row" key={o.id}><span className={`priority ${i === 0 ? "new" : "due-soon"}`}>{i === 0 ? "New" : "Due soon"}</span><div><strong>{o.broadcastNo} · {o.customer}</strong><p>{o.contacts} · {o.created}</p></div><button className="outline small" onClick={() => select(o)}>Review <Icon name="arrow" size={14}/></button></div>)}</div></section><aside className="panel queue"><PanelTop title="Support queue" text="Current ticket workload." action="Open desk" onAction={() => setView("Support desk")}/><div className="queue-stats"><div><b>{tickets.filter((t: Ticket) => t.status === "Open").length}</b><span>Open</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "In progress").length}</b><span>In progress</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "Resolved").length}</b><span>Resolved</span></div></div>{urgentTickets > 0 ? <div className="sla"><span className="icon-box red"><Icon name="clock"/></span><div><strong>{urgentTickets} tickets nearing SLA</strong><p>High priority tickets require immediate response.</p></div></div> : <div className="sla" style={{ borderColor: '#e2e8f0', background: '#f8fafc' }}><span className="icon-box green"><Icon name="check"/></span><div><strong>All caught up!</strong><p>No high-priority tickets pending.</p></div></div>}</aside></div><section className="panel operations"><PanelTop title="Today's processing pipeline" text="Broadcast order health by status."/><div className="pipeline"><div><span className="pipe-number blue-fill">{pending}</span><strong>Placed</strong><p>Awaiting review</p></div><span className="pipe-line"/><div><span className="pipe-number yellow-fill">{active}</span><strong>In progress</strong><p>On IVR system</p></div><span className="pipe-line"/><div><span className="pipe-number green-fill">{done}</span><strong>Completed</strong><p>Reports delivered</p></div>{onHoldCount > 0 && <><span className="pipe-line"/><div><span className="pipe-number" style={{background:'#fef3c7',color:'#92400e'}}>{onHoldCount}</span><strong>On hold</strong><p>Awaiting fix</p></div></>}</div></section></>;
 }
 
 function Heading({ eyebrow, title, text, action, onAction }: { eyebrow: string; title: string; text: string; action?: string; onAction?: () => void }) { return <div className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{text}</p></div>{action && <button className="primary" onClick={onAction}><Icon name="plus"/>{action}</button>}</div>; }
 function PanelTop({ title, text, action, onAction }: { title: string; text: string; action?: string; onAction?: () => void }) { return <div className="panel-top"><div><h2>{title}</h2><p>{text}</p></div>{action && <button className="text-button" onClick={onAction}>{action}<Icon name="arrow" size={15}/></button>}</div>; }
 function Metric({ icon, label, value, detail, warning, success }: { icon: string; label: string; value: number | string; detail: string; warning?: boolean; success?: boolean }) { return <article className="metric panel"><div className={`metric-icon ${warning ? "orange" : success ? "green" : "blue"}`}><Icon name={icon}/></div><p>{label}</p><h2>{value}</h2><small className={warning ? "warning-text" : success ? "success-text" : ""}>{detail}</small></article>; }
 function Timeline({ color, title, text, time }: { color: string; title: string; text: string; time: string }) { return <div className="timeline-item"><span className={`timeline-dot ${color}`}><Icon name={color === "green" ? "chart" : color === "red" ? "help" : "activity"} size={13}/></span><div><strong>{title}</strong><p>{text}</p><small>{time}</small></div></div>; }
-function OrderTable({ orders, onSelect, admin = false }: { orders: Order[]; onSelect: (o: Order) => void; admin?: boolean }) { return <div className="table-wrap"><table><thead><tr><th>Broadcast</th>{admin && <th>Customer</th>}<th>Created</th><th>Contacts</th><th>Status</th><th>Action</th></tr></thead><tbody>{orders.length ? orders.map(o => <tr key={o.id}><td><strong>{o.name}</strong><small>{o.id}</small></td>{admin && <td>{o.customer}</td>}<td>{o.created}</td><td>{o.contacts}</td><td><Badge status={o.status}/></td><td><button className="text-button row-text" onClick={() => onSelect(o)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No broadcast requests yet.</td></tr>}</tbody></table></div>; }
+function OrderTable({ orders, onSelect, admin = false, onViewCustomer }: { orders: Order[]; onSelect: (o: Order) => void; admin?: boolean; onViewCustomer?: (email: string) => void }) { return <div className="table-wrap"><table><thead><tr><th style={{width:'70px',textAlign:'center'}}>S.No.</th><th>Broadcast</th>{admin && <th>Customer</th>}<th>Created</th><th>Contacts</th><th>Status</th><th>Action</th></tr></thead><tbody>{orders.length ? orders.map((o, idx) => <tr key={o.id}><td className="sno-col">{o.broadcastNo}</td><td><strong>{o.name}</strong><small>{o.id}</small></td>{admin && <td>{onViewCustomer ? <button className="customer-link" onClick={() => onViewCustomer(o.email)}>{o.customer}</button> : o.customer}</td>}<td>{o.created}</td><td>{o.contacts}</td><td><Badge status={o.status}/></td><td><button className="text-button row-text" onClick={() => onSelect(o)}>View</button></td></tr>) : <tr><td colSpan={admin ? 7 : 6} className="empty">No broadcast requests yet.</td></tr>}</tbody></table></div>; }
 function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
-function BroadcastModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (o: Order) => void; session: Session }) { const [audioFile, setAudioFile] = useState<File | null>(null); const [contactsFile, setContactsFile] = useState<File | null>(null); const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const data = new FormData(e.currentTarget); const audio = data.get("audio") as File, contacts = data.get("contacts") as File; if (!audio?.name || !contacts?.name) return alert("Please attach both the audio file and contact list."); onSubmit({ id: `BR-${1050 + Math.floor(Math.random() * 850)}`, name: String(data.get("name")), customer: session.company || session.name, email: session.email, created: "Just now", contacts: "Pending validation", status: "Placed", schedule: String(data.get("schedule")), notes: String(data.get("notes") || ""), audioFile: audio, contactsFile: contacts }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">NEW REQUEST</p><h2>Create a broadcast</h2><p>Upload your campaign assets for the Xpack operations team.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Broadcast name<input name="name" required placeholder="e.g. August renewal reminder"/></label><div className="form-grid"><label>Audio file <span className="dropzone">{audioFile ? <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB</small></>}<input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{contactsFile ? <><Icon name="check"/><b>{contactsFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload contact list</b><small>Maximum 50 MB</small></>}<input name="contacts" type="file" required onChange={e => setContactsFile(e.target.files?.[0] || null)}/></span></label></div><label>Schedule<select name="schedule"><option>Start on processing</option><option>Schedule for later</option></select></label><label>Instructions <textarea name="notes" placeholder="Any instructions for our operations team?" rows={3}/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Submit broadcast <Icon name="arrow" size={16}/></button></div></form></div>; }
-function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => void; session: Session }) { const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const d = new FormData(e.currentTarget); onSubmit({ id: `TK-${209 + Math.floor(Math.random() * 90)}`, subject: String(d.get("subject")), customer: session.company || session.name, priority: String(d.get("priority")) as "Normal" | "High", status: "Open", message: String(d.get("message")), created: "Just now" }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal compact-modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we’ll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Subject<input name="subject" required placeholder="How can we help?"/></label><label>Priority<select name="priority"><option>Normal</option><option>High</option></select></label><label>Message<textarea name="message" required rows={5} placeholder="Give us the details…"/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Create ticket <Icon name="arrow" size={16}/></button></div></form></div>; }
-function OrderModal({ order, admin, onClose, onUpdate }: { order: Order; admin: boolean; onClose: () => void; onUpdate: (id: string, s: Status, reportFile?: File) => void }) {
+function BroadcastModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (o: Order) => void; session: Session }) { const [audioFile, setAudioFile] = useState<File | null>(null); const [contactsFile, setContactsFile] = useState<File | null>(null); const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const data = new FormData(e.currentTarget); const audio = data.get("audio") as File, contacts = data.get("contacts") as File; if (!audio?.name || !contacts?.name) return alert("Please attach both the audio file and contact list."); onSubmit({ id: `BR-${1050 + Math.floor(Math.random() * 850)}`, broadcastNo: '', name: String(data.get("name")), customer: session.company || session.name, email: session.email, created: "Just now", contacts: "Pending validation", status: "Placed", schedule: String(data.get("schedule")), notes: String(data.get("notes") || ""), audioFile: audio, contactsFile: contacts }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">NEW REQUEST</p><h2>Create a broadcast</h2><p>Upload your campaign assets for the Xpack operations team.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Broadcast name<input name="name" required placeholder="e.g. August renewal reminder"/></label><div className="form-grid"><label>Audio file <span className="dropzone">{audioFile ? <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB</small></>}<input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{contactsFile ? <><Icon name="check"/><b>{contactsFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload contact list</b><small>Maximum 50 MB</small></>}<input name="contacts" type="file" required onChange={e => setContactsFile(e.target.files?.[0] || null)}/></span></label></div><label>Schedule<select name="schedule"><option>Start on processing</option><option>Schedule for later</option></select></label><label>Instructions <textarea name="notes" placeholder="Any instructions for our operations team?" rows={3}/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Submit broadcast <Icon name="arrow" size={16}/></button></div></form></div>; }
+function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => void; session: Session }) { const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const d = new FormData(e.currentTarget); onSubmit({ id: `TK-${209 + Math.floor(Math.random() * 90)}`, subject: String(d.get("subject")), customer: session.company || session.name, priority: String(d.get("priority")) as "Normal" | "High", status: "Open", message: String(d.get("message")), created: "Just now" }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal compact-modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we'll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Subject<input name="subject" required placeholder="How can we help?"/></label><label>Priority<select name="priority"><option>Normal</option><option>High</option></select></label><label>Message<textarea name="message" required rows={5} placeholder="Give us the details…"/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Create ticket <Icon name="arrow" size={16}/></button></div></form></div>; }
+function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: { order: Order; admin: boolean; onClose: () => void; onUpdate: (id: string, s: Status, reportFile?: File, holdReason?: string) => void; onResubmit: (id: string, audioFile?: File, contactsFile?: File) => void }) {
   const [status, setStatus] = useState<Status>(order.status);
   const [reportFile, setReportFile] = useState<File | null>(null);
+  const [holdReason, setHoldReason] = useState(order.holdReason || "");
+  const [resubmitAudio, setResubmitAudio] = useState<File | null>(null);
+  const [resubmitContacts, setResubmitContacts] = useState<File | null>(null);
 
   const handleDownload = async (key: string) => {
     const res = await getDownloadUrl(key);
@@ -437,5 +475,6 @@ function OrderModal({ order, admin, onClose, onUpdate }: { order: Order; admin: 
     }
   };
 
-  return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{order.id}</p><h2>{order.name}</h2><p>{order.customer} · {order.contacts} contacts</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={order.status}/></div><div><small>Schedule</small><strong>{order.schedule}</strong></div><div><small>Audio asset</small>{order.audioKey ? <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download Audio</button> : <span className="text-muted">No file</span>}</div><div><small>Contact list</small>{order.contactsKey ? <button className="text-button" onClick={() => handleDownload(order.contactsKey!)} title={order.contactsKey}><Icon name="download" size={14}/>Download Contacts</button> : <span className="text-muted">No file</span>}</div></div>{order.notes && <div className="detail-note"><strong>Customer instructions</strong><p>{order.notes}</p></div>}{order.report && <div className="report-ready"><Icon name="check"/><div><strong>Performance report ready</strong><p>Report has been uploaded to this order.</p></div><button className="outline" onClick={() => handleDownload(order.reportKey!)}><Icon name="download" size={14}/>Download</button></div>}{admin && <div className="admin-update"><label>Update order status<select value={status} onChange={e => setStatus(e.target.value as Status)}><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option></select></label>{status === "Completed" && <label>Performance report<input type="file" accept=".csv,.pdf,.zip" onChange={e => setReportFile(e.target.files?.[0] || null)}/></label>}<button className="primary" onClick={() => onUpdate(order.id, status, reportFile || undefined)}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>; }
+  return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{order.broadcastNo}</p><h2>{order.name}</h2><p>{order.customer} · {order.contacts}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={order.status}/></div><div><small>Schedule</small><strong>{order.schedule}</strong></div><div><small>Audio asset</small>{order.audioKey ? <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download Audio</button> : <span className="text-muted">No file</span>}</div><div><small>Contact list</small>{order.contactsKey ? <button className="text-button" onClick={() => handleDownload(order.contactsKey!)} title={order.contactsKey}><Icon name="download" size={14}/>Download Contacts</button> : <span className="text-muted">No file</span>}</div></div>{order.notes && <div className="detail-note"><strong>Customer instructions</strong><p>{order.notes}</p></div>}{order.report && <div className="report-ready"><Icon name="check"/><div><strong>Performance report ready</strong><p>Report has been uploaded to this order.</p></div><button className="outline" onClick={() => handleDownload(order.reportKey!)}><Icon name="download" size={14}/>Download</button></div>}{/* Show hold reason to customer */}{!admin && order.status === "On hold" && order.holdReason && <div className="hold-reason-box"><Icon name="pause" size={18}/><div><strong>Order on hold — Action required</strong><p>{order.holdReason}</p></div></div>}{/* Customer resubmit section — only when on hold */}{!admin && order.status === "On hold" && <div className="resubmit-section"><h3>Resubmit files to resolve the issue</h3><p style={{fontSize:'12px',color:'#78350f',margin:'0 0 12px'}}>Upload a corrected audio file and/or contact list. Your order will be moved back to &quot;Placed&quot; for review.</p><div className="form-grid"><label>Audio file <span className="dropzone">{resubmitAudio ? <><Icon name="check"/><b>{resubmitAudio.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace audio</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitAudio(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{resubmitContacts ? <><Icon name="check"/><b>{resubmitContacts.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace contacts</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitContacts(e.target.files?.[0] || null)}/></span></label></div><button className="primary" onClick={() => onResubmit(order.id, resubmitAudio || undefined, resubmitContacts || undefined)} disabled={!resubmitAudio && !resubmitContacts}>Resubmit files <Icon name="arrow" size={16}/></button></div>}{admin && <div className="admin-update"><label>Update order status<select value={status} onChange={e => setStatus(e.target.value as Status)}><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option><option>On hold</option></select></label>{status === "On hold" && <label>Hold reason<textarea value={holdReason} onChange={e => setHoldReason(e.target.value)} rows={3} placeholder="Describe the issue (e.g. Wrong audio format, Unclear audio file, Invalid contact list...)"/></label>}{status === "Completed" && <label>Performance report<input type="file" accept=".csv,.pdf,.zip" onChange={e => setReportFile(e.target.files?.[0] || null)}/></label>}<button className="primary" onClick={() => onUpdate(order.id, status, reportFile || undefined, status === "On hold" ? holdReason : undefined)}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>;
+}
 function TicketViewModal({ ticket, admin, onClose, onUpdate }: { ticket: Ticket; admin: boolean; onClose: () => void; onUpdate: (id: string, s: TicketStatus, reply?: string) => void }) { const [status, setStatus] = useState<TicketStatus>(ticket.status); const [reply, setReply] = useState<string>(ticket.reply || ""); return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{ticket.id}</p><h2>{ticket.subject}</h2><p>{ticket.customer} · {ticket.created}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={ticket.status}/></div><div><small>Priority</small><span className={ticket.priority === "High" ? "priority overdue" : "priority new"}>{ticket.priority}</span></div></div><div className="detail-note"><strong>Customer Message</strong><p>{ticket.message}</p></div>{ticket.reply && !admin && <div className="detail-note" style={{background: '#f0f9ff', borderColor: '#bae6fd'}}><strong>Admin Reply</strong><p>{ticket.reply}</p></div>}{admin && <div className="admin-update"><label>Update ticket status<select value={status} onChange={e => setStatus(e.target.value as TicketStatus)}><option>Open</option><option>In progress</option><option>Resolved</option></select></label><label>Reply to customer<textarea value={reply} onChange={e => setReply(e.target.value)} rows={3} placeholder="Type your response here..."/></label><button className="primary" onClick={() => onUpdate(ticket.id, status, reply)}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>; }

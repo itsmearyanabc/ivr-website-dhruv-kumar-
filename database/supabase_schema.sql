@@ -3,7 +3,7 @@
 
 -- 1. Custom Types
 CREATE TYPE public.user_role AS ENUM ('CUSTOMER', 'ADMIN');
-CREATE TYPE public.broadcast_status AS ENUM ('PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED');
+CREATE TYPE public.broadcast_status AS ENUM ('PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD');
 CREATE TYPE public.ticket_status AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
 CREATE TYPE public.ticket_priority AS ENUM ('NORMAL', 'HIGH');
 
@@ -31,6 +31,7 @@ CREATE TABLE public.broadcasts (
   contact_count INTEGER,
   scheduled_for TIMESTAMPTZ,
   status broadcast_status NOT NULL DEFAULT 'PLACED',
+  hold_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

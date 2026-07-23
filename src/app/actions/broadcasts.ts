@@ -121,15 +121,25 @@ export async function updateBroadcastStatus(formData: FormData) {
 
   const id = String(formData.get("id"))
   const status = String(formData.get("status")).toUpperCase()
-  const validBroadcastStatuses = ['PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
+  const validBroadcastStatuses = ['PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD']
   if (!validBroadcastStatuses.includes(status)) {
     return { error: 'Invalid status value.' }
   }
   const reportFile = formData.get("report") as File | null
+  const holdReason = String(formData.get("holdReason") || "")
+
+  const updatePayload: any = { status, updated_at: new Date().toISOString() }
+  
+  // If status is ON_HOLD, save the hold reason; otherwise clear it
+  if (status === 'ON_HOLD') {
+    updatePayload.hold_reason = holdReason || null
+  } else {
+    updatePayload.hold_reason = null
+  }
 
   let query = supabase
     .from('broadcasts')
-    .update({ status, updated_at: new Date().toISOString() })
+    .update(updatePayload)
 
   if (id.startsWith('BR-')) {
     query = query.eq('reference_no', id)
@@ -166,6 +176,94 @@ export async function updateBroadcastStatus(formData: FormData) {
       console.error('Report Upsert Error:', upsertError)
       return { error: 'Failed to link report file to broadcast' }
     }
+  }
+
+  return { success: true }
+}
+
+export async function resubmitFiles(formData: FormData) {
+  const supabaseAuth = await createClient()
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = await createServiceRoleClient()
+
+  const referenceNo = String(formData.get("id"))
+  const newAudio = formData.get("audio") as File | null
+  const newContacts = formData.get("contacts") as File | null
+
+  if ((!newAudio || !newAudio.name || newAudio.size === 0) && (!newContacts || !newContacts.name || newContacts.size === 0)) {
+    return { error: 'Please select at least one file to resubmit.' }
+  }
+
+  // Fetch the broadcast and verify ownership + ON_HOLD status
+  let fetchQuery = supabase
+    .from('broadcasts')
+    .select('*')
+
+  if (referenceNo.startsWith('BR-')) {
+    fetchQuery = fetchQuery.eq('reference_no', referenceNo)
+  } else {
+    fetchQuery = fetchQuery.eq('id', referenceNo)
+  }
+
+  const { data: broadcast, error: fetchError } = await fetchQuery
+    .eq('user_id', user.id)
+    .single()
+
+  if (fetchError || !broadcast) {
+    return { error: 'Broadcast not found or access denied.' }
+  }
+
+  if (broadcast.status !== 'ON_HOLD') {
+    return { error: 'Files can only be resubmitted when the order is on hold.' }
+  }
+
+  const updatePayload: any = {
+    status: 'PLACED',
+    hold_reason: null,
+    updated_at: new Date().toISOString()
+  }
+
+  // Handle audio file replacement
+  if (newAudio && newAudio.name && newAudio.size > 0) {
+    const new_audio_key = `audio/${crypto.randomUUID()}-${newAudio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    const { error: audioUpErr } = await supabase.storage.from('xpack_files').upload(new_audio_key, newAudio)
+    if (audioUpErr) {
+      console.error('Audio resubmit upload error:', audioUpErr)
+      return { error: 'Failed to upload new audio file.' }
+    }
+    // Remove old audio file
+    if (broadcast.audio_key) {
+      await supabase.storage.from('xpack_files').remove([broadcast.audio_key])
+    }
+    updatePayload.audio_key = new_audio_key
+  }
+
+  // Handle contacts file replacement
+  if (newContacts && newContacts.name && newContacts.size > 0) {
+    const new_contacts_key = `contacts/${crypto.randomUUID()}-${newContacts.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    const { error: contactsUpErr } = await supabase.storage.from('xpack_files').upload(new_contacts_key, newContacts)
+    if (contactsUpErr) {
+      console.error('Contacts resubmit upload error:', contactsUpErr)
+      return { error: 'Failed to upload new contacts file.' }
+    }
+    // Remove old contacts file
+    if (broadcast.contacts_key) {
+      await supabase.storage.from('xpack_files').remove([broadcast.contacts_key])
+    }
+    updatePayload.contacts_key = new_contacts_key
+  }
+
+  // Update broadcast: reset to PLACED, clear hold reason, update file keys
+  const { error: updateError } = await supabase
+    .from('broadcasts')
+    .update(updatePayload)
+    .eq('id', broadcast.id)
+
+  if (updateError) {
+    console.error('Resubmit update error:', updateError)
+    return { error: 'Failed to update broadcast after resubmission.' }
   }
 
   return { success: true }
