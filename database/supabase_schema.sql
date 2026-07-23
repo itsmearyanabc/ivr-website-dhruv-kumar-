@@ -126,7 +126,7 @@ BEGIN
     WHERE id = auth.uid() AND role = 'ADMIN'
   );
 END;
-$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 4. Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
