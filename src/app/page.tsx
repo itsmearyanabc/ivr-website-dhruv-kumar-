@@ -389,6 +389,7 @@ function CustomerPage({ view, orders, tickets, setView, create, ticket, select, 
 function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
+  const [actFilterDate, setActFilterDate] = useState("");
 
   const parseDate = (dStr: string) => {
     const d = new Date(dStr);
@@ -419,7 +420,6 @@ function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { v
   if (view === "Support desk") return <><Heading eyebrow="ADMIN PORTAL" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (view === "Activity log") {
-    const [actFilterDate, setActFilterDate] = useState("");
     const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
     orders.forEach(o => {
       events.push({ title: `${o.broadcastNo} created`, text: `${o.customer} submitted a new broadcast request.`, time: o.created, dateObj: parseDate(o.created), color: "blue" });
