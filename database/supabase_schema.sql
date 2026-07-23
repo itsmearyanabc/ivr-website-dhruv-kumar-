@@ -6,7 +6,7 @@ CREATE TYPE public.user_role AS ENUM ('CUSTOMER', 'ADMIN');
 CREATE TYPE public.broadcast_status AS ENUM ('PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD', 'REFUNDED');
 CREATE TYPE public.ticket_status AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
 CREATE TYPE public.ticket_priority AS ENUM ('NORMAL', 'HIGH');
-
+CREATE TYPE public.transaction_type AS ENUM ('CREDIT', 'DEBIT');
 -- 2. Tables
 -- Users table syncs with auth.users
 CREATE TABLE public.users (
@@ -17,6 +17,7 @@ CREATE TABLE public.users (
   phone TEXT,
   role user_role NOT NULL DEFAULT 'CUSTOMER',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  balance DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -79,6 +80,24 @@ CREATE TABLE public.broadcast_status_history (
 );
 CREATE INDEX bsh_broadcast_idx ON public.broadcast_status_history(broadcast_id, created_at);
 
+CREATE TABLE public.transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  amount DECIMAL(10,2) NOT NULL,
+  type transaction_type NOT NULL,
+  status TEXT NOT NULL DEFAULT 'SUCCESS',
+  order_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX transactions_user_idx ON public.transactions(user_id, created_at DESC);
+
+CREATE TABLE public.system_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
 -- 3. Automatic User Profile Creation via Trigger
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
@@ -116,6 +135,8 @@ ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.broadcast_status_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 
 -- 5. RLS Policies
 -- Users can only see their own profile
@@ -148,6 +169,16 @@ CREATE POLICY "View messages for accessible tickets" ON public.support_messages 
 CREATE POLICY "Insert messages for accessible tickets" ON public.support_messages FOR INSERT WITH CHECK (
   EXISTS (SELECT 1 FROM public.support_tickets WHERE id = ticket_id) AND sender_id = auth.uid()
 );
+
+-- Transactions: Customers view their own, Admins view all
+CREATE POLICY "Customers view own transactions" ON public.transactions FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "Admins view all transactions" ON public.transactions FOR SELECT USING (public.is_admin());
+
+-- System Settings: Anyone can view, Admins can update/insert
+CREATE POLICY "Anyone can view settings" ON public.system_settings FOR SELECT USING (true);
+CREATE POLICY "Admins can update settings" ON public.system_settings FOR UPDATE USING (public.is_admin());
+CREATE POLICY "Admins can insert settings" ON public.system_settings FOR INSERT WITH CHECK (public.is_admin());
+
 
 -- 6. Storage Buckets Setup
 -- You will need to manually create 1 bucket in Supabase Storage: 'xpack_files' (Make sure to set it to PRIVATE)

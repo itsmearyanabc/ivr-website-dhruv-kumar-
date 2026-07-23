@@ -6,6 +6,10 @@ import React, { FormEvent, useEffect, useState } from "react";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
+import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
+import { getUserBalance } from "@/app/actions/transactions";
+import { getAllUsers } from "@/app/actions/users";
+import * as XLSX from "xlsx";
 
 type Role = "customer" | "admin";
 type Status = "Placed" | "In progress" | "Completed" | "Cancelled" | "On hold" | "Refunded";
@@ -25,7 +29,8 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     radio: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h.01M11 15h.01M15 15h2M7 9h10"/></>, users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
     help: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4.58 1.68c-1.15 1.06-2.08 1.38-2.08 3.32M12 17h.01"/></>, settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06A1.7 1.7 0 0 0 15.76 18a1.7 1.7 0 0 0-1 1.54V20h-3v-.46A1.7 1.7 0 0 0 10.76 18a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.12 14a1.7 1.7 0 0 0-1.54-1H5.1v-3h.48A1.7 1.7 0 0 0 7.12 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06A1.7 1.7 0 0 0 10.76 5a1.7 1.7 0 0 0 1-1.54V3h3v.46A1.7 1.7 0 0 0 15.76 5a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.54 1h.48v3h-.48A1.7 1.7 0 0 0 19.4 15Z"/></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>, plus: <><path d="M12 5v14M5 12h14"/></>, chart: <><path d="M4 19V5M4 19h17M8 15v-3M12 15V8M16 15V5M20 15v-7"/></>, clock: <><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></>, arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>, search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>, file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></>, more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>, close: <><path d="m6 6 12 12M18 6 6 18"/></>, upload: <><path d="M12 16V4M7 9l5-5 5-5M5 20h14"/></>, activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>, check: <><path d="m5 12 4 4L19 6"/></>, lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>, logout: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-4"/></>, download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>, eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></>, "eye-off": <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/></>, pause: <><path d="M10 4H6v16h4V4ZM18 4h-4v16h4V4Z"/></>,
-    "dollar-sign": <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>
+    "dollar-sign": <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>,
+    "indian-rupee": <><path d="M6 3h12"/><path d="M6 8h12"/><path d="m6 13 8.5 8"/><path d="M6 13h3"/><path d="M9 13c6.667 0 6.667-10 0-10"/></>
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{p[name]}</svg>;
 }
@@ -73,6 +78,10 @@ export default function App() {
   const [showTicket, setShowTicket] = useState(false);
   const [selected, setSelected] = useState<Order | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [balance, setBalance] = useState(0);
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [price, setPrice] = useState("0.25");
+  const [showFunds, setShowFunds] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -81,11 +90,24 @@ export default function App() {
       const { session: serverSession } = await getUserSession();
       if (mounted && serverSession) {
         setSession(serverSession as Session);
-        fetchData();
+        fetchData(serverSession as Session);
       }
     }
     
-    async function fetchData() {
+    async function fetchData(currentSession: Session) {
+      // Load global settings
+      const settings = await getSystemSettings();
+      if (mounted) setPrice(settings.price_per_call);
+
+      // Load Role specific data
+      if (currentSession.role === "admin") {
+        const usersData = await getAllUsers();
+        if (mounted) setUsersList(usersData);
+      } else {
+        const bal = await getUserBalance();
+        if (mounted) setBalance(bal);
+      }
+
       const { data: bData } = await getBroadcasts();
       if (mounted && bData && bData.length > 0) {
         setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
@@ -130,6 +152,10 @@ export default function App() {
     const { data: bData } = await getBroadcasts();
     if (bData && bData.length > 0) {
       setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
+    }
+    if (session?.role === "customer") {
+      const bal = await getUserBalance();
+      setBalance(bal);
     }
   };
 
@@ -222,8 +248,8 @@ export default function App() {
     }
   };
   if (!session) return <Auth onLogin={login} />;
-  const nav = session.role === "customer" ? [["Overview", "grid"], ["My broadcasts", "radio"], ["Support centre", "help"], ["Settings", "settings"]] : [["Overview", "grid"], ["Broadcast management", "radio"], ["Customers", "users"], ["Support desk", "help"], ["Activity log", "activity"], ["Pricing", "dollar-sign"]];
-  return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div><nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">?</span><div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div></div><div className="user-card"><span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span><div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div><button title="Sign out" onClick={logout}><Icon name="logout"/></button></div></div></aside><section className="content"><header><div className="mobile-brand">Xpack</div><div className="header-actions"><span className="access-label"><Icon name={session.role === "admin" ? "lock" : "users"} size={14}/>{session.role === "admin" ? "Admin access" : "Customer portal"}</span><button className="notification"><Icon name="bell"/><em>3</em></button><span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span></div></header><div className="page">{session.role === "customer" ? <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} /> : <AdminPage view={view} orders={orders} tickets={tickets} setView={setView} select={setSelected} selectTicket={setSelectedTicket} />}</div></section>{showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session}/>} {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>} {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}</main>;
+  const nav = session.role === "customer" ? [["Overview", "grid"], ["My broadcasts", "radio"], ["Support centre", "help"], ["Settings", "settings"], ["Funds", "indian-rupee"]] : [["Overview", "grid"], ["Broadcast management", "radio"], ["Customers", "users"], ["Support desk", "help"], ["Activity log", "activity"], ["Pricing", "dollar-sign"]];
+  return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div><nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">?</span><div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div></div><div className="user-card"><span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span><div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div><button title="Sign out" onClick={logout}><Icon name="logout"/></button></div></div></aside><section className="content"><header><div className="mobile-brand">Xpack</div><div className="header-actions"><span className="access-label" style={session.role === 'customer' ? {background:'#f1f5f9',color:'#0f172a'}: {}}><Icon name={session.role === "admin" ? "lock" : "indian-rupee"} size={14}/>{session.role === "admin" ? "Admin access" : `Balance: ₹${balance.toFixed(2)}`}</span><button className="notification"><Icon name="bell"/><em>3</em></button><span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span></div></header><div className="page">{session.role === "customer" ? <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} /> : <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} />}</div></section>{showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />} {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>} {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}</main>;
 }
 
 function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
@@ -342,10 +368,14 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   return <main className="auth-shell"><section className="auth-brand"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div><div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>{mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}<label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? "admin@xpack.in" : undefined} disabled={isLocked}/></label>{mode !== "forgot" && <label>Password<div style={{position: 'relative'}}><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined} style={{paddingRight: '36px'}} disabled={isLocked}/><button type="button" onClick={() => setShowPassword(!showPassword)} style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px'}} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}{mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}{mode !== "forgot" && <label>Security Check: What is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}{mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}{error && <p className="auth-error">{error}</p>}<button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>{mode === "admin" ? <button type="button" className="plain-link" onClick={() => changeMode("login")} disabled={isLocked}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => changeMode("admin")} disabled={isLocked}><Icon name="lock" size={14}/>Administrator sign in</button></>}</form></section></main>;
 }
 
-function CustomerPage({ view, orders, tickets, setView, create, ticket, select, selectTicket, session }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session }) {
+function CustomerPage({ view, orders, tickets, setView, create, ticket, select, selectTicket, session, balance }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number }) {
   if (view === "My broadcasts") return <><Heading eyebrow="CUSTOMER PORTAL" title="My broadcasts" text="Every IVR broadcast request in one place." action="New broadcast" onAction={create}/><section className="panel data-panel"><OrderTable orders={orders} onSelect={select}/></section></>;
   if (view === "Support centre") return <><Heading eyebrow="SUPPORT CENTRE" title="How can we help?" text="Create a ticket and keep every conversation in one thread." action="New ticket" onAction={ticket}/><section className="support-layout"><section className="panel data-panel"><TicketTable tickets={tickets} onSelect={selectTicket}/></section><aside className="panel support-aside"><Icon name="help" size={26}/><h2>Priority support</h2><p>Our operations team typically responds within one business day.</p><button className="outline" onClick={ticket}>Raise a ticket</button></aside></section></>;
   if (view === "Settings") return <><Heading eyebrow="ACCOUNT SETTINGS" title="Profile and preferences" text="Keep your account and notification preferences up to date."/><section className="panel settings-panel"><div className="setting-section"><h2>Profile information</h2><p>These details appear on your broadcast requests.</p><div className="form-grid"><label>Full name<input defaultValue={session.name}/></label><label>Company<input defaultValue={session.company}/></label><label>Email address<input defaultValue={session.email}/></label><label>Phone number<input placeholder="Add a phone number"/></label></div><button className="primary" onClick={() => alert("Profile changes are saved in the production database once connected.")}>Save changes</button></div><div className="setting-section"><h2>Notification preferences</h2><p>Receive an email when a broadcast changes status or a report is ready.</p><label className="toggle-row">Email status updates<input type="checkbox" defaultChecked/></label></div></section></>;
+  
+  if (view === "Funds") {
+    return <><Heading eyebrow="FUNDS" title="Account Balance" text="Add funds to your account to place orders."/><div className="dashboard-grid"><section className="panel" style={{display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px'}}><div style={{background: '#f1f5f9', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px'}}><Icon name="indian-rupee" size={32}/></div><p className="eyebrow">CURRENT BALANCE</p><h2 style={{fontSize: '48px', margin: '10px 0'}}>₹{balance.toFixed(2)}</h2><p className="text-muted" style={{textAlign: 'center', maxWidth: '300px'}}>Balance is automatically deducted when you submit a new broadcast request.</p></section><aside className="panel"><h2>Add Funds via Paytm</h2><p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Recharge your account instantly using Paytm. Note: This will process a real transaction.</p><form method="POST" action="/api/paytm/initiate" className="admin-update"><label>Amount (₹)<input type="number" name="amount" min="10" step="1" required defaultValue="500"/></label><button type="submit" className="primary" style={{marginTop: '15px'}}>Pay with Paytm</button></form></aside></div></>;
+  }
   
   const placed = orders.filter((o: Order) => o.status === "Placed").length, progressing = orders.filter((o: Order) => o.status === "In progress").length, completed = orders.filter((o: Order) => o.status === "Completed").length;
 
@@ -387,12 +417,11 @@ function CustomerPage({ view, orders, tickets, setView, create, ticket, select, 
   return <><Heading eyebrow="CUSTOMER PORTAL" title={`Good morning, ${session.name.split(" ")[0]}`} text="Here's what's happening with your broadcasts." action="New broadcast" onAction={create}/><div className="metric-grid"><Metric icon="radio" label="Total broadcasts" value={orders.length} detail="All time"/><Metric icon="clock" label="Pending orders" value={placed} detail="Awaiting review" warning/><Metric icon="activity" label="In progress" value={progressing} detail="Being processed"/><Metric icon="chart" label="Completed" value={completed} detail="Reports ready" success/></div><div className="dashboard-grid"><section className="panel"><PanelTop title="Recent broadcasts" text="Your latest broadcast requests." action="View all" onAction={() => setView("My broadcasts")}/><OrderTable orders={orders.slice(0, 4)} onSelect={select}/></section><aside className="activity-panel panel"><PanelTop title="Recent activity" text="Across your account."/><div className="timeline">{events.length > 0 ? events.slice(0, 3).map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />) : <p className="text-muted" style={{ padding: '24px 0', textAlign: 'center' }}>No recent activity.</p>}</div><button className="outline full" onClick={() => setView("Support centre")}>Open support centre</button></aside></div><section className="quick-section"><div><p className="eyebrow">QUICK ACTIONS</p><h2>Manage your broadcasts with ease</h2><p>Everything needed for a successful IVR campaign.</p></div><div className="quick-actions"><button onClick={create}><span className="icon-box blue"><Icon name="plus"/></span><span><strong>Create a broadcast</strong><small>Upload audio and contact list</small></span><Icon name="arrow" size={18}/></button><button onClick={() => setView("My broadcasts")}><span className="icon-box green"><Icon name="file"/></span><span><strong>View campaign reports</strong><small>Download completed results</small></span><Icon name="arrow" size={18}/></button></div></section></>;
 }
 
-function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void }) {
+function AdminPage({ view, orders, tickets, users, price, setPrice, setView, select, selectTicket }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [actFilterDate, setActFilterDate] = useState("");
   const [chartDateFilter, setChartDateFilter] = useState("");
-  const [price, setPrice] = useState("0.25");
   const [scheduleFilter, setScheduleFilter] = useState("current");
 
   const parseDate = (dStr: string) => {
@@ -426,7 +455,7 @@ function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { v
 
     return <><Heading eyebrow="ADMIN PORTAL" title="Broadcast management" text="Review requests, access assets, and manage fulfillment."/><section className="panel data-panel"><div className="table-tools" style={{flexWrap: 'wrap'}}><div className="search"><Icon name="search" size={16}/><input placeholder="Search order, customer, or reference" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/></div><div style={{display:'flex',gap:'10px'}}><button className="outline" onClick={() => setScheduleFilter('current')} style={scheduleFilter === 'current' ? {background:'#f1f5f9',borderColor:'#cbd5e1',color:'#0f172a'}: {}}>Current BR's</button><button className="outline" onClick={() => setScheduleFilter('later')} style={scheduleFilter === 'later' ? {background:'#f1f5f9',borderColor:'#cbd5e1',color:'#0f172a'}: {}}>Later BR's</button></div><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>All statuses</option><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option><option>On hold</option></select></div><OrderTable orders={filtered} admin onSelect={select} onViewCustomer={(email) => { setView("Customers"); }}/></section></>;
   }
-  if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Last activity</th><th>Account</th></tr></thead><tbody>{[...new Map<string, Order>(orders.map((o: Order): [string, Order] => [o.email, o])).values()].map((o: Order) => <tr key={o.email}><td><strong>{o.customer}</strong></td><td>{o.email}</td><td>{orders.filter((x: Order) => x.email === o.email).length}</td><td>{o.created}</td><td><Badge status="Active"/></td></tr>)}</tbody></table></section></>;
+  if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email}><td><strong>{u.full_name || u.company_name}</strong></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td>₹{(Number(u.balance) || 0).toFixed(2)}</td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table></section></>;
   if (view === "Support desk") return <><Heading eyebrow="ADMIN PORTAL" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (view === "Activity log") {
@@ -482,7 +511,38 @@ function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { v
   }
   
   if (view === "Pricing") {
-    return <><Heading eyebrow="ADMIN PORTAL" title="Pricing & Revenue" text="Set call pricing and monitor your net sales."/><div className="dashboard-grid"><section className="panel"><PanelTop title="Revenue overview" text="Net sales in the past week."/><div className="bar-chart" style={{height: '250px', marginTop: '20px'}}><div className="bar-wrap"><div className="bar" style={{height: '40%'}}></div><span className="bar-val">Rs 120</span><span className="bar-label">Mon</span></div><div className="bar-wrap"><div className="bar" style={{height: '60%'}}></div><span className="bar-val">Rs 180</span><span className="bar-label">Tue</span></div><div className="bar-wrap"><div className="bar" style={{height: '50%'}}></div><span className="bar-val">Rs 150</span><span className="bar-label">Wed</span></div><div className="bar-wrap"><div className="bar" style={{height: '80%'}}></div><span className="bar-val">Rs 240</span><span className="bar-label">Thu</span></div><div className="bar-wrap"><div className="bar" style={{height: '30%'}}></div><span className="bar-val">Rs 90</span><span className="bar-label">Fri</span></div><div className="bar-wrap"><div className="bar" style={{height: '90%'}}></div><span className="bar-val">Rs 270</span><span className="bar-label">Sat</span></div><div className="bar-wrap"><div className="bar" style={{height: '70%'}}></div><span className="bar-val">Rs 210</span><span className="bar-label">Sun</span></div></div></section><aside className="panel"><h2>Call Pricing</h2><p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Set the cost per call. When a customer places an order, the amount will be deducted from their balance.</p><div className="admin-update"><label>Price per call (Rs)<input type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)}/></label><div className="detail-note" style={{background: '#f8fafc', margin: '15px 0'}}><strong>Example Cost</strong><p>100 calls = Rs {(Number(price) * 100).toFixed(2)}</p></div><button className="primary" onClick={() => alert("Pricing updated successfully!")}>Save Pricing</button></div></aside></div></>;
+    // Group completed orders by Month
+    const monthlyRev: Record<string, number> = {};
+    orders.forEach(o => {
+      if (o.status === "Completed" && o.created) {
+        const d = parseDate(o.created);
+        const mStr = d.toLocaleString('default', { month: 'short' });
+        if (!monthlyRev[mStr]) monthlyRev[mStr] = 0;
+        // Assume price * number of contacts (approximate from string if needed)
+        // Here we just use a mock multiplier based on contacts string if it's a number, or 100
+        const contactsCount = parseInt(o.contacts) || 100;
+        monthlyRev[mStr] += contactsCount * Number(price);
+      }
+    });
+
+    const mKeys = Object.keys(monthlyRev);
+    const maxRev = Math.max(...Object.values(monthlyRev), 10);
+
+    const handleSavePricing = async () => {
+      const res = await updatePricePerCall(price);
+      if (res.error) alert(res.error);
+      else alert("Pricing updated successfully!");
+    };
+
+    return <><Heading eyebrow="ADMIN PORTAL" title="Pricing & Revenue" text="Set call pricing and monitor your net sales."/><div className="dashboard-grid"><section className="panel"><PanelTop title="Revenue overview" text="Net sales grouped by month."/><div className="bar-chart" style={{height: '250px', marginTop: '20px'}}>
+      {mKeys.length > 0 ? mKeys.map(m => (
+        <div className="bar-wrap" key={m}>
+          <div className="bar" style={{height: `${(monthlyRev[m]/maxRev)*100}%`}}></div>
+          <span className="bar-val">₹{monthlyRev[m].toFixed(0)}</span>
+          <span className="bar-label">{m}</span>
+        </div>
+      )) : <p className="text-muted" style={{margin:'auto'}}>No revenue data.</p>}
+    </div></section><aside className="panel"><h2>Call Pricing</h2><p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Set the cost per call. When a customer places an order, the amount will be deducted from their balance.</p><div className="admin-update"><label>Price per call (₹)<input type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)}/></label><div className="detail-note" style={{background: '#f8fafc', margin: '15px 0'}}><strong>Example Cost</strong><p>100 calls = ₹{(Number(price) * 100).toFixed(2)}</p></div><button className="primary" onClick={handleSavePricing}>Save Pricing</button></div></aside></div></>;
   }
 
   const pending = orders.filter((o: Order) => o.status === "Placed").length, active = orders.filter((o: Order) => o.status === "In progress").length, done = orders.filter((o: Order) => o.status === "Completed").length;
@@ -498,24 +558,94 @@ function Metric({ icon, label, value, detail, warning, success }: { icon: string
 function Timeline({ color, title, text, time }: { color: string; title: string; text: string; time: string }) { return <div className="timeline-item"><span className={`timeline-dot ${color}`}><Icon name={color === "green" ? "chart" : color === "red" ? "help" : "activity"} size={13}/></span><div><strong>{title}</strong><p>{text}</p><small>{time}</small></div></div>; }
 function OrderTable({ orders, onSelect, admin = false, onViewCustomer }: { orders: Order[]; onSelect: (o: Order) => void; admin?: boolean; onViewCustomer?: (email: string) => void }) { return <div className="table-wrap"><table><thead><tr><th style={{width:'70px',textAlign:'center'}}>S.No.</th><th>Broadcast</th>{admin && <th>Customer</th>}<th>Created</th><th>Contacts</th><th>Status</th><th>Action</th></tr></thead><tbody>{orders.length ? orders.map((o, idx) => <tr key={o.id}><td className="sno-col">{o.broadcastNo}</td><td><strong>{o.name}</strong><small>{o.id}</small></td>{admin && <td>{onViewCustomer ? <button className="customer-link" onClick={() => onViewCustomer(o.email)}>{o.customer}</button> : o.customer}</td>}<td>{o.created}</td><td>{o.contacts}</td><td><Badge status={o.status}/></td><td><button className="text-button row-text" onClick={() => onSelect(o)}>View</button></td></tr>) : <tr><td colSpan={admin ? 7 : 6} className="empty">No broadcast requests yet.</td></tr>}</tbody></table></div>; }
 function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
-function BroadcastModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (o: Order) => void; session: Session }) { 
+function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClose: () => void; onSubmit: (o: Order) => void; session: Session; balance: number; price: string }) { 
   const [audioFile, setAudioFile] = useState<File | null>(null); 
   const [contactsFile, setContactsFile] = useState<File | null>(null); 
   const [scheduleType, setScheduleType] = useState("Start on processing");
+  const [contactsCount, setContactsCount] = useState<number | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
+
+  const parseContacts = async (file: File) => {
+    setIsParsing(true);
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      let count = 0;
+      
+      if (ext === 'csv' || ext === 'txt') {
+        const text = await file.text();
+        count = text.split('\n').filter(l => l.trim().length > 0).length;
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet);
+        count = json.length;
+      } else if (ext === 'pdf') {
+        const data = await file.arrayBuffer();
+        
+        // Dynamically import to avoid SSR issues
+        const pdfjsLib = await import("pdfjs-dist");
+        if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.mjs`;
+        }
+        
+        const pdf = await pdfjsLib.getDocument({ data }).promise;
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          fullText += content.items.map((item: any) => item.str).join(" ");
+        }
+        // Very basic phone number regex for PDF extraction simulation
+        const matches = fullText.match(/[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}/g);
+        count = matches ? matches.length : Math.floor(fullText.length / 100); 
+      }
+      
+      setContactsCount(count > 0 ? count : 0);
+    } catch (e) {
+      console.error(e);
+      alert("Could not parse file automatically. Please ensure it's a valid format.");
+      setContactsCount(null);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handleContactsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    setContactsFile(file || null);
+    if (file) {
+      parseContacts(file);
+    } else {
+      setContactsCount(null);
+    }
+  };
+
+  const estimatedCost = contactsCount ? contactsCount * Number(price) : 0;
+  const canAfford = balance >= estimatedCost;
+
   const submit = (e: FormEvent<HTMLFormElement>) => { 
     e.preventDefault(); 
+    if (!canAfford) return alert("Insufficient balance. Please add funds to proceed.");
+    if (!audioFile || !contactsFile) return alert("Please attach both the audio file and contact list."); 
+    
     const data = new FormData(e.currentTarget); 
-    const audio = data.get("audio") as File, contacts = data.get("contacts") as File; 
-    if (!audio?.name || !contacts?.name) return alert("Please attach both the audio file and contact list."); 
     let finalSchedule = String(data.get("schedule"));
     if (finalSchedule === "Schedule for later") {
       const dateVal = String(data.get("scheduleDate"));
       if (!dateVal) return alert("Please select a date for the scheduled broadcast.");
       finalSchedule = dateVal;
     }
-    onSubmit({ id: `BR-${1050 + Math.floor(Math.random() * 850)}`, broadcastNo: '', name: String(data.get("name")), customer: session.company || session.name, email: session.email, created: "Just now", contacts: "Pending validation", status: "Placed", schedule: finalSchedule, notes: String(data.get("notes") || ""), audioFile: audio, contactsFile: contacts }); 
+    onSubmit({ id: `BR-${1050 + Math.floor(Math.random() * 850)}`, broadcastNo: '', name: String(data.get("name")), customer: session.company || session.name, email: session.email, created: "Just now", contacts: contactsCount ? contactsCount.toString() : "Pending validation", status: "Placed", schedule: finalSchedule, notes: String(data.get("notes") || ""), audioFile: audioFile, contactsFile: contactsFile }); 
   }; 
-  return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">NEW REQUEST</p><h2>Create a broadcast</h2><p>Upload your campaign assets for the Xpack operations team.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Broadcast name<input name="name" required placeholder="e.g. August renewal reminder"/></label><div className="form-grid"><label>Audio file <span className="dropzone">{audioFile ? <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB</small></>}<input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{contactsFile ? <><Icon name="check"/><b>{contactsFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload contact list</b><small>Maximum 50 MB</small></>}<input name="contacts" type="file" required onChange={e => setContactsFile(e.target.files?.[0] || null)}/></span></label></div><div className="form-grid" style={{alignItems: 'end'}}><label>Schedule<select name="schedule" value={scheduleType} onChange={e => setScheduleType(e.target.value)}><option>Start on processing</option><option>Schedule for later</option></select></label>{scheduleType === "Schedule for later" && <label>Select Date<input type="datetime-local" name="scheduleDate" required/></label>}</div><label>Instructions <textarea name="notes" placeholder="Any instructions for our operations team?" rows={3}/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Submit broadcast <Icon name="arrow" size={16}/></button></div></form></div>; 
+  return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">NEW REQUEST</p><h2>Create a broadcast</h2><p>Upload your campaign assets for the Xpack operations team.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Broadcast name<input name="name" required placeholder="e.g. August renewal reminder"/></label><div className="form-grid"><label>Audio file <span className="dropzone">{audioFile ? <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB</small></>}<input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone" style={isParsing ? {opacity:0.5} : {}}>{contactsFile ? <><Icon name="check"/><b>{contactsFile.name}</b><small>{isParsing ? "Scanning..." : contactsCount !== null ? `${contactsCount} contacts found` : "Ready"}</small></> : <><Icon name="upload"/><b>Upload contact list</b><small>CSV, TXT, XLSX, PDF</small></>}<input name="contacts" type="file" required onChange={handleContactsChange} accept=".csv,.txt,.xlsx,.xls,.pdf"/></span></label></div><div className="form-grid" style={{alignItems: 'end'}}><label>Schedule<select name="schedule" value={scheduleType} onChange={e => setScheduleType(e.target.value)}><option>Start on processing</option><option>Schedule for later</option></select></label>{scheduleType === "Schedule for later" && <label>Select Date<input type="datetime-local" name="scheduleDate" required/></label>}</div><label>Instructions <textarea name="notes" placeholder="Any instructions for our operations team?" rows={3}/></label>
+  <div style={{background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px'}}>
+    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><span>Rate per call:</span><strong>₹{Number(price).toFixed(2)}</strong></div>
+    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><span>Estimated calls:</span><strong>{contactsCount !== null ? contactsCount : '-'}</strong></div>
+    <div style={{display:'flex', justifyContent:'space-between', marginTop:'10px', paddingTop:'10px', borderTop:'1px solid #cbd5e1', fontSize:'16px'}}><span>Estimated total:</span><strong style={{color: '#0f172a'}}>₹{estimatedCost.toFixed(2)}</strong></div>
+    {!canAfford && contactsCount !== null && <p style={{color: '#ef4444', fontSize: '12px', marginTop: '10px', textAlign: 'right'}}>Insufficient balance (₹{balance.toFixed(2)} available)</p>}
+  </div>
+  <div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary" disabled={isParsing || (!canAfford && contactsCount !== null)}>Submit broadcast <Icon name="arrow" size={16}/></button></div></form></div>; 
 }
 function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => void; session: Session }) { const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const d = new FormData(e.currentTarget); onSubmit({ id: `TK-${209 + Math.floor(Math.random() * 90)}`, subject: String(d.get("subject")), customer: session.company || session.name, priority: String(d.get("priority")) as "Normal" | "High", status: "Open", message: String(d.get("message")), created: "Just now" }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal compact-modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we'll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Subject<input name="subject" required placeholder="How can we help?"/></label><label>Priority<select name="priority"><option>Normal</option><option>High</option></select></label><label>Message<textarea name="message" required rows={5} placeholder="Give us the details…"/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Create ticket <Icon name="arrow" size={16}/></button></div></form></div>; }
 
