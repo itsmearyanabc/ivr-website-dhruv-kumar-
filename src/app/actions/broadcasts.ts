@@ -76,6 +76,15 @@ export async function createBroadcast(formData: FormData) {
     return { error: 'Missing required fields or files.' }
   }
 
+  // File size validation
+  const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+  if (audio.size > MAX_FILE_SIZE) {
+    return { error: 'Audio file exceeds 25 MB limit.' }
+  }
+  if (contacts.size > MAX_FILE_SIZE) {
+    return { error: 'Contacts file exceeds 25 MB limit.' }
+  }
+
   // Upload to Supabase Storage
   const audio_key = `audio/${crypto.randomUUID()}-${audio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
   const contacts_key = `contacts/${crypto.randomUUID()}-${contacts.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
@@ -122,6 +131,47 @@ export async function createBroadcast(formData: FormData) {
     broadcast_id: data.id,
     status: 'PLACED'
   }])
+
+  // Deduct balance for the broadcast based on estimated cost
+  // The frontend calculates estimated cost and passes it; server validates against balance
+  const estimatedCost = formData.get("estimatedCost") ? parseFloat(String(formData.get("estimatedCost"))) : 0
+  if (estimatedCost > 0) {
+    // Check user balance first
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('balance')
+      .eq('id', user.id)
+      .single()
+
+    if (userProfile && Number(userProfile.balance) >= estimatedCost) {
+      // Deduct balance atomically via RPC
+      const { error: deductError } = await supabase.rpc('increment_balance', {
+        uid: user.id,
+        amt: -estimatedCost
+      })
+
+      if (deductError) {
+        // Fallback if RPC not available
+        console.warn("RPC increment_balance not available for deduction:", deductError)
+        await supabase
+          .from('users')
+          .update({ balance: Number(userProfile.balance) - estimatedCost })
+          .eq('id', user.id)
+      }
+
+      // Record the debit transaction
+      await supabase.from('transactions').insert([{
+        user_id: user.id,
+        amount: estimatedCost,
+        type: 'DEBIT',
+        status: 'SUCCESS',
+        order_id: reference_no
+      }])
+    } else {
+      // Broadcast created but insufficient balance — flag it
+      console.warn(`User ${user.id} has insufficient balance for broadcast ${reference_no}. Balance: ${userProfile?.balance}, Cost: ${estimatedCost}`)
+    }
+  }
 
   return { data }
 }

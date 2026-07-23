@@ -1,9 +1,11 @@
 "use server";
-import { createClient } from "@/lib/supabase/server";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { checkIsAdmin } from "@/app/actions/auth";
 
 export async function getSystemSettings() {
   try {
-    const supabase = await createClient();
+    const supabase = await createServiceRoleClient();
     const { data, error } = await supabase
       .from('system_settings')
       .select('*');
@@ -28,7 +30,19 @@ export async function getSystemSettings() {
 
 export async function updatePricePerCall(priceStr: string) {
   try {
-    const supabase = await createClient();
+    // FIX: Admin authorization required to update pricing
+    const isAdmin = await checkIsAdmin();
+    if (!isAdmin) {
+      return { error: 'Unauthorized: Admin access required to update pricing.' };
+    }
+
+    const supabase = await createServiceRoleClient();
+    
+    // Validate the price is a positive number
+    const price = parseFloat(priceStr);
+    if (isNaN(price) || price <= 0) {
+      return { error: 'Price must be a positive number.' };
+    }
     
     // Update or insert
     const { error } = await supabase
@@ -41,7 +55,8 @@ export async function updatePricePerCall(priceStr: string) {
     }
     
     return { success: true };
-  } catch (e: any) {
-    return { error: e.message || "An unexpected error occurred." };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "An unexpected error occurred.";
+    return { error: message };
   }
 }

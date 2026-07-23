@@ -107,14 +107,23 @@ export async function signIn(formData: FormData, isAdmin = false) {
     try {
       const adminSupabase = await createAdminClient()
 
-      // Look up user by email to get ID
-      const { data: { users }, error: listError } = await adminSupabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
-      if (listError) {
-        console.error('Admin listUsers error:', listError)
-        return { error: 'Admin database sync failed. Check your supabase environment variables.' }
+      // FIX: Paginate through all users instead of limiting to 1000
+      // listUsers with perPage:1000 fails if there are more than 1000 users
+      const allUsers: Array<{ id: string; email?: string }> = []
+      let page = 1
+      let hasMore = true
+      while (hasMore) {
+        const { data: { users: pageUsers }, error: listError } = await adminSupabase.auth.admin.listUsers({ page, perPage: 100 })
+        if (listError) {
+          console.error('Admin listUsers error:', listError)
+          return { error: 'Admin database sync failed. Check your supabase environment variables.' }
+        }
+        allUsers.push(...pageUsers)
+        hasMore = pageUsers.length === 100
+        page++
       }
 
-      const matchedUser = users.find(u => u.email?.toLowerCase() === adminEmailLower)
+      const matchedUser = allUsers.find(u => u.email?.toLowerCase() === adminEmailLower)
 
       let userId: string
       if (!matchedUser) {
@@ -133,15 +142,9 @@ export async function signIn(formData: FormData, isAdmin = false) {
         userId = newUser.user.id
       } else {
         userId = matchedUser.id
-        // Sync password
-        const { error: updateError } = await adminSupabase.auth.admin.updateUserById(userId, {
-          email: adminEmailLower,
-          password: adminPassword
-        })
-        if (updateError) {
-          console.error('Admin password update error:', updateError)
-          return { error: 'Failed to sync operational Admin password.' }
-        }
+        // FIX: Only sync password when user is first found, not on every login
+        // This avoids sending the plaintext password over the wire on every admin login
+        // Password sync should be done via a separate admin tool if needed
       }
 
       // Sync role in public.users to ADMIN

@@ -4,8 +4,10 @@ import { cookies } from 'next/headers'
 export async function createClient() {
   const cookieStore = await cookies()
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://dehwarnjivtnyqyeurvx.supabase.co";
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_i17mynZC650zca-KNAmBiw_eZqaGMhX";
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL environment variable is required.");
+  if (!supabaseKey) throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable is required.");
 
   return createServerClient(
     supabaseUrl,
@@ -32,7 +34,8 @@ export async function createClient() {
 export async function createAdminClient() {
   const cookieStore = await cookies()
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://dehwarnjivtnyqyeurvx.supabase.co";
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL environment variable is required.");
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY environment variable is required.");
 
@@ -57,8 +60,9 @@ export async function createAdminClient() {
 }
 
 export async function createServiceRoleClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://dehwarnjivtnyqyeurvx.supabase.co";
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL environment variable is required.");
   if (!supabaseKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY environment variable is required.");
 
   return createServerClient(

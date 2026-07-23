@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-// @ts-ignore
+// @ts-expect-error -- paytmchecksum has no type declarations
 import PaytmChecksum from "paytmchecksum";
 
 export async function POST(request: Request) {
@@ -13,7 +13,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { amount } = await request.json();
+    const formData = await request.formData();
+    const amount = parseFloat(String(formData.get("amount") || "0"));
     if (!amount || amount <= 0) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
     }
@@ -22,8 +23,11 @@ export async function POST(request: Request) {
     const custId = user.id;
 
     // Load Paytm variables from ENV
-    const mid = process.env.PAYTM_MID || "YOUR_TEST_MID";
-    const mkey = process.env.PAYTM_MERCHANT_KEY || "YOUR_TEST_KEY";
+    const mid = process.env.PAYTM_MID;
+    const mkey = process.env.PAYTM_MERCHANT_KEY;
+    if (!mid || !mkey) {
+      return NextResponse.json({ error: "Paytm configuration missing. Set PAYTM_MID and PAYTM_MERCHANT_KEY environment variables." }, { status: 500 });
+    }
     const website = process.env.PAYTM_WEBSITE || "WEBSTAGING"; // "DEFAULT" for prod
     const industryTypeId = process.env.PAYTM_INDUSTRY_TYPE_ID || "Retail";
     const channelId = process.env.PAYTM_CHANNEL_ID || "WEB";
@@ -52,8 +56,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ params: paytmParams, actionUrl });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Paytm initiate error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
