@@ -5,12 +5,13 @@ import { createClient } from "@supabase/supabase-js";
 import PaytmChecksum from "paytmchecksum";
 
 // Since this is a webhook, we use the service role key to bypass RLS and update the user balance.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export async function POST(request: Request) {
   try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
     const formData = await request.formData();
     const body: Record<string, string> = {};
     formData.forEach((value, key) => {
