@@ -128,10 +128,17 @@ export async function updateTicketStatus(id: string, status: string, replyMessag
     return { error: 'Invalid status value.' }
   }
 
-  const { data: ticket, error } = await supabase
+  let query = supabase
     .from('support_tickets')
     .update({ status: status.toUpperCase(), updated_at: new Date().toISOString() })
-    .or(`reference_no.eq.${id},id.eq.${id}`)
+    
+  if (id.startsWith('TK-')) {
+    query = query.eq('reference_no', id)
+  } else {
+    query = query.eq('id', id)
+  }
+
+  const { data: ticket, error } = await query
     .select()
     .single()
 

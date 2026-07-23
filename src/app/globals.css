@@ -12,5 +12,49 @@ button{font-family:inherit}.help-card button,.user-card button{border:0;backgrou
 .customer-link{border:0;background:none;color:var(--blue);font:700 12px inherit;cursor:pointer;padding:0;text-decoration:none}.customer-link:hover{text-decoration:underline}
 /* S.No. column */
 .sno-col{width:70px;text-align:center;font-weight:700;color:var(--blue);font-size:11px}
-@media(max-width:900px){.auth-shell{grid-template-columns:1fr}.auth-brand{min-height:300px;padding:90px 30px 40px}.auth-brand .brand{left:30px;top:26px}.auth-brand h1{font-size:37px}.auth-panel{padding:45px 25px}.support-layout{grid-template-columns:1fr}}
-@media(max-width:760px){.access-label{display:none}.support-aside{display:none}.auth-brand{min-height:260px}.auth-points{margin-top:25px}.auth-brand h1{font-size:31px}.detail-grid{grid-template-columns:1fr}.table-tools{display:none}}
+/* Refunded and Cancelled reason box */
+.badge.refunded{color:#4a044e;background:#fdf4ff}
+.cancel-reason-box{display:flex;align-items:flex-start;gap:10px;background:#fff0f2;color:#bd3b48;padding:14px;margin-top:16px;border-radius:7px;border:1px solid #ffe4e6}
+.cancel-reason-box>svg{flex:none;background:#ffe4e6;border-radius:50%;padding:4px;width:25px;height:25px}
+.cancel-reason-box div{flex:1}
+.cancel-reason-box strong{font-size:12px;display:block;margin-bottom:4px}
+.cancel-reason-box p{font-size:12px;margin:0;color:#9f1239;line-height:1.5}
+.refund-box{display:flex;align-items:flex-start;gap:10px;background:#fdf4ff;color:#86198f;padding:14px;margin-top:16px;border-radius:7px;border:1px solid #fae8ff}
+.refund-box>svg{flex:none;background:#fae8ff;border-radius:50%;padding:4px;width:25px;height:25px}
+.refund-box div{flex:1}
+.refund-box strong{font-size:12px;display:block;margin-bottom:4px}
+.refund-box p{font-size:12px;margin:0;color:#701a75;line-height:1.5}
+
+/* Status Timeline */
+.status-timeline{display:flex;align-items:center;justify-content:space-between;margin:20px 0 30px;position:relative}
+.status-timeline::before{content:"";position:absolute;top:10px;left:20px;right:20px;height:2px;background:#e2e8f0;z-index:0}
+.status-timeline-node{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:6px;flex:1}
+.status-timeline-dot{width:22px;height:22px;border-radius:50%;background:#e2e8f0;border:4px solid #fff;display:grid;place-items:center;transition:all .3s}
+.status-timeline-node.active .status-timeline-dot{background:var(--blue);box-shadow:0 0 0 3px var(--blue-soft)}
+.status-timeline-node.completed .status-timeline-dot{background:var(--green)}
+.status-timeline-node.hold .status-timeline-dot{background:var(--orange)}
+.status-timeline-node.cancelled .status-timeline-dot{background:var(--red)}
+.status-timeline-node.refunded .status-timeline-dot{background:#86198f}
+.status-timeline-label{font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;text-align:center}
+.status-timeline-node.active .status-timeline-label,.status-timeline-node.completed .status-timeline-label{color:#334155}
+
+/* Activity Dashboard */
+.activity-dashboard{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px}
+.chart-card{background:#fff;border:1px solid var(--line);border-radius:9px;padding:20px}
+.chart-card h3{font-size:14px;margin:0 0 15px;color:#1e293b}
+.bar-chart{display:flex;align-items:flex-end;gap:12px;height:120px;padding-bottom:20px;border-bottom:1px solid #f1f5f9;margin-bottom:10px}
+.bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:8px;height:100%}
+.bar{width:100%;background:var(--blue-soft);border-radius:4px 4px 0 0;min-height:4px;transition:height .3s;position:relative}
+.bar:hover{background:var(--blue)}
+.bar-label{font-size:10px;color:#64748b;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.bar-val{font-size:10px;font-weight:700;color:#334155}
+.chart-total{font-size:32px;font-weight:800;letter-spacing:-1px;margin:0 0 5px;color:var(--blue)}
+.chart-sub{font-size:12px;color:#64748b}
+
+.activity-filters{display:flex;gap:12px;margin-bottom:20px;align-items:center}
+.date-filter{height:36px;border:1px solid #e2e8f0;border-radius:6px;padding:0 12px;font:13px inherit;color:#334155}
+.event-group{margin-bottom:24px}
+.event-group-date{font-size:12px;font-weight:700;color:#64748b;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid #f1f5f9}
+
+@media(max-width:900px){.auth-shell{grid-template-columns:1fr}.auth-brand{min-height:300px;padding:90px 30px 40px}.auth-brand .brand{left:30px;top:26px}.auth-brand h1{font-size:37px}.auth-panel{padding:45px 25px}.support-layout{grid-template-columns:1fr}.activity-dashboard{grid-template-columns:1fr}}
+@media(max-width:760px){.access-label{display:none}.support-aside{display:none}.auth-brand{min-height:260px}.auth-points{margin-top:25px}.auth-brand h1{font-size:31px}.detail-grid{grid-template-columns:1fr}.table-tools{display:none}.status-timeline-label{font-size:8px}}

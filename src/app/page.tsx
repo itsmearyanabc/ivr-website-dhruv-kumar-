@@ -8,10 +8,11 @@ import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, 
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 
 type Role = "customer" | "admin";
-type Status = "Placed" | "In progress" | "Completed" | "Cancelled" | "On hold";
+type Status = "Placed" | "In progress" | "Completed" | "Cancelled" | "On hold" | "Refunded";
 type TicketStatus = "Open" | "In progress" | "Resolved" | "Closed";
 type Session = { role: Role; name: string; email: string; company?: string };
-type Order = { id: string; broadcastNo: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean; audioKey?: string; contactsKey?: string; reportKey?: string; audioFile?: File; contactsFile?: File; holdReason?: string };
+type OrderHistory = { status: string; reason?: string; created_at: string };
+type Order = { id: string; broadcastNo: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean; audioKey?: string; contactsKey?: string; reportKey?: string; audioFile?: File; contactsFile?: File; holdReason?: string; cancelReason?: string; refundReason?: string; refundAmount?: number; history?: OrderHistory[] };
 type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
 
 const initialOrders: Order[] = [];
@@ -29,7 +30,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
 }
 function formatStatus(raw: string): Status | TicketStatus {
   const map: Record<string, string> = {
-    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold',
+    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold', 'REFUNDED': 'Refunded',
     'OPEN': 'Open', 'RESOLVED': 'Resolved', 'CLOSED': 'Closed',
   };
   return (map[raw] || raw.charAt(0) + raw.slice(1).toLowerCase()) as Status | TicketStatus;
@@ -54,6 +55,10 @@ function mapBroadcast(b: any, index: number) {
     reportKey: b.reports?.[0]?.file_key,
     report: b.status === 'COMPLETED' && !!b.reports?.[0]?.file_key,
     holdReason: b.hold_reason || '',
+    cancelReason: b.cancel_reason || '',
+    refundReason: b.refund_reason || '',
+    refundAmount: b.refund_amount,
+    history: b.history || [],
   };
 }
 
@@ -167,14 +172,17 @@ export default function App() {
     }
   };
 
-  const updateOrder = async (id: string, status: Status, reportFile?: File, holdReason?: string) => { 
+  const updateOrder = async (id: string, status: Status, payload?: { reportFile?: File, holdReason?: string, cancelReason?: string, refundReason?: string, refundAmount?: number }) => { 
     setSelected(null); 
     const dbStatus = status.toUpperCase().replace(' ', '_');
     const formData = new FormData();
     formData.append("id", id);
     formData.append("status", dbStatus);
-    if (reportFile) formData.append("report", reportFile);
-    if (holdReason) formData.append("holdReason", holdReason);
+    if (payload?.reportFile) formData.append("report", payload.reportFile);
+    if (payload?.holdReason) formData.append("holdReason", payload.holdReason);
+    if (payload?.cancelReason) formData.append("cancelReason", payload.cancelReason);
+    if (payload?.refundReason) formData.append("refundReason", payload.refundReason);
+    if (payload?.refundAmount) formData.append("refundAmount", payload.refundAmount.toString());
 
     const { error } = await updateBroadcastStatus(formData);
     if (error) {
@@ -411,37 +419,45 @@ function AdminPage({ view, orders, tickets, setView, select, selectTicket }: { v
   if (view === "Support desk") return <><Heading eyebrow="ADMIN PORTAL" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (view === "Activity log") {
+    const [actFilterDate, setActFilterDate] = useState("");
     const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
     orders.forEach(o => {
-      events.push({
-        title: `${o.broadcastNo} created`,
-        text: `${o.customer} submitted a new broadcast request.`,
-        time: o.created,
-        dateObj: parseDate(o.created),
-        color: "blue"
-      });
-      if (o.status === "Completed") {
-        events.push({
-          title: "Report uploaded",
-          text: `Admin completed ${o.broadcastNo} and shared performance report.`,
-          time: o.created,
-          dateObj: parseDate(o.created),
-          color: "green"
-        });
+      events.push({ title: `${o.broadcastNo} created`, text: `${o.customer} submitted a new broadcast request.`, time: o.created, dateObj: parseDate(o.created), color: "blue" });
+      if (o.status === "Completed") events.push({ title: "Report uploaded", text: `Admin completed ${o.broadcastNo} and shared performance report.`, time: o.created, dateObj: parseDate(o.created), color: "green" });
+      if (o.history) {
+        o.history.forEach((h) => {
+          events.push({ title: `Order ${h.status.toLowerCase()}`, text: h.reason || `Status updated for ${o.broadcastNo}`, time: new Date(h.created_at).toLocaleString(), dateObj: new Date(h.created_at), color: h.status === 'REFUNDED' ? 'refunded' : h.status === 'CANCELLED' ? 'red' : 'activity' })
+        })
       }
     });
-    tickets.forEach(t => {
-      events.push({
-        title: "Support ticket opened",
-        text: `Customer opened ${t.id}.`,
-        time: t.created,
-        dateObj: parseDate(t.created),
-        color: "blue"
-      });
-    });
+    tickets.forEach(t => events.push({ title: "Support ticket opened", text: `Customer opened ${t.id}.`, time: t.created, dateObj: parseDate(t.created), color: "blue" }));
+    
     events.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
+    
+    // Group events by date string
+    const filteredEvents = actFilterDate ? events.filter(e => e.dateObj.toISOString().split('T')[0] === actFilterDate) : events;
+    const grouped: Record<string, typeof events> = {};
+    filteredEvents.forEach(e => {
+      const dStr = e.dateObj.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      if (!grouped[dStr]) grouped[dStr] = [];
+      grouped[dStr].push(e);
+    });
 
-    return <><Heading eyebrow="ADMIN PORTAL" title="Activity log" text="A complete audit trail of operational activity."/><section className="panel activity-log">{events.length > 0 ? events.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />) : <p className="text-muted" style={{ padding: '24px', textAlign: 'center' }}>No activities recorded yet.</p>}</section></>;
+    // Chart metrics
+    const customersTotal = new Set(orders.map(o => o.email)).size;
+    const statuses = { placed: 0, progress: 0, hold: 0, completed: 0, cancelled: 0 };
+    let totalRefunds = 0;
+    orders.forEach(o => {
+      if (o.status === "Placed") statuses.placed++;
+      else if (o.status === "In progress") statuses.progress++;
+      else if (o.status === "On hold") statuses.hold++;
+      else if (o.status === "Completed") statuses.completed++;
+      else if (o.status === "Cancelled") statuses.cancelled++;
+      if (o.refundAmount) totalRefunds += Number(o.refundAmount);
+    });
+    const maxVal = Math.max(...Object.values(statuses), 1);
+
+    return <><Heading eyebrow="ADMIN PORTAL" title="Activity dashboard" text="Audit trail and operational metrics."/><div className="activity-dashboard"><div className="chart-card"><h3>Order Distribution</h3><div className="bar-chart"><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.placed/maxVal)*100}%`}}></div><span className="bar-val">{statuses.placed}</span><span className="bar-label">Placed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.progress/maxVal)*100}%`, background: '#fff3df'}}></div><span className="bar-val">{statuses.progress}</span><span className="bar-label">In progress</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.hold/maxVal)*100}%`, background: '#fef3c7'}}></div><span className="bar-val">{statuses.hold}</span><span className="bar-label">On hold</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.completed/maxVal)*100}%`, background: '#e8f7ef'}}></div><span className="bar-val">{statuses.completed}</span><span className="bar-label">Completed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.cancelled/maxVal)*100}%`, background: '#fff0f2'}}></div><span className="bar-val">{statuses.cancelled}</span><span className="bar-label">Cancelled</span></div></div></div><div style={{display:'flex',flexDirection:'column',gap:'20px'}}><div className="chart-card"><h3>Total Customers</h3><p className="chart-total">{customersTotal}</p><p className="chart-sub">Registered accounts</p></div><div className="chart-card"><h3>Total Refunds</h3><p className="chart-total" style={{color:'#86198f'}}>${totalRefunds.toFixed(2)}</p><p className="chart-sub">Issued to customers</p></div></div></div><section className="panel activity-log"><div className="activity-filters"><label style={{fontSize:'12px',fontWeight:700,color:'#64748b'}}>Filter by date</label><input type="date" className="date-filter" value={actFilterDate} onChange={e => setActFilterDate(e.target.value)}/>{actFilterDate && <button className="text-button" onClick={() => setActFilterDate("")}>Clear filter</button>}</div>{Object.keys(grouped).length > 0 ? Object.entries(grouped).map(([date, evs]) => <div key={date} className="event-group"><h4 className="event-group-date">{date}</h4>{evs.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />)}</div>) : <p className="text-muted" style={{ padding: '24px', textAlign: 'center' }}>No activities recorded for this period.</p>}</section></>;
   }
 
   const pending = orders.filter((o: Order) => o.status === "Placed").length, active = orders.filter((o: Order) => o.status === "In progress").length, done = orders.filter((o: Order) => o.status === "Completed").length;
@@ -459,10 +475,45 @@ function OrderTable({ orders, onSelect, admin = false, onViewCustomer }: { order
 function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
 function BroadcastModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (o: Order) => void; session: Session }) { const [audioFile, setAudioFile] = useState<File | null>(null); const [contactsFile, setContactsFile] = useState<File | null>(null); const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const data = new FormData(e.currentTarget); const audio = data.get("audio") as File, contacts = data.get("contacts") as File; if (!audio?.name || !contacts?.name) return alert("Please attach both the audio file and contact list."); onSubmit({ id: `BR-${1050 + Math.floor(Math.random() * 850)}`, broadcastNo: '', name: String(data.get("name")), customer: session.company || session.name, email: session.email, created: "Just now", contacts: "Pending validation", status: "Placed", schedule: String(data.get("schedule")), notes: String(data.get("notes") || ""), audioFile: audio, contactsFile: contacts }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">NEW REQUEST</p><h2>Create a broadcast</h2><p>Upload your campaign assets for the Xpack operations team.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Broadcast name<input name="name" required placeholder="e.g. August renewal reminder"/></label><div className="form-grid"><label>Audio file <span className="dropzone">{audioFile ? <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB</small></>}<input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{contactsFile ? <><Icon name="check"/><b>{contactsFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload contact list</b><small>Maximum 50 MB</small></>}<input name="contacts" type="file" required onChange={e => setContactsFile(e.target.files?.[0] || null)}/></span></label></div><label>Schedule<select name="schedule"><option>Start on processing</option><option>Schedule for later</option></select></label><label>Instructions <textarea name="notes" placeholder="Any instructions for our operations team?" rows={3}/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Submit broadcast <Icon name="arrow" size={16}/></button></div></form></div>; }
 function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => void; session: Session }) { const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const d = new FormData(e.currentTarget); onSubmit({ id: `TK-${209 + Math.floor(Math.random() * 90)}`, subject: String(d.get("subject")), customer: session.company || session.name, priority: String(d.get("priority")) as "Normal" | "High", status: "Open", message: String(d.get("message")), created: "Just now" }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal compact-modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we'll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Subject<input name="subject" required placeholder="How can we help?"/></label><label>Priority<select name="priority"><option>Normal</option><option>High</option></select></label><label>Message<textarea name="message" required rows={5} placeholder="Give us the details…"/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Create ticket <Icon name="arrow" size={16}/></button></div></form></div>; }
-function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: { order: Order; admin: boolean; onClose: () => void; onUpdate: (id: string, s: Status, reportFile?: File, holdReason?: string) => void; onResubmit: (id: string, audioFile?: File, contactsFile?: File) => void }) {
+
+function StatusTimeline({ currentStatus }: { currentStatus: Status }) {
+  const steps = [
+    { label: "Placed", key: "Placed" },
+    { label: "In progress", key: "In progress" },
+    { label: "Completed", key: "Completed" }
+  ];
+  
+  if (currentStatus === "Cancelled") steps[2] = { label: "Cancelled", key: "Cancelled" };
+  if (currentStatus === "Refunded") steps[2] = { label: "Refunded", key: "Refunded" };
+  if (currentStatus === "On hold") steps[1] = { label: "On hold", key: "On hold" };
+
+  const getStatusClass = (stepKey: string, current: string) => {
+    if (stepKey === current) return `active ${stepKey.toLowerCase().replace(" ", "-")}`;
+    if (current === "Completed" || current === "Refunded" || (current === "In progress" && stepKey === "Placed")) return "completed";
+    return "";
+  };
+
+  return (
+    <div className="status-timeline">
+      {steps.map((s, i) => (
+        <div key={i} className={`status-timeline-node ${getStatusClass(s.key, currentStatus)}`}>
+          <div className="status-timeline-dot">
+            {getStatusClass(s.key, currentStatus) === "completed" ? <Icon name="check" size={12}/> : <Icon name="radio" size={10}/>}
+          </div>
+          <span className="status-timeline-label">{s.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: { order: Order; admin: boolean; onClose: () => void; onUpdate: (id: string, s: Status, payload?: { reportFile?: File, holdReason?: string, cancelReason?: string, refundReason?: string, refundAmount?: number }) => void; onResubmit: (id: string, audioFile?: File, contactsFile?: File) => void }) {
   const [status, setStatus] = useState<Status>(order.status);
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [holdReason, setHoldReason] = useState(order.holdReason || "");
+  const [cancelReason, setCancelReason] = useState(order.cancelReason || "");
+  const [refundReason, setRefundReason] = useState(order.refundReason || "");
+  const [refundAmount, setRefundAmount] = useState(order.refundAmount || "");
   const [resubmitAudio, setResubmitAudio] = useState<File | null>(null);
   const [resubmitContacts, setResubmitContacts] = useState<File | null>(null);
 
@@ -475,6 +526,6 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: { order: Or
     }
   };
 
-  return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{order.broadcastNo}</p><h2>{order.name}</h2><p>{order.customer} · {order.contacts}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={order.status}/></div><div><small>Schedule</small><strong>{order.schedule}</strong></div><div><small>Audio asset</small>{order.audioKey ? <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download Audio</button> : <span className="text-muted">No file</span>}</div><div><small>Contact list</small>{order.contactsKey ? <button className="text-button" onClick={() => handleDownload(order.contactsKey!)} title={order.contactsKey}><Icon name="download" size={14}/>Download Contacts</button> : <span className="text-muted">No file</span>}</div></div>{order.notes && <div className="detail-note"><strong>Customer instructions</strong><p>{order.notes}</p></div>}{order.report && <div className="report-ready"><Icon name="check"/><div><strong>Performance report ready</strong><p>Report has been uploaded to this order.</p></div><button className="outline" onClick={() => handleDownload(order.reportKey!)}><Icon name="download" size={14}/>Download</button></div>}{/* Show hold reason to customer */}{!admin && order.status === "On hold" && order.holdReason && <div className="hold-reason-box"><Icon name="pause" size={18}/><div><strong>Order on hold — Action required</strong><p>{order.holdReason}</p></div></div>}{/* Customer resubmit section — only when on hold */}{!admin && order.status === "On hold" && <div className="resubmit-section"><h3>Resubmit files to resolve the issue</h3><p style={{fontSize:'12px',color:'#78350f',margin:'0 0 12px'}}>Upload a corrected audio file and/or contact list. Your order will be moved back to &quot;Placed&quot; for review.</p><div className="form-grid"><label>Audio file <span className="dropzone">{resubmitAudio ? <><Icon name="check"/><b>{resubmitAudio.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace audio</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitAudio(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{resubmitContacts ? <><Icon name="check"/><b>{resubmitContacts.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace contacts</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitContacts(e.target.files?.[0] || null)}/></span></label></div><button className="primary" onClick={() => onResubmit(order.id, resubmitAudio || undefined, resubmitContacts || undefined)} disabled={!resubmitAudio && !resubmitContacts}>Resubmit files <Icon name="arrow" size={16}/></button></div>}{admin && <div className="admin-update"><label>Update order status<select value={status} onChange={e => setStatus(e.target.value as Status)}><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option><option>On hold</option></select></label>{status === "On hold" && <label>Hold reason<textarea value={holdReason} onChange={e => setHoldReason(e.target.value)} rows={3} placeholder="Describe the issue (e.g. Wrong audio format, Unclear audio file, Invalid contact list...)"/></label>}{status === "Completed" && <label>Performance report<input type="file" accept=".csv,.pdf,.zip" onChange={e => setReportFile(e.target.files?.[0] || null)}/></label>}<button className="primary" onClick={() => onUpdate(order.id, status, reportFile || undefined, status === "On hold" ? holdReason : undefined)}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>;
+  return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{order.broadcastNo}</p><h2>{order.name}</h2><p>{order.customer} · {order.contacts}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><StatusTimeline currentStatus={order.status}/><div className="detail-grid"><div><small>Current status</small><Badge status={order.status}/></div><div><small>Schedule</small><strong>{order.schedule}</strong></div><div><small>Audio asset</small>{order.audioKey ? <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download Audio</button> : <span className="text-muted">No file</span>}</div><div><small>Contact list</small>{order.contactsKey ? <button className="text-button" onClick={() => handleDownload(order.contactsKey!)} title={order.contactsKey}><Icon name="download" size={14}/>Download Contacts</button> : <span className="text-muted">No file</span>}</div></div>{order.notes && <div className="detail-note"><strong>Customer instructions</strong><p>{order.notes}</p></div>}{order.report && <div className="report-ready"><Icon name="check"/><div><strong>Performance report ready</strong><p>Report has been uploaded to this order.</p></div><button className="outline" onClick={() => handleDownload(order.reportKey!)}><Icon name="download" size={14}/>Download</button></div>}{/* Show hold reason to customer */}{!admin && order.status === "On hold" && order.holdReason && <div className="hold-reason-box"><Icon name="pause" size={18}/><div><strong>Order on hold — Action required</strong><p>{order.holdReason}</p></div></div>}{/* Cancel & Refund Info for customer */}{!admin && order.status === "Cancelled" && order.cancelReason && <div className="cancel-reason-box"><Icon name="close" size={18}/><div><strong>Order Cancelled</strong><p>{order.cancelReason}</p></div></div>}{!admin && order.status === "Refunded" && <div className="refund-box"><Icon name="check" size={18}/><div><strong>Order Refunded (Amount: ${order.refundAmount})</strong><p>{order.refundReason}</p></div></div>}{/* Customer resubmit section — only when on hold */}{!admin && order.status === "On hold" && <div className="resubmit-section"><h3>Resubmit files to resolve the issue</h3><p style={{fontSize:'12px',color:'#78350f',margin:'0 0 12px'}}>Upload a corrected audio file and/or contact list. Your order will be moved back to &quot;Placed&quot; for review.</p><div className="form-grid"><label>Audio file <span className="dropzone">{resubmitAudio ? <><Icon name="check"/><b>{resubmitAudio.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace audio</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitAudio(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{resubmitContacts ? <><Icon name="check"/><b>{resubmitContacts.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace contacts</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitContacts(e.target.files?.[0] || null)}/></span></label></div><button className="primary" onClick={() => onResubmit(order.id, resubmitAudio || undefined, resubmitContacts || undefined)} disabled={!resubmitAudio && !resubmitContacts}>Resubmit files <Icon name="arrow" size={16}/></button></div>}{admin && <div className="admin-update"><label>Update order status<select value={status} onChange={e => setStatus(e.target.value as Status)}><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option><option>On hold</option><option>Refunded</option></select></label>{status === "On hold" && <label>Hold reason<textarea value={holdReason} onChange={e => setHoldReason(e.target.value)} rows={3} placeholder="Describe the issue..."/></label>}{status === "Completed" && <label>Performance report<input type="file" accept=".csv,.pdf,.zip" onChange={e => setReportFile(e.target.files?.[0] || null)}/></label>}{status === "Cancelled" && <label>Cancellation reason<textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={3} placeholder="Why is this cancelled?"/></label>}{status === "Refunded" && <><label>Refund amount ($)<input type="number" step="0.01" value={refundAmount} onChange={e => setRefundAmount(e.target.value)} placeholder="0.00"/></label><label>Refund reason<textarea value={refundReason} onChange={e => setRefundReason(e.target.value)} rows={2} placeholder="Reason for refund"/></label></>}<button className="primary" onClick={() => onUpdate(order.id, status, { reportFile: reportFile || undefined, holdReason, cancelReason, refundReason, refundAmount: Number(refundAmount) })}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>;
 }
 function TicketViewModal({ ticket, admin, onClose, onUpdate }: { ticket: Ticket; admin: boolean; onClose: () => void; onUpdate: (id: string, s: TicketStatus, reply?: string) => void }) { const [status, setStatus] = useState<TicketStatus>(ticket.status); const [reply, setReply] = useState<string>(ticket.reply || ""); return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{ticket.id}</p><h2>{ticket.subject}</h2><p>{ticket.customer} · {ticket.created}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={ticket.status}/></div><div><small>Priority</small><span className={ticket.priority === "High" ? "priority overdue" : "priority new"}>{ticket.priority}</span></div></div><div className="detail-note"><strong>Customer Message</strong><p>{ticket.message}</p></div>{ticket.reply && !admin && <div className="detail-note" style={{background: '#f0f9ff', borderColor: '#bae6fd'}}><strong>Admin Reply</strong><p>{ticket.reply}</p></div>}{admin && <div className="admin-update"><label>Update ticket status<select value={status} onChange={e => setStatus(e.target.value as TicketStatus)}><option>Open</option><option>In progress</option><option>Resolved</option></select></label><label>Reply to customer<textarea value={reply} onChange={e => setReply(e.target.value)} rows={3} placeholder="Type your response here..."/></label><button className="primary" onClick={() => onUpdate(ticket.id, status, reply)}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>; }

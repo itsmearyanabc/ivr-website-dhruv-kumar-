@@ -23,6 +23,11 @@ export async function getBroadcasts() {
       ),
       reports (
         file_key
+      ),
+      broadcast_status_history (
+        status,
+        reason,
+        created_at
       )
     `)
     .order('created_at', { ascending: false })
@@ -43,6 +48,7 @@ export async function getBroadcasts() {
     ...b,
     customer: b.users?.company_name || 'Unknown',
     email: b.users?.email || 'Unknown',
+    history: b.broadcast_status_history?.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) || [],
   }))
 
   return { data: formatted }
@@ -111,6 +117,12 @@ export async function createBroadcast(formData: FormData) {
     return { error: 'Failed to create broadcast' }
   }
 
+  // Insert initial history record
+  await supabase.from('broadcast_status_history').insert([{
+    broadcast_id: data.id,
+    status: 'PLACED'
+  }])
+
   return { data }
 }
 
@@ -121,21 +133,22 @@ export async function updateBroadcastStatus(formData: FormData) {
 
   const id = String(formData.get("id"))
   const status = String(formData.get("status")).toUpperCase()
-  const validBroadcastStatuses = ['PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD']
+  const validBroadcastStatuses = ['PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD', 'REFUNDED']
   if (!validBroadcastStatuses.includes(status)) {
     return { error: 'Invalid status value.' }
   }
   const reportFile = formData.get("report") as File | null
   const holdReason = String(formData.get("holdReason") || "")
+  const cancelReason = String(formData.get("cancelReason") || "")
+  const refundReason = String(formData.get("refundReason") || "")
+  const refundAmount = formData.get("refundAmount") ? parseFloat(String(formData.get("refundAmount"))) : null
 
   const updatePayload: any = { status, updated_at: new Date().toISOString() }
   
-  // If status is ON_HOLD, save the hold reason; otherwise clear it
-  if (status === 'ON_HOLD') {
-    updatePayload.hold_reason = holdReason || null
-  } else {
-    updatePayload.hold_reason = null
-  }
+  updatePayload.hold_reason = status === 'ON_HOLD' ? (holdReason || null) : null
+  updatePayload.cancel_reason = status === 'CANCELLED' ? (cancelReason || null) : null
+  updatePayload.refund_reason = status === 'REFUNDED' ? (refundReason || null) : null
+  updatePayload.refund_amount = status === 'REFUNDED' ? refundAmount : null
 
   let query = supabase
     .from('broadcasts')
@@ -177,6 +190,18 @@ export async function updateBroadcastStatus(formData: FormData) {
       return { error: 'Failed to link report file to broadcast' }
     }
   }
+
+  // Record history
+  let historyReason = null
+  if (status === 'ON_HOLD') historyReason = holdReason
+  if (status === 'CANCELLED') historyReason = cancelReason
+  if (status === 'REFUNDED') historyReason = refundReason ? `${refundReason} (Amount: ${refundAmount})` : `Amount: ${refundAmount}`
+
+  await supabase.from('broadcast_status_history').insert([{
+    broadcast_id: data.id,
+    status,
+    reason: historyReason
+  }])
 
   return { success: true }
 }
@@ -265,6 +290,13 @@ export async function resubmitFiles(formData: FormData) {
     console.error('Resubmit update error:', updateError)
     return { error: 'Failed to update broadcast after resubmission.' }
   }
+
+  // Record history
+  await supabase.from('broadcast_status_history').insert([{
+    broadcast_id: broadcast.id,
+    status: 'PLACED',
+    reason: 'Files resubmitted by customer'
+  }])
 
   return { success: true }
 }

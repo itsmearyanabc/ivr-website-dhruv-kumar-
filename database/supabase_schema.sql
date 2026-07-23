@@ -3,7 +3,7 @@
 
 -- 1. Custom Types
 CREATE TYPE public.user_role AS ENUM ('CUSTOMER', 'ADMIN');
-CREATE TYPE public.broadcast_status AS ENUM ('PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD');
+CREATE TYPE public.broadcast_status AS ENUM ('PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD', 'REFUNDED');
 CREATE TYPE public.ticket_status AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
 CREATE TYPE public.ticket_priority AS ENUM ('NORMAL', 'HIGH');
 
@@ -32,6 +32,9 @@ CREATE TABLE public.broadcasts (
   scheduled_for TIMESTAMPTZ,
   status broadcast_status NOT NULL DEFAULT 'PLACED',
   hold_reason TEXT,
+  cancel_reason TEXT,
+  refund_reason TEXT,
+  refund_amount DECIMAL(10,2),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -66,6 +69,15 @@ CREATE TABLE public.support_messages (
   is_internal BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE public.broadcast_status_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  broadcast_id UUID NOT NULL REFERENCES public.broadcasts(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX bsh_broadcast_idx ON public.broadcast_status_history(broadcast_id, created_at);
 
 -- 3. Automatic User Profile Creation via Trigger
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -103,6 +115,7 @@ ALTER TABLE public.broadcasts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.broadcast_status_history ENABLE ROW LEVEL SECURITY;
 
 -- 5. RLS Policies
 -- Users can only see their own profile
@@ -115,6 +128,12 @@ CREATE POLICY "Customers view own broadcasts" ON public.broadcasts FOR SELECT US
 CREATE POLICY "Customers insert own broadcasts" ON public.broadcasts FOR INSERT WITH CHECK (user_id = auth.uid());
 CREATE POLICY "Admins view all broadcasts" ON public.broadcasts FOR SELECT USING (public.is_admin());
 CREATE POLICY "Admins update all broadcasts" ON public.broadcasts FOR UPDATE USING (public.is_admin());
+
+-- Broadcast status history: Customers view their own, Admins see all
+CREATE POLICY "Admins view all status history" ON public.broadcast_status_history FOR SELECT USING (public.is_admin());
+CREATE POLICY "View own broadcast status history" ON public.broadcast_status_history FOR SELECT USING (
+  EXISTS (SELECT 1 FROM public.broadcasts WHERE id = broadcast_status_history.broadcast_id AND user_id = auth.uid())
+);
 
 -- Tickets: Customers see their own, Admins see all
 CREATE POLICY "Customers view own tickets" ON public.support_tickets FOR SELECT USING (user_id = auth.uid());
