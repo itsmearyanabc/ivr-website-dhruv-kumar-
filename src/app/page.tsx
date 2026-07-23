@@ -78,10 +78,16 @@ export default function App() {
   const [showTicket, setShowTicket] = useState(false);
   const [selected, setSelected] = useState<Order | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [balance, setBalance] = useState(0);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [price, setPrice] = useState("0.25");
   const [showFunds, setShowFunds] = useState(false);
+
+  useEffect(() => {
+    (window as any).selectCustomer = (u: any) => setSelectedCustomer(u);
+    return () => { delete (window as any).selectCustomer; };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -249,7 +255,12 @@ export default function App() {
   };
   if (!session) return <Auth onLogin={login} />;
   const nav = session.role === "customer" ? [["Overview", "grid"], ["My broadcasts", "radio"], ["Support centre", "help"], ["Settings", "settings"], ["Funds", "indian-rupee"]] : [["Overview", "grid"], ["Broadcast management", "radio"], ["Customers", "users"], ["Support desk", "help"], ["Activity log", "activity"], ["Pricing", "dollar-sign"]];
-  return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div><nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">?</span><div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div></div><div className="user-card"><span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span><div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div><button title="Sign out" onClick={logout}><Icon name="logout"/></button></div></div></aside><section className="content"><header><div className="mobile-brand">Xpack</div><div className="header-actions"><span className="access-label" style={session.role === 'customer' ? {background:'#f1f5f9',color:'#0f172a'}: {}}><Icon name={session.role === "admin" ? "lock" : "indian-rupee"} size={14}/>{session.role === "admin" ? "Admin access" : `Balance: ₹${balance.toFixed(2)}`}</span><button className="notification"><Icon name="bell"/><em>3</em></button><span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span></div></header><div className="page">{session.role === "customer" ? <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} /> : <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} />}</div></section>{showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />} {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>} {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}</main>;
+  return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div><nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); setSelectedCustomer(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">?</span><div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div></div><div className="user-card"><span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span><div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div><button title="Sign out" onClick={logout}><Icon name="logout"/></button></div></div></aside><section className="content"><header><div className="mobile-brand">Xpack</div><div className="header-actions"><span className="access-label" style={session.role === 'customer' ? {background:'#f1f5f9',color:'#0f172a'}: {}}><Icon name={session.role === "admin" ? "lock" : "indian-rupee"} size={14}/>{session.role === "admin" ? "Admin access" : `Balance: ₹${balance.toFixed(2)}`}</span><button className="notification"><Icon name="bell"/><em>3</em></button><span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span></div></header><div className="page">{session.role === "customer" ? <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} /> : <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} />}</div></section>{showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />} {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>} {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} {selectedCustomer && <CustomerProfileModal customer={selectedCustomer} orders={orders.filter(o => o.email === selectedCustomer.email)} onClose={() => setSelectedCustomer(null)}/>} {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}</main>;
+}
+
+function CustomerProfileModal({ customer, orders, onClose }: { customer: any, orders: Order[], onClose: () => void }) {
+  const totalSpent = orders.filter(o => o.status === "Completed").reduce((sum, o) => sum + (Number(o.refundAmount) || 0), 0); // Mock representation of spent, as we don't have historical deducted value yet
+  return <div className="modal-overlay" onClick={onClose}><div className="modal-content" style={{maxWidth: '600px'}} onClick={e => e.stopPropagation()}><header className="modal-header"><h2>Customer Profile</h2><button className="close-button" onClick={onClose}><Icon name="x"/></button></header><div className="modal-body" style={{display: 'flex', flexDirection: 'column', gap: '20px'}}><div style={{display: 'flex', gap: '15px', alignItems: 'center'}}><span className="avatar" style={{width: '60px', height: '60px', fontSize: '24px', background: '#3b82f6', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%'}}>{customer.full_name?.slice(0,1) || customer.company_name?.slice(0,1)}</span><div><h3 style={{fontSize: '20px', margin: '0 0 5px 0'}}>{customer.full_name || customer.company_name}</h3><p style={{margin: 0, color: '#64748b'}}>{customer.email}</p><Badge status={customer.is_active ? "Active" : "Closed"}/></div></div><div className="dashboard-grid" style={{gridTemplateColumns: '1fr 1fr'}}><div className="chart-card"><h3>Current Balance</h3><p className="chart-total">₹{(Number(customer.balance) || 0).toFixed(2)}</p></div><div className="chart-card"><h3>Total Orders</h3><p className="chart-total">{orders.length}</p></div></div><div className="detail-note"><strong>Contact Details</strong><p>Phone: {customer.phone || 'Not provided'}</p><p>Company: {customer.company_name || 'Not provided'}</p><p>Joined: {new Date(customer.created_at).toLocaleDateString()}</p></div></div><footer className="modal-footer"><button className="outline" onClick={onClose}>Close</button></footer></div></div>;
 }
 
 function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
@@ -423,6 +434,9 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
   const [actFilterDate, setActFilterDate] = useState("");
   const [chartDateFilter, setChartDateFilter] = useState("");
   const [scheduleFilter, setScheduleFilter] = useState("current");
+  const [localPrice, setLocalPrice] = useState(price);
+  
+  useEffect(() => { setLocalPrice(price); }, [price]);
 
   const parseDate = (dStr: string) => {
     const d = new Date(dStr);
@@ -455,7 +469,7 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
 
     return <><Heading eyebrow="ADMIN PORTAL" title="Broadcast management" text="Review requests, access assets, and manage fulfillment."/><section className="panel data-panel"><div className="table-tools" style={{flexWrap: 'wrap'}}><div className="search"><Icon name="search" size={16}/><input placeholder="Search order, customer, or reference" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/></div><div style={{display:'flex',gap:'10px'}}><button className="outline" onClick={() => setScheduleFilter('current')} style={scheduleFilter === 'current' ? {background:'#f1f5f9',borderColor:'#cbd5e1',color:'#0f172a'}: {}}>Current BR's</button><button className="outline" onClick={() => setScheduleFilter('later')} style={scheduleFilter === 'later' ? {background:'#f1f5f9',borderColor:'#cbd5e1',color:'#0f172a'}: {}}>Later BR's</button></div><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>All statuses</option><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option><option>On hold</option></select></div><OrderTable orders={filtered} admin onSelect={select} onViewCustomer={(email) => { setView("Customers"); }}/></section></>;
   }
-  if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email}><td><strong>{u.full_name || u.company_name}</strong></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td>₹{(Number(u.balance) || 0).toFixed(2)}</td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table></section></>;
+  if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { /* View Customer handled by modal in App */ (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td>₹{(Number(u.balance) || 0).toFixed(2)}</td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table></section></>;
   if (view === "Support desk") return <><Heading eyebrow="ADMIN PORTAL" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (view === "Activity log") {
@@ -518,8 +532,7 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
         const d = parseDate(o.created);
         const mStr = d.toLocaleString('default', { month: 'short' });
         if (!monthlyRev[mStr]) monthlyRev[mStr] = 0;
-        // Assume price * number of contacts (approximate from string if needed)
-        // Here we just use a mock multiplier based on contacts string if it's a number, or 100
+        // The graph now uses the saved global price to compute revenue accurately
         const contactsCount = parseInt(o.contacts) || 100;
         monthlyRev[mStr] += contactsCount * Number(price);
       }
@@ -529,12 +542,15 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
     const maxRev = Math.max(...Object.values(monthlyRev), 10);
 
     const handleSavePricing = async () => {
-      const res = await updatePricePerCall(price);
+      const res = await updatePricePerCall(localPrice);
       if (res.error) alert(res.error);
-      else alert("Pricing updated successfully!");
+      else {
+        alert("Pricing updated successfully!");
+        setPrice(localPrice); // Update global state
+      }
     };
 
-    return <><Heading eyebrow="ADMIN PORTAL" title="Pricing & Revenue" text="Set call pricing and monitor your net sales."/><div className="dashboard-grid"><section className="panel"><PanelTop title="Revenue overview" text="Net sales grouped by month."/><div className="bar-chart" style={{height: '250px', marginTop: '20px'}}>
+    return <><Heading eyebrow="ADMIN PORTAL" title="Pricing & Revenue" text="Set call pricing and monitor your net sales."/><div className="dashboard-grid"><section className="panel"><PanelTop title="Revenue overview" text="Net sales grouped by month."/><div className="bar-chart" style={{height: '250px', marginTop: '20px', borderLeft: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 0'}}>
       {mKeys.length > 0 ? mKeys.map(m => (
         <div className="bar-wrap" key={m}>
           <div className="bar" style={{height: `${(monthlyRev[m]/maxRev)*100}%`}}></div>
@@ -542,7 +558,7 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
           <span className="bar-label">{m}</span>
         </div>
       )) : <p className="text-muted" style={{margin:'auto'}}>No revenue data.</p>}
-    </div></section><aside className="panel"><h2>Call Pricing</h2><p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Set the cost per call. When a customer places an order, the amount will be deducted from their balance.</p><div className="admin-update"><label>Price per call (₹)<input type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)}/></label><div className="detail-note" style={{background: '#f8fafc', margin: '15px 0'}}><strong>Example Cost</strong><p>100 calls = ₹{(Number(price) * 100).toFixed(2)}</p></div><button className="primary" onClick={handleSavePricing}>Save Pricing</button></div></aside></div></>;
+    </div></section><aside className="panel"><h2>Call Pricing</h2><p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Set the cost per call. When a customer places an order, the amount will be deducted from their balance.</p><div className="admin-update"><label>Price per call (₹)<input type="number" step="0.01" value={localPrice} onChange={e => setLocalPrice(e.target.value)}/></label><div className="detail-note" style={{background: '#f8fafc', margin: '15px 0'}}><strong>Example Cost</strong><p>100 calls = ₹{(Number(localPrice) * 100).toFixed(2)}</p></div><button className="primary" onClick={handleSavePricing}>Save Pricing</button></div></aside></div></>;
   }
 
   const pending = orders.filter((o: Order) => o.status === "Placed").length, active = orders.filter((o: Order) => o.status === "In progress").length, done = orders.filter((o: Order) => o.status === "Completed").length;
