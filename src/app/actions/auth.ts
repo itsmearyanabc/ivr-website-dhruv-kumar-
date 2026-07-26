@@ -39,7 +39,6 @@ export async function signUp(formData: FormData) {
     return { error: 'Passwords do not match.' }
   }
 
-  const supabase = await createClient()
 
   const { data, error } = await supabase.auth.signUp({
     email,
