@@ -140,10 +140,13 @@ export async function createBroadcast(formData: FormData) {
         console.error('Fallback balance deduction error:', fallbackDeductError)
         return { error: `Insufficient funds or failed to deduct balance. Please try again.` }
       }
-    } else if (!deductResult?.success) {
+    } else {
+      const resultData = Array.isArray(deductResult) ? deductResult[0] : deductResult;
+      if (!resultData?.success) {
       // safe_deduct_balance returned success=false (insufficient funds)
-      const currentBalance = Number(deductResult?.new_balance || 0)
+      const currentBalance = Number(resultData?.new_balance || 0)
       return { error: `Insufficient funds. Wallet balance is ₹${currentBalance.toFixed(2)}, but order cost is ₹${charge.toFixed(2)}. Please add funds to proceed.` }
+    }
     }
   }
 
