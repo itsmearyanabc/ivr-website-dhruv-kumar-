@@ -143,6 +143,8 @@ function mapBroadcast(b: any, index: number): Order {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState(true);
+  const [isDataLoading, setIsDataLoading] = useState(true);
   const [view, setView] = useState(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('xpack_view') || "Overview";
@@ -194,48 +196,51 @@ export default function App() {
     
     async function initSession() {
       const { session: serverSession } = await getUserSession();
-      if (mounted && serverSession) {
-        setSession(serverSession as Session);
-        fetchData(serverSession as Session);
+      if (mounted) {
+        if (serverSession) {
+          setSession(serverSession as Session);
+          fetchData(serverSession as Session);
+        }
+        setIsSessionLoading(false);
       }
     }
     
     async function fetchData(currentSession: Session) {
-      const settings = await getSystemSettings();
-      if (mounted) setPrice(settings.price_per_call);
+      setIsDataLoading(true);
+      const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData] = await Promise.all([
+        getSystemSettings(),
+        getBroadcasts(),
+        getTickets(),
+        currentSession.role === "admin" ? getAllUsers() : Promise.resolve(null),
+        currentSession.role === "admin" ? getAllTransactions() : Promise.resolve(null),
+        currentSession.role !== "admin" ? getUserBalance() : Promise.resolve(null),
+        currentSession.role !== "admin" ? getUserTransactions() : Promise.resolve(null)
+      ]);
+
+      if (!mounted) return;
+
+      if (settings) setPrice(settings.price_per_call);
 
       if (currentSession.role === "admin") {
-        const usersData = await getAllUsers();
-        if (mounted) setUsersList(usersData);
-        
-        const txData = await getAllTransactions();
-        if (mounted) setTransactions(txData);
+        if (usersData) setUsersList(usersData);
+        if (txAdminData) setTransactions(txAdminData);
       } else {
-        const bal = await getUserBalance();
-        if (mounted) setBalance(bal);
-
-        const txData = await getUserTransactions();
-        if (mounted) setTransactions(txData);
+        setBalance(userBal || 0);
+        if (txUserData) setTransactions(txUserData);
       }
 
-      const { data: bData } = await getBroadcasts();
-      if (mounted && bData) {
-        setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
-      }
-
-      const { data: tData } = await getTickets();
-      if (mounted && tData) {
-        setTickets(tData.map((t: any) => ({
-          id: t.reference_no,
-          subject: t.subject,
-          customer: t.customer,
-          priority: t.priority === 'HIGH' ? 'High' : 'Normal',
-          status: formatStatus(t.status) as TicketStatus,
-          message: t.message || '',
-          created: new Date(t.created_at).toLocaleString(),
-          reply: t.reply,
-        })));
-      }
+      if (bRes?.data) setOrders(bRes.data.map((b: any, i: number) => mapBroadcast(b, i)));
+      if (tRes?.data) setTickets(tRes.data.map((t: any) => ({
+        id: t.reference_no,
+        subject: t.subject,
+        customer: t.customer,
+        priority: t.priority === 'HIGH' ? 'High' : 'Normal',
+        status: formatStatus(t.status) as TicketStatus,
+        message: t.message || '',
+        created: new Date(t.created_at).toLocaleString(),
+        reply: t.reply,
+      })));
+      setIsDataLoading(false);
     }
 
     initSession();
@@ -370,6 +375,7 @@ export default function App() {
     }
   };
 
+  if (isSessionLoading) return <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column'}}><div className="loader" style={{width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite'}}></div><style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style></div>;
   if (!session) return <Auth onLogin={login} />;
   
   const nav = session.role === "customer" 
@@ -426,7 +432,7 @@ export default function App() {
           {session.role === "customer" ? (
             <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} transactions={transactions} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} />
           ) : (
-            <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} transactions={transactions} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} onRefreshBroadcasts={refreshBroadcasts}/>
+            <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} transactions={transactions} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} onRefreshBroadcasts={refreshBroadcasts} isDataLoading={isDataLoading} />
           )}
         </div>
       </section>
@@ -874,7 +880,7 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
   );
 }
 
-function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void }) {
+function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts, isDataLoading }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void; isDataLoading?: boolean }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [actFilterDate, setActFilterDate] = useState("");
@@ -942,7 +948,7 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
     );
   }
 
-  if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td>₹{(Number(u.balance) || 0).toFixed(2)}</td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table></section></>;
+  if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel">{isDataLoading ? <div style={{display: 'flex', justifyContent: 'center', padding: '40px'}}><div className="loader" style={{width: '30px', height: '30px', border: '3px solid #f3f3f3', borderTop: '3px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite'}}></div></div> : <table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td>₹{(Number(u.balance) || 0).toFixed(2)}</td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table>}</section></>;
   if (view === "Support desk") return <><Heading eyebrow="ADMIN PORTAL" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (view === "Activity log") {
