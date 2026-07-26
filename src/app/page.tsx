@@ -22,7 +22,7 @@ import {
 import * as XLSX from "xlsx";
 
 type Role = "customer" | "admin";
-type Status = "Placed" | "In progress" | "Completed" | "Partial" | "Cancelled" | "On hold" | "Refunded";
+type Status = "Placed" | "In progress" | "Completed" | "Cancelled" | "On hold" | "Refunded";
 type TicketStatus = "Open" | "In progress" | "Resolved" | "Closed";
 type Session = { role: Role; name: string; email: string; company?: string };
 type OrderHistory = { status: string; reason?: string; created_at: string };
@@ -100,7 +100,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
 
 function formatStatus(raw: string): Status | TicketStatus {
   const map: Record<string, string> = {
-    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'PARTIAL': 'Partial', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold', 'REFUNDED': 'Refunded',
+    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'PARTIAL': 'Completed', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold', 'REFUNDED': 'Refunded',
     'OPEN': 'Open', 'RESOLVED': 'Resolved', 'CLOSED': 'Closed',
   };
   return (map[raw] || raw.charAt(0) + raw.slice(1).toLowerCase()) as Status | TicketStatus;
@@ -339,7 +339,7 @@ export default function App() {
     if (error) {
       message(error);
     } else {
-      message(status === "Completed" ? "Order completed and report shared with customer." : status === "Partial" ? "Partial refund processed and order updated." : status === "On hold" ? "Order placed on hold." : `Order updated to ${status}.`);
+      message(status === "Completed" ? "Order completed and report shared with customer." : status === "On hold" ? "Order placed on hold." : `Order updated to ${status}.`);
       await refreshBroadcasts();
       await refreshBalance();
     }
@@ -808,7 +808,7 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
   
   const placed = orders.filter((o: Order) => o.status === "Placed").length;
   const progressing = orders.filter((o: Order) => o.status === "In progress").length;
-  const completed = orders.filter((o: Order) => o.status === "Completed" || o.status === "Partial").length;
+  const completed = orders.filter((o: Order) => o.status === "Completed").length;
 
   const parseDate = (dStr: string) => {
     const d = new Date(dStr);
@@ -824,7 +824,7 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
       dateObj: parseDate(o.created),
       color: "blue"
     });
-    if (o.status === "Completed" || o.status === "Partial") {
+    if (o.status === "Completed") {
       events.push({
         title: "Report is ready",
         text: `${o.name} report was uploaded.`,
@@ -852,7 +852,7 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
         <Metric icon="radio" label="Total broadcasts" value={orders.length} detail="All time"/>
         <Metric icon="clock" label="Pending orders" value={placed} detail="Awaiting review" warning/>
         <Metric icon="activity" label="In progress" value={progressing} detail="Being processed"/>
-        <Metric icon="chart" label="Completed / Partial" value={completed} detail="Reports ready" success/>
+        <Metric icon="chart" label="Completed" value={completed} detail="Reports ready" success/>
       </div>
       <div className="dashboard-grid">
         <section className="panel">
@@ -935,7 +935,6 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
               <option>Placed</option>
               <option>In progress</option>
               <option>Completed</option>
-              <option>Partial</option>
               <option>Cancelled</option>
               <option>On hold</option>
             </select>
@@ -953,7 +952,7 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
     const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
     orders.forEach(o => {
       events.push({ title: `${o.broadcastNo} created`, text: `${o.customer} submitted ${o.name}`, time: o.created, dateObj: parseDate(o.created), color: "blue" });
-      if (o.status === "Completed" || o.status === "Partial") events.push({ title: "Report uploaded", text: `Admin completed ${o.broadcastNo} and shared report.`, time: o.created, dateObj: parseDate(o.created), color: "green" });
+      if (o.status === "Completed") events.push({ title: "Report uploaded", text: `Admin completed ${o.broadcastNo} and shared report.`, time: o.created, dateObj: parseDate(o.created), color: "green" });
       if (o.history) {
         o.history.forEach((h) => {
           events.push({ title: `Order ${h.status.toLowerCase()}`, text: h.reason || `Status updated for ${o.broadcastNo}`, time: new Date(h.created_at).toLocaleString(), dateObj: new Date(h.created_at), color: h.status === 'REFUNDED' ? 'refunded' : h.status === 'CANCELLED' ? 'red' : 'activity' })
@@ -990,7 +989,7 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
       if (o.status === "Placed") statuses.placed++;
       else if (o.status === "In progress") statuses.progress++;
       else if (o.status === "On hold") statuses.hold++;
-      else if (o.status === "Completed" || o.status === "Partial") statuses.completed++;
+      else if (o.status === "Completed") statuses.completed++;
       else if (o.status === "Cancelled") statuses.cancelled++;
       else if (o.status === "Refunded") statuses.refunded++;
       
@@ -1035,7 +1034,7 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
 
   const pending = orders.filter((o: Order) => o.status === "Placed").length;
   const active = orders.filter((o: Order) => o.status === "In progress").length;
-  const done = orders.filter((o: Order) => o.status === "Completed" || o.status === "Partial").length;
+  const done = orders.filter((o: Order) => o.status === "Completed").length;
   const onHoldCount = orders.filter((o: Order) => o.status === "On hold").length;
   const urgentTickets = tickets.filter((t: Ticket) => t.status !== "Resolved" && t.status !== "Closed" && t.priority === "High").length;
 
@@ -1052,7 +1051,7 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
         <section className="panel urgent">
           <PanelTop title="Orders needing action" text="New requests and orders that need attention." action="Manage orders" onAction={() => setView("Broadcast management")}/>
           <div className="urgent-list">
-            {orders.filter((o: Order) => o.status !== "Completed" && o.status !== "Partial").slice(0,3).map((o: Order, i: number) => (
+            {orders.filter((o: Order) => o.status !== "Completed").slice(0,3).map((o: Order, i: number) => (
               <div className="urgent-row" key={o.id}>
                 <span className={`priority ${i === 0 ? "new" : "due-soon"}`}>{i === 0 ? "New" : "Due soon"}</span>
                 <div><strong>{o.broadcastNo} · {o.customer}</strong><p>{o.name} · {o.created}</p></div>
@@ -1271,7 +1270,6 @@ function SMMOrderTable({ orders, onSelect, admin = false, onViewCustomer }: { or
     if (statusTab === "Pending") return o.status === "Placed";
     if (statusTab === "In Progress") return o.status === "In progress";
     if (statusTab === "Completed") return o.status === "Completed";
-    if (statusTab === "Partial") return o.status === "Partial";
     if (statusTab === "Canceled") return o.status === "Cancelled" || o.status === "Refunded";
     return true;
   });
@@ -1280,7 +1278,7 @@ function SMMOrderTable({ orders, onSelect, admin = false, onViewCustomer }: { or
     <div>
       {/* SMM Panel Inspired Filter Bar */}
       <div style={{display: 'flex', gap: '8px', padding: '14px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', overflowX: 'auto'}}>
-        {["All", "Pending", "In Progress", "Completed", "Partial", "Canceled"].map(tab => (
+        {["All", "Pending", "In Progress", "Completed", "Canceled"].map(tab => (
           <button
             key={tab}
             onClick={() => setStatusTab(tab)}
@@ -1301,14 +1299,12 @@ function SMMOrderTable({ orders, onSelect, admin = false, onViewCustomer }: { or
             {tab === "Pending" && "⏳ Pending"}
             {tab === "In Progress" && "⚙️ In Progress"}
             {tab === "Completed" && "✓ Completed"}
-            {tab === "Partial" && "🔄 Partial"}
             {tab === "Canceled" && "❌ Canceled"}
             <span style={{marginLeft: '6px', opacity: 0.8, fontSize: '11px'}}>
               ({tab === "All" ? orders.length : orders.filter(o => {
                 if (tab === "Pending") return o.status === "Placed";
                 if (tab === "In Progress") return o.status === "In progress";
                 if (tab === "Completed") return o.status === "Completed";
-                if (tab === "Partial") return o.status === "Partial";
                 if (tab === "Canceled") return o.status === "Cancelled" || o.status === "Refunded";
                 return true;
               }).length})
@@ -1758,12 +1754,11 @@ function StatusTimeline({ currentStatus }: { currentStatus: Status }) {
   
   if (currentStatus === "Cancelled") steps[2] = { label: "Cancelled", key: "Cancelled" };
   if (currentStatus === "Refunded") steps[2] = { label: "Refunded", key: "Refunded" };
-  if (currentStatus === "Partial") steps[2] = { label: "Partial", key: "Partial" };
   if (currentStatus === "On hold") steps[1] = { label: "On hold", key: "On hold" };
 
   const getStatusClass = (stepKey: string, current: string) => {
     if (stepKey === current) return `active ${stepKey.toLowerCase().replace(" ", "-")}`;
-    if (current === "Completed" || current === "Partial" || current === "Refunded" || (current === "In progress" && stepKey === "Placed")) return "completed";
+    if (current === "Completed" || current === "Refunded" || (current === "In progress" && stepKey === "Placed")) return "completed";
     return "";
   };
 
@@ -1835,9 +1830,6 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
     const pConfAmt = confirmPartialRefundAmount ? parseFloat(confirmPartialRefundAmount) : 0;
 
     let targetStatus = status;
-    if (pAmt > 0 && (status === "Completed" || status === "Placed" || status === "In progress")) {
-      targetStatus = "Partial";
-    }
 
     onUpdate(order.id, targetStatus, {
       reportFile: reportFile || undefined,
@@ -1948,14 +1940,13 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                 <option>Placed</option>
                 <option>In progress</option>
                 <option>Completed</option>
-                <option>Partial</option>
                 <option>On hold</option>
                 <option>Cancelled</option>
                 <option>Refunded</option>
               </select>
             </label>
 
-            {(status === "Completed" || status === "Partial" || status === "Placed" || status === "In progress") && (
+            {(status === "Completed") && (
               <div style={{background: 'white', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', margin: '10px 0'}}>
                 <h4 style={{margin: '0 0 8px', fontSize: '14px', color: '#0f172a'}}>Partial Refund Section (Optional)</h4>
                 <p style={{fontSize: '12px', color: '#64748b', margin: '0 0 12px'}}>If some calls were undelivered/unanswered, enter the refund amount. You must type the amount 2 times for double-verification.</p>
@@ -2001,7 +1992,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               </div>
             )}
 
-            {(status === "Completed" || status === "Partial") && (
+            {(status === "Completed") && (
               <label>Campaign Report File
                 <input type="file" accept=".csv,.pdf,.zip,.xlsx" onChange={e => setReportFile(e.target.files?.[0] || null)}/>
               </label>
