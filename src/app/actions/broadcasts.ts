@@ -74,7 +74,12 @@ export async function createBroadcast(formData: FormData) {
   const contactsInputType = String(formData.get("contactsInputType") || "FILE").toUpperCase()
   const manualContacts = String(formData.get("manualContacts") || "")
   const contactCount = formData.get("contactCount") ? parseInt(String(formData.get("contactCount")), 10) : 0
-  const charge = formData.get("charge") ? parseFloat(String(formData.get("charge"))) : 0
+  // FIX: Securely recalculate charge based on service price in DB instead of trusting frontend
+  let charge = 0;
+  if (serviceId) {
+    const { data: svc } = await supabase.from('services').select('price').eq('id', serviceId).single();
+    if (svc) charge = Number(svc.price);
+  }
 
   const audio = formData.get("audio") as File | null
   const contacts = formData.get("contacts") as File | null

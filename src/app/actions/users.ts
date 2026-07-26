@@ -37,8 +37,10 @@ export async function adminAddFunds(userId: string, amount: number) {
     return { error: "Failed to add funds." };
   }
 
-  // Record credit transaction
-  await supabaseAuth.from('transactions').insert([{
+  // Record credit transaction using service role to bypass RLS missing insert policy
+  const { createServiceRoleClient } = await import('@/lib/supabase/server');
+  const serviceRole = await createServiceRoleClient();
+  await serviceRole.from('transactions').insert([{
     user_id: userId,
     amount: amount,
     type: 'CREDIT',
