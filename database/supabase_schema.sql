@@ -3,11 +3,34 @@
 
 -- 1. Custom Types
 CREATE TYPE public.user_role AS ENUM ('CUSTOMER', 'ADMIN');
-CREATE TYPE public.broadcast_status AS ENUM ('PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD', 'REFUNDED');
+CREATE TYPE public.broadcast_status AS ENUM ('PLACED', 'IN_PROGRESS', 'COMPLETED', 'PARTIAL', 'CANCELLED', 'ON_HOLD', 'REFUNDED');
 CREATE TYPE public.ticket_status AS ENUM ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');
 CREATE TYPE public.ticket_priority AS ENUM ('NORMAL', 'HIGH');
 CREATE TYPE public.transaction_type AS ENUM ('CREDIT', 'DEBIT');
+
 -- 2. Tables
+-- Categories table
+CREATE TABLE public.categories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  description TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Services table
+CREATE TABLE public.services (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category_id UUID NOT NULL REFERENCES public.categories(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  min_quantity INTEGER DEFAULT 1,
+  max_quantity INTEGER DEFAULT 100000,
+  description TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Users table syncs with auth.users
 CREATE TABLE public.users (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -26,16 +49,25 @@ CREATE TABLE public.broadcasts (
   user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   reference_no TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
+  category_id UUID REFERENCES public.categories(id) ON DELETE SET NULL,
+  service_id UUID REFERENCES public.services(id) ON DELETE SET NULL,
+  category_name TEXT,
+  service_name TEXT,
+  voice_type TEXT DEFAULT 'MALE', -- 'MALE' or 'FEMALE'
   description TEXT,
   audio_key TEXT NOT NULL,
-  contacts_key TEXT NOT NULL,
+  contacts_input_type TEXT DEFAULT 'FILE', -- 'FILE' or 'MANUAL'
+  contacts_key TEXT,
+  manual_contacts TEXT,
   contact_count INTEGER,
+  charge DECIMAL(10,2) DEFAULT 0.00,
   scheduled_for TIMESTAMPTZ,
   status broadcast_status NOT NULL DEFAULT 'PLACED',
   hold_reason TEXT,
   cancel_reason TEXT,
   refund_reason TEXT,
   refund_amount DECIMAL(10,2),
+  admin_comment TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -128,15 +160,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 4. Enable Row Level Security (RLS)
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.broadcasts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.support_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.broadcast_status_history ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Anyone can view active categories" ON public.categories FOR SELECT USING (true);
+CREATE POLICY "Admins can manage categories" ON public.categories FOR ALL USING (public.is_admin());
+
+CREATE POLICY "Anyone can view active services" ON public.services FOR SELECT USING (true);
+CREATE POLICY "Admins can manage services" ON public.services FOR ALL USING (public.is_admin());
+
 
 -- 5. RLS Policies
 -- Users can only see their own profile

@@ -9,34 +9,97 @@ import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tick
 import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
 import { getUserBalance } from "@/app/actions/transactions";
 import { getAllUsers } from "@/app/actions/users";
+import { 
+  getCategoriesWithServices, 
+  getAllCategoriesAndServices, 
+  createCategory, 
+  deleteCategory, 
+  createService, 
+  deleteService,
+  Category, 
+  Service 
+} from "@/app/actions/categoriesServices";
 import * as XLSX from "xlsx";
 
 type Role = "customer" | "admin";
-type Status = "Placed" | "In progress" | "Completed" | "Cancelled" | "On hold" | "Refunded";
+type Status = "Placed" | "In progress" | "Completed" | "Partial" | "Cancelled" | "On hold" | "Refunded";
 type TicketStatus = "Open" | "In progress" | "Resolved" | "Closed";
 type Session = { role: Role; name: string; email: string; company?: string };
 type OrderHistory = { status: string; reason?: string; created_at: string };
-type Order = { id: string; broadcastNo: string; name: string; customer: string; email: string; created: string; contacts: string; status: Status; schedule: string; notes?: string; report?: boolean; audioKey?: string; contactsKey?: string; reportKey?: string; audioFile?: File; contactsFile?: File; holdReason?: string; cancelReason?: string; refundReason?: string; refundAmount?: number; history?: OrderHistory[] };
+type Order = { 
+  id: string; 
+  broadcastNo: string; 
+  name: string; 
+  customer: string; 
+  email: string; 
+  created: string; 
+  contacts: string; 
+  status: Status; 
+  schedule: string; 
+  notes?: string; 
+  report?: boolean; 
+  audioKey?: string; 
+  contactsKey?: string; 
+  reportKey?: string; 
+  audioFile?: File; 
+  contactsFile?: File; 
+  holdReason?: string; 
+  cancelReason?: string; 
+  refundReason?: string; 
+  refundAmount?: number; 
+  history?: OrderHistory[];
+  categoryName?: string;
+  serviceName?: string;
+  voiceType?: 'MALE' | 'FEMALE';
+  contactsInputType?: 'FILE' | 'MANUAL';
+  manualContacts?: string;
+  contactCount?: number;
+  charge?: number;
+  adminComment?: string;
+  partialRefundAmount?: number;
+};
 type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
 
 const initialOrders: Order[] = [];
 const initialTickets: Ticket[] = [];
 
-
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
   const p: Record<string, React.ReactNode> = {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
-    radio: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h.01M11 15h.01M15 15h2M7 9h10"/></>, users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
-    help: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4.58 1.68c-1.15 1.06-2.08 1.38-2.08 3.32M12 17h.01"/></>, settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06A1.7 1.7 0 0 0 15.76 18a1.7 1.7 0 0 0-1 1.54V20h-3v-.46A1.7 1.7 0 0 0 10.76 18a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.12 14a1.7 1.7 0 0 0-1.54-1H5.1v-3h.48A1.7 1.7 0 0 0 7.12 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06A1.7 1.7 0 0 0 10.76 5a1.7 1.7 0 0 0 1-1.54V3h3v.46A1.7 1.7 0 0 0 15.76 5a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.54 1h.48v3h-.48A1.7 1.7 0 0 0 19.4 15Z"/></>,
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>, plus: <><path d="M12 5v14M5 12h14"/></>, chart: <><path d="M4 19V5M4 19h17M8 15v-3M12 15V8M16 15V5M20 15v-7"/></>, clock: <><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></>, arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>, search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>, file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></>, more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>, close: <><path d="m6 6 12 12M18 6 6 18"/></>, upload: <><path d="M12 16V4M7 9l5-5 5-5M5 20h14"/></>, activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>, check: <><path d="m5 12 4 4L19 6"/></>, lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>, logout: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-4"/></>, download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>, eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></>, "eye-off": <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/></>, pause: <><path d="M10 4H6v16h4V4ZM18 4h-4v16h4V4Z"/></>,
+    radio: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h.01M11 15h.01M15 15h2M7 9h10"/></>, 
+    users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
+    help: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4.58 1.68c-1.15 1.06-2.08 1.38-2.08 3.32M12 17h.01"/></>, 
+    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06A1.7 1.7 0 0 0 15.76 18a1.7 1.7 0 0 0-1 1.54V20h-3v-.46A1.7 1.7 0 0 0 10.76 18a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.12 14a1.7 1.7 0 0 0-1.54-1H5.1v-3h.48A1.7 1.7 0 0 0 7.12 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06A1.7 1.7 0 0 0 10.76 5a1.7 1.7 0 0 0 1-1.54V3h3v.46A1.7 1.7 0 0 0 15.76 5a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.54 1h.48v3h-.48A1.7 1.7 0 0 0 19.4 15Z"/></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>, 
+    plus: <><path d="M12 5v14M5 12h14"/></>, 
+    chart: <><path d="M4 19V5M4 19h17M8 15v-3M12 15V8M16 15V5M20 15v-7"/></>, 
+    clock: <><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></>, 
+    arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>, 
+    search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>, 
+    file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></>, 
+    more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>, 
+    close: <><path d="m6 6 12 12M18 6 6 18"/></>, 
+    upload: <><path d="M12 16V4M7 9l5-5 5-5M5 20h14"/></>, 
+    activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>, 
+    check: <><path d="m5 12 4 4L19 6"/></>, 
+    lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>, 
+    logout: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-4"/></>, 
+    download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>, 
+    eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></>, 
+    "eye-off": <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/></>, 
+    pause: <><path d="M10 4H6v16h4V4ZM18 4h-4v16h4V4Z"/></>,
     "dollar-sign": <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>,
-    "indian-rupee": <><path d="M6 3h12"/><path d="M6 8h12"/><path d="m6 13 8.5 8"/><path d="M6 13h3"/><path d="M9 13c6.667 0 6.667-10 0-10"/></>
+    "indian-rupee": <><path d="M6 3h12"/><path d="M6 8h12"/><path d="m6 13 8.5 8"/><path d="M6 13h3"/><path d="M9 13c6.667 0 6.667-10 0-10"/></>,
+    mic: <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></>,
+    layers: <><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
+    trash: <><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></>
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{p[name]}</svg>;
 }
+
 function formatStatus(raw: string): Status | TicketStatus {
   const map: Record<string, string> = {
-    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold', 'REFUNDED': 'Refunded',
+    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'PARTIAL': 'Partial', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold', 'REFUNDED': 'Refunded',
     'OPEN': 'Open', 'RESOLVED': 'Resolved', 'CLOSED': 'Closed',
   };
   return (map[raw] || raw.charAt(0) + raw.slice(1).toLowerCase()) as Status | TicketStatus;
@@ -44,7 +107,7 @@ function formatStatus(raw: string): Status | TicketStatus {
 
 function Badge({ status }: { status: string }) { return <span className={`badge ${status.toLowerCase().replaceAll(" ", "-")}`}><i />{status}</span>; }
 
-function mapBroadcast(b: any, index: number) {
+function mapBroadcast(b: any, index: number): Order {
   return {
     id: b.reference_no,
     broadcastNo: `BR-${index + 1}`,
@@ -52,19 +115,28 @@ function mapBroadcast(b: any, index: number) {
     customer: b.customer,
     email: b.email,
     created: new Date(b.created_at).toLocaleString(),
-    contacts: b.email || 'Unknown',
+    contacts: b.contact_count ? `${b.contact_count} contacts` : (b.email || 'Unknown'),
     status: formatStatus(b.status) as Status,
     schedule: b.scheduled_for ? new Date(b.scheduled_for).toLocaleString() : 'Start on processing',
     notes: b.description,
     audioKey: b.audio_key,
     contactsKey: b.contacts_key,
     reportKey: b.reports?.[0]?.file_key,
-    report: b.status === 'COMPLETED' && !!b.reports?.[0]?.file_key,
+    report: (b.status === 'COMPLETED' || b.status === 'PARTIAL') && !!b.reports?.[0]?.file_key,
     holdReason: b.hold_reason || '',
     cancelReason: b.cancel_reason || '',
     refundReason: b.refund_reason || '',
     refundAmount: b.refund_amount,
     history: b.history || [],
+    categoryName: b.category_name,
+    serviceName: b.service_name,
+    voiceType: b.voice_type,
+    contactsInputType: b.contacts_input_type,
+    manualContacts: b.manual_contacts,
+    contactCount: b.contact_count,
+    charge: b.charge ? Number(b.charge) : 0,
+    adminComment: b.admin_comment,
+    partialRefundAmount: b.partial_refund_amount
   };
 }
 
@@ -82,12 +154,25 @@ export default function App() {
   const [balance, setBalance] = useState(0);
   const [usersList, setUsersList] = useState<any[]>([]);
   const [price, setPrice] = useState("0.25");
-  const [showFunds, setShowFunds] = useState(false);
 
   useEffect(() => {
     (window as any).selectCustomer = (u: any) => setSelectedCustomer(u);
     return () => { delete (window as any).selectCustomer; };
   }, []);
+
+  const refreshBroadcasts = async () => {
+    const { data: bData } = await getBroadcasts();
+    if (bData && bData.length > 0) {
+      setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
+    } else {
+      setOrders([]);
+    }
+  };
+
+  const refreshBalance = async () => {
+    const bal = await getUserBalance();
+    setBalance(bal);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -101,11 +186,9 @@ export default function App() {
     }
     
     async function fetchData(currentSession: Session) {
-      // Load global settings
       const settings = await getSystemSettings();
       if (mounted) setPrice(settings.price_per_call);
 
-      // Load Role specific data
       if (currentSession.role === "admin") {
         const usersData = await getAllUsers();
         if (mounted) setUsersList(usersData);
@@ -115,12 +198,12 @@ export default function App() {
       }
 
       const { data: bData } = await getBroadcasts();
-      if (mounted && bData && bData.length > 0) {
+      if (mounted && bData) {
         setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
       }
-      
+
       const { data: tData } = await getTickets();
-      if (mounted && tData && tData.length > 0) {
+      if (mounted && tData) {
         setTickets(tData.map((t: any) => ({
           id: t.reference_no,
           subject: t.subject,
@@ -133,79 +216,87 @@ export default function App() {
         })));
       }
     }
-    
+
     initSession();
     return () => { mounted = false; };
   }, []);
 
-  const message = (text: string) => { setToast(text); window.setTimeout(() => setToast(""), 3600); };
-  const login = (next: Session) => { setSession(next); setView("Overview"); };
-  const logout = async () => { 
-    if (window.confirm("Are you sure you want to log out?")) {
-      try {
-        await signOut();
-      } catch (e) {
-        console.error("Signout error:", e);
-      } finally {
-        setSession(null); 
-        setSelected(null); 
-        setSelectedTicket(null);
-      }
-    }
-  };
-
-  const refreshBroadcasts = async () => {
-    const { data: bData } = await getBroadcasts();
-    if (bData && bData.length > 0) {
-      setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
-    }
-    if (session?.role === "customer") {
-      const bal = await getUserBalance();
-      setBalance(bal);
-    }
-  };
-
-  const addOrder = async (order: Order) => { 
-    setShowBroadcast(false); 
+  const login = (s: Session) => { setSession(s); setView("Overview"); };
+  const logout = async () => { await signOut(); setSession(null); setOrders(initialOrders); setTickets(initialTickets); };
+  
+  const message = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 4500); };
+  
+  const addOrder = async (orderPayload: any) => { 
+    setShowBroadcast(false);
     const formData = new FormData();
-    formData.append("name", order.name);
-    formData.append("schedule", order.schedule);
-    formData.append("notes", order.notes || "");
-    if (order.audioFile) formData.append("audio", order.audioFile);
-    if (order.contactsFile) formData.append("contacts", order.contactsFile);
-    
+    formData.append("categoryId", orderPayload.categoryId || "");
+    formData.append("categoryName", orderPayload.categoryName || "");
+    formData.append("serviceId", orderPayload.serviceId || "");
+    formData.append("serviceName", orderPayload.serviceName || "");
+    formData.append("voiceType", orderPayload.voiceType || "MALE");
+    formData.append("notes", orderPayload.notes || "");
+    formData.append("contactsInputType", orderPayload.contactsInputType || "FILE");
+    formData.append("manualContacts", orderPayload.manualContacts || "");
+    formData.append("contactCount", String(orderPayload.contactCount || 0));
+    formData.append("charge", String(orderPayload.charge || 0));
+    formData.append("schedule", orderPayload.schedule || "Start on processing");
+
+    if (orderPayload.audioFile) {
+      formData.append("audio", orderPayload.audioFile);
+    }
+    if (orderPayload.contactsFile) {
+      formData.append("contacts", orderPayload.contactsFile);
+    }
+
     const { error } = await createBroadcast(formData);
+
     if (error) {
       message(error);
     } else {
-      message("Broadcast request submitted for review.");
+      message("Broadcast request created successfully.");
       await refreshBroadcasts();
+      await refreshBalance();
     }
   };
 
-  const addTicket = async (ticket: Ticket) => { 
-    setShowTicket(false); 
+  const addTicket = async (newTicket: Ticket) => {
+    setShowTicket(false);
     const formData = new FormData();
-    formData.append("subject", ticket.subject);
-    formData.append("priority", ticket.priority);
-    formData.append("message", ticket.message);
-    const { error } = await createTicket(formData);
+    formData.append("subject", newTicket.subject);
+    formData.append("priority", newTicket.priority.toUpperCase());
+    formData.append("message", newTicket.message);
+
+    const { data, error } = await createTicket(formData);
     if (error) {
       message(error);
-    } else {
-      message("Support ticket created. Our team has been notified.");
-      const { data: tData } = await getTickets();
-      if (tData && tData.length > 0) {
-        setTickets(tData.map((t: any) => ({
-          id: t.reference_no, subject: t.subject, customer: t.customer, priority: t.priority === 'HIGH' ? 'High' : 'Normal',
-          status: formatStatus(t.status) as TicketStatus,
-          message: t.message || '', created: new Date(t.created_at).toLocaleString(), reply: t.reply,
-        })));
-      }
+    } else if (data) {
+      message("Ticket submitted.");
+      setTickets([{
+        id: data.reference_no,
+        subject: data.subject,
+        customer: session?.company || session?.name || 'Customer',
+        priority: data.priority === 'HIGH' ? 'High' : 'Normal',
+        status: formatStatus(data.status) as TicketStatus,
+        message: data.body || newTicket.message,
+        created: new Date(data.created_at).toLocaleString()
+      }, ...tickets]);
     }
   };
 
-  const updateOrder = async (id: string, status: Status, payload?: { reportFile?: File, holdReason?: string, cancelReason?: string, refundReason?: string, refundAmount?: number }) => { 
+  const updateOrder = async (
+    id: string, 
+    status: Status, 
+    payload?: { 
+      reportFile?: File; 
+      holdReason?: string; 
+      cancelReason?: string; 
+      refundReason?: string; 
+      refundAmount?: number;
+      partialRefundAmount?: number;
+      confirmPartialRefundAmount?: number;
+      adminComment?: string;
+    }
+  ) => { 
     setSelected(null); 
     const dbStatus = status.toUpperCase().replace(' ', '_');
     const formData = new FormData();
@@ -216,13 +307,17 @@ export default function App() {
     if (payload?.cancelReason) formData.append("cancelReason", payload.cancelReason);
     if (payload?.refundReason) formData.append("refundReason", payload.refundReason);
     if (payload?.refundAmount) formData.append("refundAmount", payload.refundAmount.toString());
+    if (payload?.partialRefundAmount !== undefined) formData.append("partialRefundAmount", payload.partialRefundAmount.toString());
+    if (payload?.confirmPartialRefundAmount !== undefined) formData.append("confirmPartialRefundAmount", payload.confirmPartialRefundAmount.toString());
+    if (payload?.adminComment) formData.append("adminComment", payload.adminComment);
 
     const { error } = await updateBroadcastStatus(formData);
     if (error) {
       message(error);
     } else {
-      message(status === "Completed" ? "Order completed and report shared with customer." : status === "On hold" ? "Order placed on hold. Customer has been notified." : `Order updated to ${status}.`);
+      message(status === "Completed" ? "Order completed and report shared with customer." : status === "Partial" ? "Partial refund processed and order updated." : status === "On hold" ? "Order placed on hold." : `Order updated to ${status}.`);
       await refreshBroadcasts();
+      await refreshBalance();
     }
   };
 
@@ -253,21 +348,93 @@ export default function App() {
       setTickets(tickets.map(t => t.id === id ? { ...t, status, reply: reply || t.reply } : t));
     }
   };
+
   if (!session) return <Auth onLogin={login} />;
-  const nav = session.role === "customer" ? [["Overview", "grid"], ["My broadcasts", "radio"], ["Support centre", "help"], ["Settings", "settings"], ["Funds", "indian-rupee"]] : [["Overview", "grid"], ["Broadcast management", "radio"], ["Customers", "users"], ["Support desk", "help"], ["Activity log", "activity"], ["Pricing", "dollar-sign"]];
-  return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div><nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); setSelectedCustomer(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><span className="help-symbol">?</span><div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div></div><div className="user-card"><span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span><div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div><button title="Sign out" onClick={logout}><Icon name="logout"/></button></div></div></aside><section className="content"><header><div className="mobile-brand">Xpack</div><div className="header-actions"><span className="access-label" style={session.role === 'customer' ? {background:'#f1f5f9',color:'#0f172a'}: {}}><Icon name={session.role === "admin" ? "lock" : "indian-rupee"} size={14}/>{session.role === "admin" ? "Admin access" : `Balance: ₹${balance.toFixed(2)}`}</span><button className="notification"><Icon name="bell"/><em>3</em></button><span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span></div></header><div className="page">{session.role === "customer" ? <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} /> : <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} />}</div></section>{showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />} {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>} {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} {selectedCustomer && <CustomerProfileModal customer={selectedCustomer} orders={orders.filter(o => o.email === selectedCustomer.email)} onClose={() => setSelectedCustomer(null)}/>} {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}</main>;
+  
+  const nav = session.role === "customer" 
+    ? [["Overview", "grid"], ["My broadcasts", "radio"], ["Support centre", "help"], ["Settings", "settings"], ["Funds", "indian-rupee"]] 
+    : [["Overview", "grid"], ["Broadcast management", "radio"], ["Categories & Services", "layers"], ["Customers", "users"], ["Support desk", "help"], ["Activity log", "activity"], ["Pricing", "dollar-sign"]];
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div>
+        <div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div>
+        <nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); setSelectedCustomer(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav>
+        <div className="sidebar-bottom">
+          <div className="help-card">
+            <span className="help-symbol">?</span>
+            <div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => setView(session.role === "admin" ? "Support desk" : "Support centre")}>Open support <Icon name="arrow" size={13}/></button></div>
+          </div>
+          <div className="user-card">
+            <span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span>
+            <div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div>
+            <button title="Sign out" onClick={logout}><Icon name="logout"/></button>
+          </div>
+        </div>
+      </aside>
+      <section className="content">
+        <header>
+          <div className="mobile-brand">Xpack</div>
+          <div className="header-actions">
+            <span className="access-label" style={session.role === 'customer' ? {background:'#f1f5f9',color:'#0f172a'}: {}}>
+              <Icon name={session.role === "admin" ? "lock" : "indian-rupee"} size={14}/>
+              {session.role === "admin" ? "Admin access" : `Balance: ₹${balance.toFixed(2)}`}
+            </span>
+            <button className="notification"><Icon name="bell"/><em>3</em></button>
+            <span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span>
+          </div>
+        </header>
+        <div className="page">
+          {session.role === "customer" ? (
+            <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} />
+          ) : (
+            <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} onRefreshBroadcasts={refreshBroadcasts}/>
+          )}
+        </div>
+      </section>
+      {showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />} 
+      {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} 
+      {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>} 
+      {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} 
+      {selectedCustomer && <CustomerProfileModal customer={selectedCustomer} orders={orders.filter(o => o.email === selectedCustomer.email)} onClose={() => setSelectedCustomer(null)}/>} 
+      {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}
+    </main>
+  );
 }
 
 function CustomerProfileModal({ customer, orders, onClose }: { customer: any, orders: Order[], onClose: () => void }) {
-  const totalSpent = orders.filter(o => o.status === "Completed").reduce((sum, o) => sum + (Number(o.refundAmount) || 0), 0); // Mock representation of spent, as we don't have historical deducted value yet
-  return <div className="modal-overlay" onClick={onClose}><div className="modal-content" style={{maxWidth: '600px'}} onClick={e => e.stopPropagation()}><header className="modal-header"><h2>Customer Profile</h2><button className="close-button" onClick={onClose}><Icon name="x"/></button></header><div className="modal-body" style={{display: 'flex', flexDirection: 'column', gap: '20px'}}><div style={{display: 'flex', gap: '15px', alignItems: 'center'}}><span className="avatar" style={{width: '60px', height: '60px', fontSize: '24px', background: '#3b82f6', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%'}}>{customer.full_name?.slice(0,1) || customer.company_name?.slice(0,1)}</span><div><h3 style={{fontSize: '20px', margin: '0 0 5px 0'}}>{customer.full_name || customer.company_name}</h3><p style={{margin: 0, color: '#64748b'}}>{customer.email}</p><Badge status={customer.is_active ? "Active" : "Closed"}/></div></div><div className="dashboard-grid" style={{gridTemplateColumns: '1fr 1fr'}}><div className="chart-card"><h3>Current Balance</h3><p className="chart-total">₹{(Number(customer.balance) || 0).toFixed(2)}</p></div><div className="chart-card"><h3>Total Orders</h3><p className="chart-total">{orders.length}</p></div></div><div className="detail-note"><strong>Contact Details</strong><p>Phone: {customer.phone || 'Not provided'}</p><p>Company: {customer.company_name || 'Not provided'}</p><p>Joined: {new Date(customer.created_at).toLocaleDateString()}</p></div></div><footer className="modal-footer"><button className="outline" onClick={onClose}>Close</button></footer></div></div>;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{maxWidth: '600px'}} onClick={e => e.stopPropagation()}>
+        <header className="modal-header"><h2>Customer Profile</h2><button className="close-button" onClick={onClose}><Icon name="x"/></button></header>
+        <div className="modal-body" style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
+          <div style={{display: 'flex', gap: '15px', alignItems: 'center'}}>
+            <span className="avatar" style={{width: '60px', height: '60px', fontSize: '24px', background: '#3b82f6', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%'}}>{customer.full_name?.slice(0,1) || customer.company_name?.slice(0,1)}</span>
+            <div><h3 style={{fontSize: '20px', margin: '0 0 5px 0'}}>{customer.full_name || customer.company_name}</h3><p style={{margin: 0, color: '#64748b'}}>{customer.email}</p><Badge status={customer.is_active ? "Active" : "Closed"}/></div>
+          </div>
+          <div className="dashboard-grid" style={{gridTemplateColumns: '1fr 1fr'}}>
+            <div className="chart-card"><h3>Current Balance</h3><p className="chart-total">₹{(Number(customer.balance) || 0).toFixed(2)}</p></div>
+            <div className="chart-card"><h3>Total Orders</h3><p className="chart-total">{orders.length}</p></div>
+          </div>
+          <div className="detail-note">
+            <strong>Contact Details</strong>
+            <p>Phone: {customer.phone || 'Not provided'}</p>
+            <p>Company: {customer.company_name || 'Not provided'}</p>
+            <p>Joined: {new Date(customer.created_at).toLocaleDateString()}</p>
+          </div>
+        </div>
+        <footer className="modal-footer"><button className="outline" onClick={onClose}>Close</button></footer>
+      </div>
+    </div>
+  );
 }
 
 function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   const [mode, setMode] = useState<"login" | "signup" | "admin" | "forgot">("login");
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [captchaQ, setCaptchaQ] = useState({ n1: 4, n2: 7 }); // Default initial mock question
+  const [captchaQ, setCaptchaQ] = useState({ n1: 4, n2: 7 });
   const [captchaAnswer, setCaptchaAnswer] = useState("");
   const [attempts, setAttempts] = useState(0);
   const [lockoutCount, setLockoutCount] = useState(0);
@@ -280,7 +447,6 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-compiler/react-compiler
     resetCaptcha();
   }, []);
 
@@ -376,25 +542,119 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   const title = mode === "admin" ? "Administrator sign in" : mode === "signup" ? "Create your Xpack account" : mode === "forgot" ? "Reset your password" : "Welcome back";
   const isLocked = lockoutUntil !== null;
 
-  return <main className="auth-shell"><section className="auth-brand"><div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div><div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div><div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div></section><section className="auth-panel"><form className="auth-card" onSubmit={submit}><div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>{mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}<label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? "admin@xpack.in" : undefined} disabled={isLocked}/></label>{mode !== "forgot" && <label>Password<div style={{position: 'relative'}}><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined} style={{paddingRight: '36px'}} disabled={isLocked}/><button type="button" onClick={() => setShowPassword(!showPassword)} style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px'}} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}{mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}{mode !== "forgot" && <label>Security Check: What is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}{mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}{error && <p className="auth-error">{error}</p>}<button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>{mode === "admin" ? <button type="button" className="plain-link" onClick={() => changeMode("login")} disabled={isLocked}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => changeMode("admin")} disabled={isLocked}><Icon name="lock" size={14}/>Administrator sign in</button></>}</form></section></main>;
+  return (
+    <main className="auth-shell">
+      <section className="auth-brand">
+        <div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div>
+        <div><p className="eyebrow">IVR BROADCAST MANAGEMENT</p><h1>Every broadcast,<br/>clear and under control.</h1><p>Place orders, securely share files, track processing, and receive campaign reports in one focused workspace.</p></div>
+        <div className="auth-points"><span><Icon name="check"/>Secure file management</span><span><Icon name="check"/>Live order notifications</span><span><Icon name="check"/>Dedicated support desk</span></div>
+      </section>
+      <section className="auth-panel">
+        <form className="auth-card" onSubmit={submit}>
+          <div className="auth-heading"><p className="eyebrow">{mode === "admin" ? "RESTRICTED AREA" : "XPACK PORTAL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer workspace in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>
+          {mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}
+          <label>Email address<input name="email" type="email" required placeholder="you@company.com" defaultValue={mode === "admin" ? "admin@xpack.in" : undefined} disabled={isLocked}/></label>
+          {mode !== "forgot" && <label>Password<div style={{position: 'relative'}}><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" defaultValue={mode === "admin" ? "" : undefined} style={{paddingRight: '36px'}} disabled={isLocked}/><button type="button" onClick={() => setShowPassword(!showPassword)} style={{position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px'}} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}
+          {mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}
+          {mode !== "forgot" && <label>Security Check: What is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}
+          {mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}
+          {error && <p className="auth-error">{error}</p>}
+          <button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>
+          {mode === "admin" ? <button type="button" className="plain-link" onClick={() => changeMode("login")} disabled={isLocked}>Back to customer sign in</button> : <><p className="auth-switch">{mode === "signup" ? "Already have an account?" : "New to Xpack?"} <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" ? "Sign in" : "Create an account"}</button></p><button type="button" className="admin-entry" onClick={() => changeMode("admin")} disabled={isLocked}><Icon name="lock" size={14}/>Administrator sign in</button></>}
+        </form>
+      </section>
+    </main>
+  );
 }
 
 function CustomerPage({ view, orders, tickets, setView, create, ticket, select, selectTicket, session, balance }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number }) {
-  if (view === "My broadcasts") return <><Heading eyebrow="CUSTOMER PORTAL" title="My broadcasts" text="Every IVR broadcast request in one place." action="New broadcast" onAction={create}/><section className="panel data-panel"><OrderTable orders={orders} onSelect={select}/></section></>;
-  if (view === "Support centre") return <><Heading eyebrow="SUPPORT CENTRE" title="How can we help?" text="Create a ticket and keep every conversation in one thread." action="New ticket" onAction={ticket}/><section className="support-layout"><section className="panel data-panel"><TicketTable tickets={tickets} onSelect={selectTicket}/></section><aside className="panel support-aside"><Icon name="help" size={26}/><h2>Priority support</h2><p>Our operations team typically responds within one business day.</p><button className="outline" onClick={ticket}>Raise a ticket</button></aside></section></>;
-  if (view === "Settings") return <><Heading eyebrow="ACCOUNT SETTINGS" title="Profile and preferences" text="Keep your account and notification preferences up to date."/><section className="panel settings-panel"><div className="setting-section"><h2>Profile information</h2><p>These details appear on your broadcast requests.</p><div className="form-grid"><label>Full name<input defaultValue={session.name}/></label><label>Company<input defaultValue={session.company}/></label><label>Email address<input defaultValue={session.email}/></label><label>Phone number<input placeholder="Add a phone number"/></label></div><button className="primary" onClick={() => alert("Profile changes are saved in the production database once connected.")}>Save changes</button></div><div className="setting-section"><h2>Notification preferences</h2><p>Receive an email when a broadcast changes status or a report is ready.</p><label className="toggle-row">Email status updates<input type="checkbox" defaultChecked/></label></div></section></>;
-  
-  if (view === "Funds") {
-    return <><Heading eyebrow="FUNDS" title="Account Balance" text="Add funds to your account to place orders."/><div className="dashboard-grid"><section className="panel" style={{display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px'}}><div style={{background: '#f1f5f9', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px'}}><Icon name="indian-rupee" size={32}/></div><p className="eyebrow">CURRENT BALANCE</p><h2 style={{fontSize: '48px', margin: '10px 0'}}>₹{balance.toFixed(2)}</h2><p className="text-muted" style={{textAlign: 'center', maxWidth: '300px'}}>Balance is automatically deducted when you submit a new broadcast request.</p></section><aside className="panel"><h2>Add Funds via Paytm</h2><p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Recharge your account instantly using Paytm. Note: This will process a real transaction.</p><form method="POST" action="/api/paytm/initiate" className="admin-update"><label>Amount (₹)<input type="number" name="amount" min="10" step="1" required defaultValue="500"/></label><button type="submit" className="primary" style={{marginTop: '15px'}}>Pay with Paytm</button></form></aside></div></>;
+  if (view === "My broadcasts") {
+    return (
+      <>
+        <Heading eyebrow="CUSTOMER PORTAL" title="My broadcasts" text="Every IVR broadcast request in one place." action="New broadcast" onAction={create}/>
+        <section className="panel data-panel">
+          <SMMOrderTable orders={orders} onSelect={select}/>
+        </section>
+      </>
+    );
+  }
+
+  if (view === "Support centre") {
+    return (
+      <>
+        <Heading eyebrow="SUPPORT CENTRE" title="How can we help?" text="Create a ticket and keep every conversation in one thread." action="New ticket" onAction={ticket}/>
+        <section className="support-layout">
+          <section className="panel data-panel"><TicketTable tickets={tickets} onSelect={selectTicket}/></section>
+          <aside className="panel support-aside">
+            <Icon name="help" size={26}/>
+            <h2>Priority support</h2>
+            <p>Our operations team typically responds within one business day.</p>
+            <button className="outline" onClick={ticket}>Raise a ticket</button>
+          </aside>
+        </section>
+      </>
+    );
+  }
+
+  if (view === "Settings") {
+    return (
+      <>
+        <Heading eyebrow="ACCOUNT SETTINGS" title="Profile and preferences" text="Keep your account and notification preferences up to date."/>
+        <section className="panel settings-panel">
+          <div className="setting-section">
+            <h2>Profile information</h2>
+            <p>These details appear on your broadcast requests.</p>
+            <div className="form-grid">
+              <label>Full name<input defaultValue={session.name}/></label>
+              <label>Company<input defaultValue={session.company}/></label>
+              <label>Email address<input defaultValue={session.email}/></label>
+              <label>Phone number<input placeholder="Add a phone number"/></label>
+            </div>
+            <button className="primary" onClick={() => alert("Profile changes are saved.")}>Save changes</button>
+          </div>
+          <div className="setting-section">
+            <h2>Notification preferences</h2>
+            <p>Receive an email when a broadcast changes status or a report is ready.</p>
+            <label className="toggle-row">Email status updates<input type="checkbox" defaultChecked/></label>
+          </div>
+        </section>
+      </>
+    );
   }
   
-  const placed = orders.filter((o: Order) => o.status === "Placed").length, progressing = orders.filter((o: Order) => o.status === "In progress").length, completed = orders.filter((o: Order) => o.status === "Completed").length;
+  if (view === "Funds") {
+    return (
+      <>
+        <Heading eyebrow="FUNDS" title="Account Balance" text="Add funds to your account to place orders."/>
+        <div className="dashboard-grid">
+          <section className="panel" style={{display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px'}}>
+            <div style={{background: '#f1f5f9', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px'}}><Icon name="indian-rupee" size={32}/></div>
+            <p className="eyebrow">CURRENT BALANCE</p>
+            <h2 style={{fontSize: '48px', margin: '10px 0'}}>₹{balance.toFixed(2)}</h2>
+            <p className="text-muted" style={{textAlign: 'center', maxWidth: '300px'}}>Balance is automatically deducted when you submit a new broadcast order.</p>
+          </section>
+          <aside className="panel">
+            <h2>Add Funds via Paytm</h2>
+            <p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Recharge your account instantly using Paytm.</p>
+            <form method="POST" action="/api/paytm/initiate" className="admin-update">
+              <label>Amount (₹)<input type="number" name="amount" min="10" step="1" required defaultValue="500"/></label>
+              <button type="submit" className="primary" style={{marginTop: '15px'}}>Pay with Paytm</button>
+            </form>
+          </aside>
+        </div>
+      </>
+    );
+  }
+  
+  const placed = orders.filter((o: Order) => o.status === "Placed").length;
+  const progressing = orders.filter((o: Order) => o.status === "In progress").length;
+  const completed = orders.filter((o: Order) => o.status === "Completed" || o.status === "Partial").length;
 
-  // Generate dynamic customer events
   const parseDate = (dStr: string) => {
     const d = new Date(dStr);
     return isNaN(d.getTime()) ? new Date() : d;
   };
+
   const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
   orders.forEach(o => {
     events.push({
@@ -404,7 +664,7 @@ function CustomerPage({ view, orders, tickets, setView, create, ticket, select, 
       dateObj: parseDate(o.created),
       color: "blue"
     });
-    if (o.status === "Completed") {
+    if (o.status === "Completed" || o.status === "Partial") {
       events.push({
         title: "Report is ready",
         text: `${o.name} report was uploaded.`,
@@ -425,10 +685,40 @@ function CustomerPage({ view, orders, tickets, setView, create, ticket, select, 
   });
   events.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
 
-  return <><Heading eyebrow="CUSTOMER PORTAL" title={`Good morning, ${session.name.split(" ")[0]}`} text="Here's what's happening with your broadcasts." action="New broadcast" onAction={create}/><div className="metric-grid"><Metric icon="radio" label="Total broadcasts" value={orders.length} detail="All time"/><Metric icon="clock" label="Pending orders" value={placed} detail="Awaiting review" warning/><Metric icon="activity" label="In progress" value={progressing} detail="Being processed"/><Metric icon="chart" label="Completed" value={completed} detail="Reports ready" success/></div><div className="dashboard-grid"><section className="panel"><PanelTop title="Recent broadcasts" text="Your latest broadcast requests." action="View all" onAction={() => setView("My broadcasts")}/><OrderTable orders={orders.slice(0, 4)} onSelect={select}/></section><aside className="activity-panel panel"><PanelTop title="Recent activity" text="Across your account."/><div className="timeline">{events.length > 0 ? events.slice(0, 3).map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />) : <p className="text-muted" style={{ padding: '24px 0', textAlign: 'center' }}>No recent activity.</p>}</div><button className="outline full" onClick={() => setView("Support centre")}>Open support centre</button></aside></div><section className="quick-section"><div><p className="eyebrow">QUICK ACTIONS</p><h2>Manage your broadcasts with ease</h2><p>Everything needed for a successful IVR campaign.</p></div><div className="quick-actions"><button onClick={create}><span className="icon-box blue"><Icon name="plus"/></span><span><strong>Create a broadcast</strong><small>Upload audio and contact list</small></span><Icon name="arrow" size={18}/></button><button onClick={() => setView("My broadcasts")}><span className="icon-box green"><Icon name="file"/></span><span><strong>View campaign reports</strong><small>Download completed results</small></span><Icon name="arrow" size={18}/></button></div></section></>;
+  return (
+    <>
+      <Heading eyebrow="CUSTOMER PORTAL" title={`Good morning, ${session.name.split(" ")[0]}`} text="Here's what's happening with your broadcasts." action="New broadcast" onAction={create}/>
+      <div className="metric-grid">
+        <Metric icon="radio" label="Total broadcasts" value={orders.length} detail="All time"/>
+        <Metric icon="clock" label="Pending orders" value={placed} detail="Awaiting review" warning/>
+        <Metric icon="activity" label="In progress" value={progressing} detail="Being processed"/>
+        <Metric icon="chart" label="Completed / Partial" value={completed} detail="Reports ready" success/>
+      </div>
+      <div className="dashboard-grid">
+        <section className="panel">
+          <PanelTop title="Recent broadcasts" text="Your latest broadcast requests." action="View all" onAction={() => setView("My broadcasts")}/>
+          <SMMOrderTable orders={orders.slice(0, 4)} onSelect={select}/>
+        </section>
+        <aside className="activity-panel panel">
+          <PanelTop title="Recent activity" text="Across your account."/>
+          <div className="timeline">
+            {events.length > 0 ? events.slice(0, 3).map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />) : <p className="text-muted" style={{ padding: '24px 0', textAlign: 'center' }}>No recent activity.</p>}
+          </div>
+          <button className="outline full" onClick={() => setView("Support centre")}>Open support centre</button>
+        </aside>
+      </div>
+      <section className="quick-section">
+        <div><p className="eyebrow">QUICK ACTIONS</p><h2>Manage your broadcasts with ease</h2><p>Everything needed for a successful IVR campaign.</p></div>
+        <div className="quick-actions">
+          <button onClick={create}><span className="icon-box blue"><Icon name="plus"/></span><span><strong>Create a broadcast</strong><small>Select category & service</small></span><Icon name="arrow" size={18}/></button>
+          <button onClick={() => setView("My broadcasts")}><span className="icon-box green"><Icon name="file"/></span><span><strong>View campaign reports</strong><small>Download completed results</small></span><Icon name="arrow" size={18}/></button>
+        </div>
+      </section>
+    </>
+  );
 }
 
-function AdminPage({ view, orders, tickets, users, price, setPrice, setView, select, selectTicket }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void }) {
+function AdminPage({ view, orders, tickets, users, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [actFilterDate, setActFilterDate] = useState("");
@@ -443,15 +733,17 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
     return isNaN(d.getTime()) ? new Date() : d;
   };
 
+  if (view === "Categories & Services") {
+    return <CategoryServiceManager />;
+  }
+
   if (view === "Broadcast management") {
-    // Apply schedule filter
     let filtered = orders.filter(o => {
       const isLater = o.schedule && o.schedule !== 'Start on processing' && new Date(o.schedule) > new Date();
       if (scheduleFilter === "later") return isLater;
       return !isLater;
     });
 
-    // Apply search filter
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(o =>
@@ -459,24 +751,49 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
         o.customer.toLowerCase().includes(term) ||
         o.id.toLowerCase().includes(term) ||
         o.email.toLowerCase().includes(term) ||
-        o.broadcastNo.toLowerCase().includes(term)
+        o.broadcastNo.toLowerCase().includes(term) ||
+        (o.categoryName && o.categoryName.toLowerCase().includes(term)) ||
+        (o.serviceName && o.serviceName.toLowerCase().includes(term))
       );
     }
-    // Apply status filter
     if (statusFilter !== "All statuses") {
       filtered = filtered.filter(o => o.status === statusFilter);
     }
 
-    return <><Heading eyebrow="ADMIN PORTAL" title="Broadcast management" text="Review requests, access assets, and manage fulfillment."/><section className="panel data-panel"><div className="table-tools" style={{flexWrap: 'wrap'}}><div className="search"><Icon name="search" size={16}/><input placeholder="Search order, customer, or reference" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/></div><div style={{display:'flex',gap:'10px'}}><button className="outline" onClick={() => setScheduleFilter('current')} style={scheduleFilter === 'current' ? {background:'#f1f5f9',borderColor:'#cbd5e1',color:'#0f172a'}: {}}>Current BR's</button><button className="outline" onClick={() => setScheduleFilter('later')} style={scheduleFilter === 'later' ? {background:'#f1f5f9',borderColor:'#cbd5e1',color:'#0f172a'}: {}}>Later BR's</button></div><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option>All statuses</option><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option><option>On hold</option></select></div><OrderTable orders={filtered} admin onSelect={select} onViewCustomer={(email) => { setView("Customers"); }}/></section></>;
+    return (
+      <>
+        <Heading eyebrow="ADMIN PORTAL" title="Broadcast management" text="Review requests, access assets, and manage fulfillment."/>
+        <section className="panel data-panel">
+          <div className="table-tools" style={{flexWrap: 'wrap'}}>
+            <div className="search"><Icon name="search" size={16}/><input placeholder="Search order, category, or customer" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/></div>
+            <div style={{display:'flex',gap:'10px'}}>
+              <button className="outline" onClick={() => setScheduleFilter('current')} style={scheduleFilter === 'current' ? {background:'#f1f5f9',borderColor:'#cbd5e1',color:'#0f172a'}: {}}>Current BR's</button>
+              <button className="outline" onClick={() => setScheduleFilter('later')} style={scheduleFilter === 'later' ? {background:'#f1f5f9',borderColor:'#cbd5e1',color:'#0f172a'}: {}}>Later BR's</button>
+            </div>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <option>All statuses</option>
+              <option>Placed</option>
+              <option>In progress</option>
+              <option>Completed</option>
+              <option>Partial</option>
+              <option>Cancelled</option>
+              <option>On hold</option>
+            </select>
+          </div>
+          <SMMOrderTable orders={filtered} admin onSelect={select} onViewCustomer={() => setView("Customers")}/>
+        </section>
+      </>
+    );
   }
-  if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { /* View Customer handled by modal in App */ (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td>₹{(Number(u.balance) || 0).toFixed(2)}</td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table></section></>;
+
+  if (view === "Customers") return <><Heading eyebrow="ADMIN PORTAL" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><table><thead><tr><th>Customer</th><th>Email</th><th>Orders</th><th>Balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td>₹{(Number(u.balance) || 0).toFixed(2)}</td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table></section></>;
   if (view === "Support desk") return <><Heading eyebrow="ADMIN PORTAL" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (view === "Activity log") {
     const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
     orders.forEach(o => {
-      events.push({ title: `${o.broadcastNo} created`, text: `${o.customer} submitted a new broadcast request.`, time: o.created, dateObj: parseDate(o.created), color: "blue" });
-      if (o.status === "Completed") events.push({ title: "Report uploaded", text: `Admin completed ${o.broadcastNo} and shared performance report.`, time: o.created, dateObj: parseDate(o.created), color: "green" });
+      events.push({ title: `${o.broadcastNo} created`, text: `${o.customer} submitted ${o.name}`, time: o.created, dateObj: parseDate(o.created), color: "blue" });
+      if (o.status === "Completed" || o.status === "Partial") events.push({ title: "Report uploaded", text: `Admin completed ${o.broadcastNo} and shared report.`, time: o.created, dateObj: parseDate(o.created), color: "green" });
       if (o.history) {
         o.history.forEach((h) => {
           events.push({ title: `Order ${h.status.toLowerCase()}`, text: h.reason || `Status updated for ${o.broadcastNo}`, time: new Date(h.created_at).toLocaleString(), dateObj: new Date(h.created_at), color: h.status === 'REFUNDED' ? 'refunded' : h.status === 'CANCELLED' ? 'red' : 'activity' })
@@ -487,7 +804,6 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
     
     events.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
     
-    // Group events by date string
     const filteredEvents = actFilterDate ? events.filter(e => {
       const d = e.dateObj;
       const pad = (n: number) => n.toString().padStart(2, '0');
@@ -500,7 +816,6 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
       grouped[dStr].push(e);
     });
 
-    // Chart metrics
     const customersTotal = new Set(orders.map(o => o.email)).size;
     const statuses = { placed: 0, progress: 0, hold: 0, completed: 0, cancelled: 0 };
     let totalRefunds = 0;
@@ -515,73 +830,419 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
       if (o.status === "Placed") statuses.placed++;
       else if (o.status === "In progress") statuses.progress++;
       else if (o.status === "On hold") statuses.hold++;
-      else if (o.status === "Completed") statuses.completed++;
+      else if (o.status === "Completed" || o.status === "Partial") statuses.completed++;
       else if (o.status === "Cancelled") statuses.cancelled++;
       if (o.refundAmount) totalRefunds += Number(o.refundAmount);
     });
     const maxVal = Math.max(...Object.values(statuses), 1);
 
-    return <><Heading eyebrow="ADMIN PORTAL" title="Activity dashboard" text="Audit trail and operational metrics."/><div className="activity-dashboard"><div className="chart-card"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3>Order Distribution</h3><div className="activity-filters" style={{marginBottom:0}}><input type="date" className="date-filter" value={chartDateFilter} onChange={e => setChartDateFilter(e.target.value)}/>{chartDateFilter && <button className="text-button" onClick={() => setChartDateFilter("")}>Till now</button>}</div></div><div className="bar-chart"><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.placed/maxVal)*100}%`}}></div><span className="bar-val">{statuses.placed}</span><span className="bar-label">Placed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.progress/maxVal)*100}%`, background: '#fff3df'}}></div><span className="bar-val">{statuses.progress}</span><span className="bar-label">In progress</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.hold/maxVal)*100}%`, background: '#fef3c7'}}></div><span className="bar-val">{statuses.hold}</span><span className="bar-label">On hold</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.completed/maxVal)*100}%`, background: '#e8f7ef'}}></div><span className="bar-val">{statuses.completed}</span><span className="bar-label">Completed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.cancelled/maxVal)*100}%`, background: '#fff0f2'}}></div><span className="bar-val">{statuses.cancelled}</span><span className="bar-label">Cancelled</span></div></div></div><div style={{display:'flex',flexDirection:'column',gap:'20px'}}><div className="chart-card"><h3>Total Customers</h3><p className="chart-total">{customersTotal}</p><p className="chart-sub">Registered accounts</p></div><div className="chart-card"><h3>Total Funds</h3><p className="chart-total" style={{color:'#86198f'}}>${totalRefunds.toFixed(2)}</p><p className="chart-sub">Added by customers</p></div></div></div><section className="panel activity-log"><div className="activity-filters"><label style={{fontSize:'12px',fontWeight:700,color:'#64748b'}}>Filter by date</label><input type="date" className="date-filter" value={actFilterDate} onChange={e => setActFilterDate(e.target.value)}/>{actFilterDate && <button className="text-button" onClick={() => setActFilterDate("")}>Clear filter</button>}</div>{Object.keys(grouped).length > 0 ? Object.entries(grouped).map(([date, evs]) => <div key={date} className="event-group"><h4 className="event-group-date">{date}</h4>{evs.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />)}</div>) : <p className="text-muted" style={{ padding: '24px', textAlign: 'center' }}>No activities recorded for this period.</p>}</section></>;
+    return <><Heading eyebrow="ADMIN PORTAL" title="Activity dashboard" text="Audit trail and operational metrics."/><div className="activity-dashboard"><div className="chart-card"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3>Order Distribution</h3><div className="activity-filters" style={{marginBottom:0}}><input type="date" className="date-filter" value={chartDateFilter} onChange={e => setChartDateFilter(e.target.value)}/>{chartDateFilter && <button className="text-button" onClick={() => setChartDateFilter("")}>Till now</button>}</div></div><div className="bar-chart"><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.placed/maxVal)*100}%`}}></div><span className="bar-val">{statuses.placed}</span><span className="bar-label">Placed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.progress/maxVal)*100}%`, background: '#fff3df'}}></div><span className="bar-val">{statuses.progress}</span><span className="bar-label">In progress</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.hold/maxVal)*100}%`, background: '#fef3c7'}}></div><span className="bar-val">{statuses.hold}</span><span className="bar-label">On hold</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.completed/maxVal)*100}%`, background: '#e8f7ef'}}></div><span className="bar-val">{statuses.completed}</span><span className="bar-label">Completed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.cancelled/maxVal)*100}%`, background: '#fff0f2'}}></div><span className="bar-val">{statuses.cancelled}</span><span className="bar-label">Cancelled</span></div></div></div><div style={{display:'flex',flexDirection:'column',gap:'20px'}}><div className="chart-card"><h3>Total Customers</h3><p className="chart-total">{customersTotal}</p><p className="chart-sub">Registered accounts</p></div><div className="chart-card"><h3>Total Refunds</h3><p className="chart-total" style={{color:'#86198f'}}>₹{totalRefunds.toFixed(2)}</p><p className="chart-sub">Processed to wallet</p></div></div></div><section className="panel activity-log"><div className="activity-filters"><label style={{fontSize:'12px',fontWeight:700,color:'#64748b'}}>Filter by date</label><input type="date" className="date-filter" value={actFilterDate} onChange={e => setActFilterDate(e.target.value)}/>{actFilterDate && <button className="text-button" onClick={() => setActFilterDate("")}>Clear filter</button>}</div>{Object.keys(grouped).length > 0 ? Object.entries(grouped).map(([date, evs]) => <div key={date} className="event-group"><h4 className="event-group-date">{date}</h4>{evs.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />)}</div>) : <p className="text-muted" style={{ padding: '24px', textAlign: 'center' }}>No activities recorded for this period.</p>}</section></>;
   }
   
   if (view === "Pricing") {
-    // Group completed orders by Month
-    const monthlyRev: Record<string, number> = {};
-    orders.forEach(o => {
-      if (o.status === "Completed" && o.created) {
-        const d = parseDate(o.created);
-        const mStr = d.toLocaleString('default', { month: 'short' });
-        if (!monthlyRev[mStr]) monthlyRev[mStr] = 0;
-        // The graph now uses the saved global price to compute revenue accurately
-        const contactsCount = parseInt(o.contacts) || 100;
-        monthlyRev[mStr] += contactsCount * Number(price);
-      }
-    });
-
-    const mKeys = Object.keys(monthlyRev);
-    const maxRev = Math.max(...Object.values(monthlyRev), 10);
-
     const handleSavePricing = async () => {
       const res = await updatePricePerCall(localPrice);
       if (res.error) alert(res.error);
       else {
         alert("Pricing updated successfully!");
-        setPrice(localPrice); // Update global state
+        setPrice(localPrice);
       }
     };
 
-    return <><Heading eyebrow="ADMIN PORTAL" title="Pricing & Revenue" text="Set call pricing and monitor your net sales."/><div className="dashboard-grid"><section className="panel"><PanelTop title="Revenue overview" text="Net sales grouped by month."/><div className="bar-chart" style={{height: '250px', marginTop: '20px', borderLeft: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 0'}}>
-      {mKeys.length > 0 ? mKeys.map(m => (
-        <div className="bar-wrap" key={m}>
-          <div className="bar" style={{height: `${(monthlyRev[m]/maxRev)*100}%`}}></div>
-          <span className="bar-val">₹{monthlyRev[m].toFixed(0)}</span>
-          <span className="bar-label">{m}</span>
+    return (
+      <>
+        <Heading eyebrow="ADMIN PORTAL" title="Global Call Pricing" text="Set default pricing parameters."/>
+        <div className="dashboard-grid">
+          <aside className="panel" style={{gridColumn: '1 / -1'}}>
+            <h2>Call Pricing (Default per-call rate)</h2>
+            <p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Set the default cost per call for fallback estimates.</p>
+            <div className="admin-update" style={{maxWidth: '400px'}}>
+              <label>Price per call (₹)<input type="number" step="0.01" value={localPrice} onChange={e => setLocalPrice(e.target.value)}/></label>
+              <button className="primary" onClick={handleSavePricing}>Save Pricing</button>
+            </div>
+          </aside>
         </div>
-      )) : <p className="text-muted" style={{margin:'auto'}}>No revenue data.</p>}
-    </div></section><aside className="panel"><h2>Call Pricing</h2><p className="text-muted" style={{fontSize: '13px', marginBottom: '20px'}}>Set the cost per call. When a customer places an order, the amount will be deducted from their balance.</p><div className="admin-update"><label>Price per call (₹)<input type="number" step="0.01" value={localPrice} onChange={e => setLocalPrice(e.target.value)}/></label><div className="detail-note" style={{background: '#f8fafc', margin: '15px 0'}}><strong>Example Cost</strong><p>100 calls = ₹{(Number(localPrice) * 100).toFixed(2)}</p></div><button className="primary" onClick={handleSavePricing}>Save Pricing</button></div></aside></div></>;
+      </>
+    );
   }
 
-  const pending = orders.filter((o: Order) => o.status === "Placed").length, active = orders.filter((o: Order) => o.status === "In progress").length, done = orders.filter((o: Order) => o.status === "Completed").length;
+  const pending = orders.filter((o: Order) => o.status === "Placed").length;
+  const active = orders.filter((o: Order) => o.status === "In progress").length;
+  const done = orders.filter((o: Order) => o.status === "Completed" || o.status === "Partial").length;
   const onHoldCount = orders.filter((o: Order) => o.status === "On hold").length;
   const urgentTickets = tickets.filter((t: Ticket) => t.status !== "Resolved" && t.status !== "Closed" && t.priority === "High").length;
 
-  return <><Heading eyebrow="ADMIN PORTAL" title="Operations overview" text="A live view of your broadcast operations."/><div className="metric-grid"><Metric icon="users" label="Total customers" value={new Set(orders.map((o: Order) => o.email)).size} detail="Across all accounts"/><Metric icon="clock" label="Pending orders" value={pending} detail="Orders waiting for review" warning/><Metric icon="activity" label="In progress" value={active} detail="Currently processing"/><Metric icon="chart" label="Completed" value={done} detail="Reports delivered" success/></div><div className="dashboard-grid"><section className="panel urgent"><PanelTop title="Orders needing action" text="New requests and orders that need attention." action="Manage orders" onAction={() => setView("Broadcast management")}/><div className="urgent-list">{orders.filter((o: Order) => o.status !== "Completed").slice(0,3).map((o: Order, i: number) => <div className="urgent-row" key={o.id}><span className={`priority ${i === 0 ? "new" : "due-soon"}`}>{i === 0 ? "New" : "Due soon"}</span><div><strong>{o.broadcastNo} · {o.customer}</strong><p>{o.contacts} · {o.created}</p></div><button className="outline small" onClick={() => select(o)}>Review <Icon name="arrow" size={14}/></button></div>)}</div></section><aside className="panel queue"><PanelTop title="Support queue" text="Current ticket workload." action="Open desk" onAction={() => setView("Support desk")}/><div className="queue-stats"><div><b>{tickets.filter((t: Ticket) => t.status === "Open").length}</b><span>Open</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "In progress").length}</b><span>In progress</span></div><div><b>{tickets.filter((t: Ticket) => t.status === "Resolved").length}</b><span>Resolved</span></div></div>{urgentTickets > 0 ? <div className="sla"><span className="icon-box red"><Icon name="clock"/></span><div><strong>{urgentTickets} tickets nearing SLA</strong><p>High priority tickets require immediate response.</p></div></div> : <div className="sla" style={{ borderColor: '#e2e8f0', background: '#f8fafc' }}><span className="icon-box green"><Icon name="check"/></span><div><strong>All caught up!</strong><p>No high-priority tickets pending.</p></div></div>}</aside></div><section className="panel operations"><PanelTop title="Today's processing pipeline" text="Broadcast order health by status."/><div className="pipeline"><div><span className="pipe-number blue-fill">{pending}</span><strong>Placed</strong><p>Awaiting review</p></div><span className="pipe-line"/><div><span className="pipe-number yellow-fill">{active}</span><strong>In progress</strong><p>On IVR system</p></div><span className="pipe-line"/><div><span className="pipe-number green-fill">{done}</span><strong>Completed</strong><p>Reports delivered</p></div>{onHoldCount > 0 && <><span className="pipe-line"/><div><span className="pipe-number" style={{background:'#fef3c7',color:'#92400e'}}>{onHoldCount}</span><strong>On hold</strong><p>Awaiting fix</p></div></>}</div></section></>;
+  return (
+    <>
+      <Heading eyebrow="ADMIN PORTAL" title="Operations overview" text="A live view of your broadcast operations."/>
+      <div className="metric-grid">
+        <Metric icon="users" label="Total customers" value={new Set(orders.map((o: Order) => o.email)).size} detail="Across all accounts"/>
+        <Metric icon="clock" label="Pending orders" value={pending} detail="Orders waiting for review" warning/>
+        <Metric icon="activity" label="In progress" value={active} detail="Currently processing"/>
+        <Metric icon="chart" label="Completed" value={done} detail="Reports delivered" success/>
+      </div>
+      <div className="dashboard-grid">
+        <section className="panel urgent">
+          <PanelTop title="Orders needing action" text="New requests and orders that need attention." action="Manage orders" onAction={() => setView("Broadcast management")}/>
+          <div className="urgent-list">
+            {orders.filter((o: Order) => o.status !== "Completed" && o.status !== "Partial").slice(0,3).map((o: Order, i: number) => (
+              <div className="urgent-row" key={o.id}>
+                <span className={`priority ${i === 0 ? "new" : "due-soon"}`}>{i === 0 ? "New" : "Due soon"}</span>
+                <div><strong>{o.broadcastNo} · {o.customer}</strong><p>{o.name} · {o.created}</p></div>
+                <button className="outline small" onClick={() => select(o)}>Review <Icon name="arrow" size={14}/></button>
+              </div>
+            ))}
+          </div>
+        </section>
+        <aside className="panel queue">
+          <PanelTop title="Support queue" text="Current ticket workload." action="Open desk" onAction={() => setView("Support desk")}/>
+          <div className="queue-stats">
+            <div><b>{tickets.filter((t: Ticket) => t.status === "Open").length}</b><span>Open</span></div>
+            <div><b>{tickets.filter((t: Ticket) => t.status === "In progress").length}</b><span>In progress</span></div>
+            <div><b>{tickets.filter((t: Ticket) => t.status === "Resolved").length}</b><span>Resolved</span></div>
+          </div>
+          {urgentTickets > 0 ? (
+            <div className="sla"><span className="icon-box red"><Icon name="clock"/></span><div><strong>{urgentTickets} tickets nearing SLA</strong><p>High priority tickets require response.</p></div></div>
+          ) : (
+            <div className="sla" style={{ borderColor: '#e2e8f0', background: '#f8fafc' }}><span className="icon-box green"><Icon name="check"/></span><div><strong>All caught up!</strong><p>No high-priority tickets pending.</p></div></div>
+          )}
+        </aside>
+      </div>
+      <section className="panel operations">
+        <PanelTop title="Today's processing pipeline" text="Broadcast order health by status."/>
+        <div className="pipeline">
+          <div><span className="pipe-number blue-fill">{pending}</span><strong>Placed</strong><p>Awaiting review</p></div>
+          <span className="pipe-line"/>
+          <div><span className="pipe-number yellow-fill">{active}</span><strong>In progress</strong><p>On IVR system</p></div>
+          <span className="pipe-line"/>
+          <div><span className="pipe-number green-fill">{done}</span><strong>Completed</strong><p>Reports delivered</p></div>
+          {onHoldCount > 0 && <><span className="pipe-line"/><div><span className="pipe-number" style={{background:'#fef3c7',color:'#92400e'}}>{onHoldCount}</span><strong>On hold</strong><p>Awaiting fix</p></div></>}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function CategoryServiceManager() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [catName, setCatName] = useState("");
+  const [catDesc, setCatDesc] = useState("");
+  
+  const [selectedCatId, setSelectedCatId] = useState("");
+  const [servName, setServName] = useState("");
+  const [servPrice, setServPrice] = useState("");
+  const [servDesc, setServDesc] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const loadData = async () => {
+    const res = await getAllCategoriesAndServices();
+    if (res.data) {
+      setCategories(res.data);
+      if (res.data.length > 0 && !selectedCatId) {
+        setSelectedCatId(res.data[0].id);
+      }
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleAddCategory = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!catName.trim()) return alert("Category name is required.");
+    setLoading(true);
+    const res = await createCategory(catName, catDesc);
+    setLoading(false);
+    if (res.error) {
+      alert(res.error);
+    } else {
+      setCatName("");
+      setCatDesc("");
+      setMsg("Category created successfully!");
+      setTimeout(() => setMsg(""), 3000);
+      loadData();
+    }
+  };
+
+  const handleAddService = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedCatId) return alert("Please select a Category.");
+    if (!servName.trim()) return alert("Service name is required.");
+    const priceNum = parseFloat(servPrice);
+    if (isNaN(priceNum) || priceNum < 0) return alert("Please enter a valid price.");
+
+    setLoading(true);
+    const res = await createService(selectedCatId, servName, priceNum, servDesc);
+    setLoading(false);
+    if (res.error) {
+      alert(res.error);
+    } else {
+      setServName("");
+      setServPrice("");
+      setServDesc("");
+      setMsg("Service added successfully!");
+      setTimeout(() => setMsg(""), 3000);
+      loadData();
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this category? All services inside it will also be deleted.")) return;
+    const res = await deleteCategory(id);
+    if (res.error) alert(res.error);
+    else loadData();
+  };
+
+  const handleDeleteService = async (id: string) => {
+    if (!confirm("Delete this service?")) return;
+    const res = await deleteService(id);
+    if (res.error) alert(res.error);
+    else loadData();
+  };
+
+  return (
+    <>
+      <Heading eyebrow="ADMIN PORTAL" title="Category & Service Management" text="Manually create categories and services with custom prices for SMM panel ordering."/>
+      {msg && <div style={{background: '#dcfce7', color: '#15803d', padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontWeight: 600}}>✓ {msg}</div>}
+      
+      <div className="dashboard-grid">
+        <section className="panel" style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
+          <PanelTop title="Create Category" text="Manually type the category name (e.g. 10 Second Audio, 20 Second Audio)"/>
+          <form onSubmit={handleAddCategory} className="admin-update">
+            <label>Category Name<input required placeholder="e.g. 10 Second Audio" value={catName} onChange={e => setCatName(e.target.value)}/></label>
+            <label>Description (optional)<textarea rows={2} placeholder="Optional notes" value={catDesc} onChange={e => setCatDesc(e.target.value)}/></label>
+            <button className="primary" disabled={loading}>Create Category <Icon name="plus" size={16}/></button>
+          </form>
+        </section>
+
+        <aside className="panel">
+          <PanelTop title="Create Service" text="Add a service & price inside a category (e.g. 10 calls for 20 rs)"/>
+          <form onSubmit={handleAddService} className="admin-update">
+            <label>Select Category
+              <select value={selectedCatId} onChange={e => setSelectedCatId(e.target.value)} required>
+                <option value="">-- Choose Category --</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <label>Service Name<input required placeholder="e.g. 10 calls for 20 rs" value={servName} onChange={e => setServName(e.target.value)}/></label>
+            <label>Price (₹)<input type="number" step="0.01" required placeholder="20.00" value={servPrice} onChange={e => setServPrice(e.target.value)}/></label>
+            <label>Description (optional)<input placeholder="Optional details" value={servDesc} onChange={e => setServDesc(e.target.value)}/></label>
+            <button className="primary" disabled={loading}>Add Service <Icon name="plus" size={16}/></button>
+          </form>
+        </aside>
+      </div>
+
+      <section className="panel data-panel" style={{marginTop: '24px'}}>
+        <PanelTop title="Active Categories & Services" text="Current services visible to customers during order creation"/>
+        <div style={{display: 'flex', flexDirection: 'column', gap: '20px', padding: '16px'}}>
+          {categories.length === 0 ? (
+            <p className="text-muted">No categories created yet. Create a category above to get started.</p>
+          ) : (
+            categories.map(cat => (
+              <div key={cat.id} style={{border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', background: '#f8fafc'}}>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
+                  <div>
+                    <h3 style={{margin: 0, fontSize: '18px', color: '#0f172a'}}>{cat.name}</h3>
+                    {cat.description && <p style={{margin: '4px 0 0', color: '#64748b', fontSize: '13px'}}>{cat.description}</p>}
+                  </div>
+                  <button className="text-button" style={{color: '#ef4444'}} onClick={() => handleDeleteCategory(cat.id)}>
+                    <Icon name="trash" size={16}/> Delete Category
+                  </button>
+                </div>
+                
+                <div className="table-wrap">
+                  <table style={{background: 'white'}}>
+                    <thead>
+                      <tr>
+                        <th>Service Name</th>
+                        <th>Price (₹)</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cat.services && cat.services.length > 0 ? (
+                        cat.services.map(s => (
+                          <tr key={s.id}>
+                            <td><strong>{s.name}</strong></td>
+                            <td><strong style={{color: '#16a34a'}}>₹{Number(s.price).toFixed(2)}</strong></td>
+                            <td><Badge status={s.is_active ? "Active" : "Disabled"}/></td>
+                            <td>
+                              <button className="text-button" style={{color: '#ef4444'}} onClick={() => handleDeleteService(s.id)}>
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={4} className="empty">No services added to this category yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    </>
+  );
 }
 
 function Heading({ eyebrow, title, text, action, onAction }: { eyebrow: string; title: string; text: string; action?: string; onAction?: () => void }) { return <div className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{text}</p></div>{action && <button className="primary" onClick={onAction}><Icon name="plus"/>{action}</button>}</div>; }
 function PanelTop({ title, text, action, onAction }: { title: string; text: string; action?: string; onAction?: () => void }) { return <div className="panel-top"><div><h2>{title}</h2><p>{text}</p></div>{action && <button className="text-button" onClick={onAction}>{action}<Icon name="arrow" size={15}/></button>}</div>; }
 function Metric({ icon, label, value, detail, warning, success }: { icon: string; label: string; value: number | string; detail: string; warning?: boolean; success?: boolean }) { return <article className="metric panel"><div className={`metric-icon ${warning ? "orange" : success ? "green" : "blue"}`}><Icon name={icon}/></div><p>{label}</p><h2>{value}</h2><small className={warning ? "warning-text" : success ? "success-text" : ""}>{detail}</small></article>; }
 function Timeline({ color, title, text, time }: { color: string; title: string; text: string; time: string }) { return <div className="timeline-item"><span className={`timeline-dot ${color}`}><Icon name={color === "green" ? "chart" : color === "red" ? "help" : "activity"} size={13}/></span><div><strong>{title}</strong><p>{text}</p><small>{time}</small></div></div>; }
-function OrderTable({ orders, onSelect, admin = false, onViewCustomer }: { orders: Order[]; onSelect: (o: Order) => void; admin?: boolean; onViewCustomer?: (email: string) => void }) { return <div className="table-wrap"><table><thead><tr><th style={{width:'70px',textAlign:'center'}}>S.No.</th><th>Broadcast</th>{admin && <th>Customer</th>}<th>Created</th><th>Contacts</th><th>Status</th><th>Action</th></tr></thead><tbody>{orders.length ? orders.map((o, idx) => <tr key={o.id}><td className="sno-col">{o.broadcastNo}</td><td><strong>{o.name}</strong><small>{o.id}</small></td>{admin && <td>{onViewCustomer ? <button className="customer-link" onClick={() => onViewCustomer(o.email)}>{o.customer}</button> : o.customer}</td>}<td>{o.created}</td><td>{o.contacts}</td><td><Badge status={o.status}/></td><td><button className="text-button row-text" onClick={() => onSelect(o)}>View</button></td></tr>) : <tr><td colSpan={admin ? 7 : 6} className="empty">No broadcast requests yet.</td></tr>}</tbody></table></div>; }
-function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
-function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClose: () => void; onSubmit: (o: Order) => void; session: Session; balance: number; price: string }) { 
-  const [audioFile, setAudioFile] = useState<File | null>(null); 
-  const [contactsFile, setContactsFile] = useState<File | null>(null); 
-  const [scheduleType, setScheduleType] = useState("Start on processing");
-  const [contactsCount, setContactsCount] = useState<number | null>(null);
-  const [isParsing, setIsParsing] = useState(false);
 
-  const parseContacts = async (file: File) => {
+function SMMOrderTable({ orders, onSelect, admin = false, onViewCustomer }: { orders: Order[]; onSelect: (o: Order) => void; admin?: boolean; onViewCustomer?: (email: string) => void }) { 
+  const [statusTab, setStatusTab] = useState<string>("All");
+
+  const filteredOrders = statusTab === "All" ? orders : orders.filter(o => {
+    if (statusTab === "Pending") return o.status === "Placed";
+    if (statusTab === "In Progress") return o.status === "In progress";
+    if (statusTab === "Completed") return o.status === "Completed";
+    if (statusTab === "Partial") return o.status === "Partial";
+    if (statusTab === "Canceled") return o.status === "Cancelled" || o.status === "Refunded";
+    return true;
+  });
+
+  return (
+    <div>
+      {/* SMM Panel Inspired Filter Bar */}
+      <div style={{display: 'flex', gap: '8px', padding: '14px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', overflowX: 'auto'}}>
+        {["All", "Pending", "In Progress", "Completed", "Partial", "Canceled"].map(tab => (
+          <button
+            key={tab}
+            onClick={() => setStatusTab(tab)}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '20px',
+              border: statusTab === tab ? '1px solid #3b82f6' : '1px solid #cbd5e1',
+              background: statusTab === tab ? '#3b82f6' : 'white',
+              color: statusTab === tab ? 'white' : '#475569',
+              fontWeight: statusTab === tab ? 600 : 500,
+              fontSize: '13px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            {tab === "All" && "📋 All"}
+            {tab === "Pending" && "⏳ Pending"}
+            {tab === "In Progress" && "⚙️ In Progress"}
+            {tab === "Completed" && "✓ Completed"}
+            {tab === "Partial" && "🔄 Partial"}
+            {tab === "Canceled" && "❌ Canceled"}
+            <span style={{marginLeft: '6px', opacity: 0.8, fontSize: '11px'}}>
+              ({tab === "All" ? orders.length : orders.filter(o => {
+                if (tab === "Pending") return o.status === "Placed";
+                if (tab === "In Progress") return o.status === "In progress";
+                if (tab === "Completed") return o.status === "Completed";
+                if (tab === "Partial") return o.status === "Partial";
+                if (tab === "Canceled") return o.status === "Cancelled" || o.status === "Refunded";
+                return true;
+              }).length})
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style={{width:'70px',textAlign:'center'}}>ID</th>
+              <th>Date</th>
+              {admin && <th>Customer</th>}
+              <th>Category & Service</th>
+              <th>Voice</th>
+              <th>Contacts</th>
+              <th>Charge</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredOrders.length ? filteredOrders.map((o) => (
+              <tr key={o.id}>
+                <td className="sno-col"><strong>{o.id}</strong></td>
+                <td style={{fontSize: '12px', color: '#64748b'}}>{o.created}</td>
+                {admin && <td>{onViewCustomer ? <button className="customer-link" onClick={() => onViewCustomer(o.email)}>{o.customer}</button> : o.customer}</td>}
+                <td>
+                  <strong>{o.categoryName || o.name}</strong>
+                  {o.serviceName && <div style={{fontSize: '12px', color: '#2563eb', fontWeight: 500}}>{o.serviceName}</div>}
+                </td>
+                <td>
+                  <span style={{
+                    padding: '2px 8px', 
+                    borderRadius: '12px', 
+                    fontSize: '11px', 
+                    fontWeight: 600,
+                    background: o.voiceType === 'FEMALE' ? '#fce7f3' : '#e0f2fe',
+                    color: o.voiceType === 'FEMALE' ? '#be185d' : '#0369a1'
+                  }}>
+                    {o.voiceType === 'FEMALE' ? '👩 Female' : '👨 Male'}
+                  </span>
+                </td>
+                <td>
+                  <div><strong>{o.contacts}</strong></div>
+                  <span style={{fontSize: '11px', color: '#64748b'}}>{o.contactsInputType === 'MANUAL' ? 'Text paste' : 'File upload'}</span>
+                </td>
+                <td><strong style={{color: '#0f172a'}}>₹{(o.charge || 0).toFixed(2)}</strong></td>
+                <td><Badge status={o.status}/></td>
+                <td><button className="text-button row-text" onClick={() => onSelect(o)}>View</button></td>
+              </tr>
+            )) : (
+              <tr><td colSpan={admin ? 9 : 8} className="empty">No broadcast orders found under {statusTab}.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  ); 
+}
+
+function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
+
+function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClose: () => void; onSubmit: (o: any) => void; session: Session; balance: number; price: string }) { 
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCatId, setSelectedCatId] = useState("");
+  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [voiceType, setVoiceType] = useState<'MALE' | 'FEMALE'>("MALE");
+  
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  
+  // Numbers upload tab
+  const [inputMethod, setInputMethod] = useState<'FILE' | 'MANUAL'>("FILE");
+  const [contactsFile, setContactsFile] = useState<File | null>(null);
+  const [manualText, setManualText] = useState("");
+
+  const [contactsCount, setContactsCount] = useState<number>(0);
+  const [isParsing, setIsParsing] = useState(false);
+  const [scheduleType, setScheduleType] = useState("Start on processing");
+
+  useEffect(() => {
+    async function loadCategories() {
+      const res = await getCategoriesWithServices();
+      if (res.data) {
+        setCategories(res.data);
+      }
+    }
+    loadCategories();
+  }, []);
+
+  const currentCategory = categories.find(c => c.id === selectedCatId);
+  const availableServices = currentCategory?.services || [];
+  const currentService = availableServices.find(s => s.id === selectedServiceId);
+
+  const calculatedCost = currentService ? Number(currentService.price) : 0;
+  const canAfford = balance >= calculatedCost;
+
+  // File parsing logic
+  const parseContactsFile = async (file: File) => {
     setIsParsing(true);
     try {
       const ext = file.name.split('.').pop()?.toLowerCase();
@@ -589,62 +1250,59 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
       
       if (ext === 'csv' || ext === 'txt') {
         const text = await file.text();
-        count = text.split('\n').filter(l => l.trim().length > 0).length;
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+        count = lines.length;
       } else if (ext === 'xlsx' || ext === 'xls') {
         const data = await file.arrayBuffer();
         const workbook = XLSX.read(data);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(sheet);
         count = json.length;
-      } else if (ext === 'pdf') {
-        const data = await file.arrayBuffer();
-        
-        // Dynamically import to avoid SSR issues
-        const pdfjsLib = await import("pdfjs-dist");
-        if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.mjs`;
-        }
-        
-        const pdf = await pdfjsLib.getDocument({ data }).promise;
-        let fullText = "";
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          fullText += content.items.map((item: any) => item.str).join(" ");
-        }
-        // Very basic phone number regex for PDF extraction simulation
-        const matches = fullText.match(/[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}/g);
-        count = matches ? matches.length : Math.floor(fullText.length / 100); 
+      } else {
+        const text = await file.text();
+        const matches = text.match(/[\+]?[0-9]{10,12}/g);
+        count = matches ? matches.length : Math.max(1, Math.floor(file.size / 15));
       }
-      
-      setContactsCount(count > 0 ? count : 0);
+      setContactsCount(count > 0 ? count : 1);
     } catch (e) {
-      console.error(e);
-      alert("Could not parse file automatically. Please ensure it's a valid format.");
-      setContactsCount(null);
+      console.error("File parse error:", e);
+      setContactsCount(1);
     } finally {
       setIsParsing(false);
     }
   };
 
-  const handleContactsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleContactsFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     setContactsFile(file || null);
     if (file) {
-      parseContacts(file);
+      parseContactsFile(file);
     } else {
-      setContactsCount(null);
+      setContactsCount(0);
     }
   };
 
-  const estimatedCost = contactsCount ? contactsCount * Number(price) : 0;
-  const canAfford = balance >= estimatedCost;
+  // Manual text line counter
+  const handleManualTextChange = (text: string) => {
+    setManualText(text);
+    const lines = text.split(/\r?\n|,/).map(l => l.trim()).filter(l => l.length > 0);
+    setContactsCount(lines.length);
+  };
 
   const submit = (e: FormEvent<HTMLFormElement>) => { 
     e.preventDefault(); 
-    if (!canAfford) return alert("Insufficient balance. Please add funds to proceed.");
-    if (!audioFile || !contactsFile) return alert("Please attach both the audio file and contact list."); 
+    if (!selectedCatId) return alert("Please select a Category.");
+    if (!selectedServiceId) return alert("Please select a Service.");
+    if (!canAfford) return alert(`Insufficient balance. Wallet balance is ₹${balance.toFixed(2)}, but service cost is ₹${calculatedCost.toFixed(2)}.`);
+    if (!audioFile) return alert("Please upload an audio file."); 
     
+    if (inputMethod === 'FILE' && !contactsFile) {
+      return alert("Please upload a target contact list file.");
+    }
+    if (inputMethod === 'MANUAL' && !manualText.trim()) {
+      return alert("Please enter target phone numbers.");
+    }
+
     const data = new FormData(e.currentTarget); 
     let finalSchedule = String(data.get("schedule"));
     if (finalSchedule === "Schedule for later") {
@@ -652,18 +1310,276 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
       if (!dateVal) return alert("Please select a date for the scheduled broadcast.");
       finalSchedule = dateVal;
     }
-    onSubmit({ id: `BR-${1050 + Math.floor(Math.random() * 850)}`, broadcastNo: '', name: String(data.get("name")), customer: session.company || session.name, email: session.email, created: "Just now", contacts: contactsCount ? contactsCount.toString() : "Pending validation", status: "Placed", schedule: finalSchedule, notes: String(data.get("notes") || ""), audioFile: audioFile, contactsFile: contactsFile }); 
-  }; 
-  return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">NEW REQUEST</p><h2>Create a broadcast</h2><p>Upload your campaign assets for the Xpack operations team.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Broadcast name<input name="name" required placeholder="e.g. August renewal reminder"/></label><div className="form-grid"><label>Audio file <span className="dropzone">{audioFile ? <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></> : <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB</small></>}<input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone" style={isParsing ? {opacity:0.5} : {}}>{contactsFile ? <><Icon name="check"/><b>{contactsFile.name}</b><small>{isParsing ? "Scanning..." : contactsCount !== null ? `${contactsCount} contacts found` : "Ready"}</small></> : <><Icon name="upload"/><b>Upload contact list</b><small>CSV, TXT, XLSX, PDF</small></>}<input name="contacts" type="file" required onChange={handleContactsChange} accept=".csv,.txt,.xlsx,.xls,.pdf"/></span></label></div><div className="form-grid" style={{alignItems: 'end'}}><label>Schedule<select name="schedule" value={scheduleType} onChange={e => setScheduleType(e.target.value)}><option>Start on processing</option><option>Schedule for later</option></select></label>{scheduleType === "Schedule for later" && <label>Select Date<input type="datetime-local" name="scheduleDate" required/></label>}</div><label>Instructions <textarea name="notes" placeholder="Any instructions for our operations team?" rows={3}/></label>
-  <div style={{background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px'}}>
-    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><span>Rate per call:</span><strong>₹{Number(price).toFixed(2)}</strong></div>
-    <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><span>Estimated calls:</span><strong>{contactsCount !== null ? contactsCount : '-'}</strong></div>
-    <div style={{display:'flex', justifyContent:'space-between', marginTop:'10px', paddingTop:'10px', borderTop:'1px solid #cbd5e1', fontSize:'16px'}}><span>Estimated total:</span><strong style={{color: '#0f172a'}}>₹{estimatedCost.toFixed(2)}</strong></div>
-    {!canAfford && contactsCount !== null && <p style={{color: '#ef4444', fontSize: '12px', marginTop: '10px', textAlign: 'right'}}>Insufficient balance (₹{balance.toFixed(2)} available)</p>}
-  </div>
-  <div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary" disabled={isParsing || (!canAfford && contactsCount !== null)}>Submit broadcast <Icon name="arrow" size={16}/></button></div></form></div>; 
+
+    onSubmit({ 
+      categoryId: selectedCatId,
+      categoryName: currentCategory?.name || '',
+      serviceId: selectedServiceId,
+      serviceName: currentService?.name || '',
+      voiceType,
+      notes: String(data.get("notes") || ""), 
+      audioFile,
+      contactsInputType: inputMethod,
+      contactsFile: inputMethod === 'FILE' ? contactsFile : null,
+      manualContacts: inputMethod === 'MANUAL' ? manualText : '',
+      contactCount: contactsCount,
+      charge: calculatedCost,
+      schedule: finalSchedule 
+    }); 
+  };
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <form className="modal" onSubmit={submit} style={{maxWidth: '650px'}}>
+        <div className="modal-head">
+          <div><p className="eyebrow">NEW BROADCAST ORDER</p><h2>Create a broadcast</h2><p>Select category and service for your IVR broadcast campaign.</p></div>
+          <button type="button" className="close" onClick={onClose}><Icon name="close"/></button>
+        </div>
+
+        {/* 1. Category Selection */}
+        <label style={{fontWeight: 600, color: '#0f172a'}}>Category
+          <select 
+            value={selectedCatId} 
+            onChange={e => {
+              setSelectedCatId(e.target.value);
+              setSelectedServiceId("");
+            }} 
+            required
+            style={{padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', marginTop: '6px', fontSize: '14px', width: '100%'}}
+          >
+            <option value="">-- Select Category --</option>
+            {categories.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+
+        {/* 2. Service Selection */}
+        <label style={{fontWeight: 600, color: '#0f172a'}}>Service
+          <select 
+            value={selectedServiceId} 
+            onChange={e => setSelectedServiceId(e.target.value)} 
+            disabled={!selectedCatId}
+            required
+            style={{
+              padding: '10px 14px', 
+              borderRadius: '8px', 
+              border: '1px solid #cbd5e1', 
+              marginTop: '6px', 
+              fontSize: '14px', 
+              width: '100%',
+              background: !selectedCatId ? '#f1f5f9' : 'white'
+            }}
+          >
+            <option value="">{!selectedCatId ? "First select a category above..." : "-- Select Service --"}</option>
+            {availableServices.map(s => (
+              <option key={s.id} value={s.id}>{s.name} — ₹{Number(s.price).toFixed(2)}</option>
+            ))}
+          </select>
+        </label>
+
+        {/* 3. Voice Selection */}
+        <div style={{margin: '10px 0'}}>
+          <label style={{fontWeight: 600, color: '#0f172a', display: 'block', marginBottom: '8px'}}>Select Voice</label>
+          <div style={{display: 'flex', gap: '12px'}}>
+            <button
+              type="button"
+              onClick={() => setVoiceType('MALE')}
+              style={{
+                flex: 1,
+                padding: '10px',
+                borderRadius: '8px',
+                border: voiceType === 'MALE' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                background: voiceType === 'MALE' ? '#eff6ff' : 'white',
+                color: voiceType === 'MALE' ? '#1d4ed8' : '#475569',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+            >
+              👨 Male Voice
+            </button>
+            <button
+              type="button"
+              onClick={() => setVoiceType('FEMALE')}
+              style={{
+                flex: 1,
+                padding: '10px',
+                borderRadius: '8px',
+                border: voiceType === 'FEMALE' ? '2px solid #db2777' : '1px solid #cbd5e1',
+                background: voiceType === 'FEMALE' ? '#fdf2f8' : 'white',
+                color: voiceType === 'FEMALE' ? '#be185d' : '#475569',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+            >
+              👩 Female Voice
+            </button>
+          </div>
+        </div>
+
+        {/* 4. Audio File Upload */}
+        <label style={{fontWeight: 600, color: '#0f172a'}}>Audio file 
+          <span className="dropzone" style={{marginTop: '6px'}}>
+            {audioFile ? (
+              <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></>
+            ) : (
+              <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB (.mp3, .wav, .aac)</small></>
+            )}
+            <input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)} accept="audio/*"/>
+          </span>
+        </label>
+
+        {/* 5. Target Numbers Upload (Two Methods) */}
+        <div style={{margin: '12px 0'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px'}}>
+            <label style={{fontWeight: 600, color: '#0f172a'}}>Target Phone Numbers</label>
+            <div style={{display: 'flex', gap: '6px', background: '#f1f5f9', padding: '2px', borderRadius: '6px'}}>
+              <button
+                type="button"
+                onClick={() => setInputMethod('FILE')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '5px',
+                  border: 'none',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: inputMethod === 'FILE' ? 'white' : 'transparent',
+                  boxShadow: inputMethod === 'FILE' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                  color: inputMethod === 'FILE' ? '#0f172a' : '#64748b'
+                }}
+              >
+                File Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMethod('MANUAL')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '5px',
+                  border: 'none',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: inputMethod === 'MANUAL' ? 'white' : 'transparent',
+                  boxShadow: inputMethod === 'MANUAL' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                  color: inputMethod === 'MANUAL' ? '#0f172a' : '#64748b'
+                }}
+              >
+                Type / Copy-Paste
+              </button>
+            </div>
+          </div>
+
+          {inputMethod === 'FILE' ? (
+            <div>
+              <span className="dropzone" style={isParsing ? {opacity:0.5} : {}}>
+                {contactsFile ? (
+                  <><Icon name="check"/><b>{contactsFile.name}</b><small>{isParsing ? "Scanning file..." : `${contactsCount} contacts found`}</small></>
+                ) : (
+                  <><Icon name="upload"/><b>Upload contact list file</b><small>Compatible with CSV, TXT, XLSX, PDF, etc.</small></>
+                )}
+                <input type="file" onChange={handleContactsFileChange} accept=".csv,.txt,.xlsx,.xls,.pdf"/>
+              </span>
+              {contactsFile && !isParsing && (
+                <div style={{background: '#dcfce7', color: '#15803d', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginTop: '6px', fontWeight: 600}}>
+                  ✓ {contactsCount} contacts found from file
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <textarea 
+                rows={4} 
+                placeholder="Paste or type phone numbers here (one number per line or separated by commas)..." 
+                value={manualText}
+                onChange={e => handleManualTextChange(e.target.value)}
+                style={{width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', fontFamily: 'monospace'}}
+              />
+              {manualText.trim().length > 0 && (
+                <div style={{background: '#dcfce7', color: '#15803d', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginTop: '6px', fontWeight: 600}}>
+                  ✓ {contactsCount} contacts entered manually
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 6. Schedule & Instructions */}
+        <div className="form-grid" style={{alignItems: 'end'}}>
+          <label>Schedule
+            <select name="schedule" value={scheduleType} onChange={e => setScheduleType(e.target.value)}>
+              <option>Start on processing</option>
+              <option>Schedule for later</option>
+            </select>
+          </label>
+          {scheduleType === "Schedule for later" && (
+            <label>Select Date<input type="datetime-local" name="scheduleDate" required/></label>
+          )}
+        </div>
+
+        <label>Message / Instructions 
+          <textarea name="notes" placeholder="Write any additional message or instructions for our operations team..." rows={3}/>
+        </label>
+
+        {/* 7. Summary Box */}
+        <div style={{background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0', margin: '15px 0'}}>
+          <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><span>Selected Service:</span><strong>{currentService ? currentService.name : 'None selected'}</strong></div>
+          <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><span>Selected Voice:</span><strong>{voiceType === 'FEMALE' ? 'Female Voice' : 'Male Voice'}</strong></div>
+          <div style={{display:'flex', justifyContent:'space-between', marginBottom:'5px'}}><span>Target Contacts:</span><strong>{contactsCount > 0 ? `${contactsCount} contacts` : '-'}</strong></div>
+          <div style={{display:'flex', justifyContent:'space-between', marginTop:'10px', paddingTop:'10px', borderTop:'1px solid #cbd5e1', fontSize:'16px'}}><span>Total Charge:</span><strong style={{color: '#0f172a'}}>₹{calculatedCost.toFixed(2)}</strong></div>
+          {!canAfford && currentService && (
+            <p style={{color: '#ef4444', fontSize: '12px', marginTop: '10px', textAlign: 'right', fontWeight: 600}}>
+              Insufficient balance (₹{balance.toFixed(2)} available)
+            </p>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button type="button" className="outline" onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={isParsing || !selectedServiceId || !canAfford}>
+            Confirm Order & Debit ₹{calculatedCost.toFixed(2)} <Icon name="arrow" size={16}/>
+          </button>
+        </div>
+      </form>
+    </div>
+  ); 
 }
-function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => void; session: Session }) { const submit = (e: FormEvent<HTMLFormElement>) => { e.preventDefault(); const d = new FormData(e.currentTarget); onSubmit({ id: `TK-${209 + Math.floor(Math.random() * 90)}`, subject: String(d.get("subject")), customer: session.company || session.name, priority: String(d.get("priority")) as "Normal" | "High", status: "Open", message: String(d.get("message")), created: "Just now" }); }; return <div className="modal-backdrop" role="dialog" aria-modal="true"><form className="modal compact-modal" onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we'll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div><label>Subject<input name="subject" required placeholder="How can we help?"/></label><label>Priority<select name="priority"><option>Normal</option><option>High</option></select></label><label>Message<textarea name="message" required rows={5} placeholder="Give us the details…"/></label><div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Create ticket <Icon name="arrow" size={16}/></button></div></form></div>; }
+
+function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => void; session: Session }) { 
+  const submit = (e: FormEvent<HTMLFormElement>) => { 
+    e.preventDefault(); 
+    const d = new FormData(e.currentTarget); 
+    onSubmit({ 
+      id: "", 
+      subject: String(d.get("subject")), 
+      customer: session.company || session.name, 
+      priority: String(d.get("priority")) as "Normal" | "High", 
+      status: "Open", 
+      message: String(d.get("message")), 
+      created: "Just now" 
+    }); 
+  }; 
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <form className="modal compact-modal" onSubmit={submit}>
+        <div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we'll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div>
+        <label>Subject<input name="subject" required placeholder="How can we help?"/></label>
+        <label>Priority<select name="priority"><option>Normal</option><option>High</option></select></label>
+        <label>Message<textarea name="message" required rows={5} placeholder="Give us the details…"/></label>
+        <div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Create ticket <Icon name="arrow" size={16}/></button></div>
+      </form>
+    </div>
+  ); 
+}
 
 function StatusTimeline({ currentStatus }: { currentStatus: Status }) {
   const steps = [
@@ -674,11 +1590,12 @@ function StatusTimeline({ currentStatus }: { currentStatus: Status }) {
   
   if (currentStatus === "Cancelled") steps[2] = { label: "Cancelled", key: "Cancelled" };
   if (currentStatus === "Refunded") steps[2] = { label: "Refunded", key: "Refunded" };
+  if (currentStatus === "Partial") steps[2] = { label: "Partial", key: "Partial" };
   if (currentStatus === "On hold") steps[1] = { label: "On hold", key: "On hold" };
 
   const getStatusClass = (stepKey: string, current: string) => {
     if (stepKey === current) return `active ${stepKey.toLowerCase().replace(" ", "-")}`;
-    if (current === "Completed" || current === "Refunded" || (current === "In progress" && stepKey === "Placed")) return "completed";
+    if (current === "Completed" || current === "Partial" || current === "Refunded" || (current === "In progress" && stepKey === "Placed")) return "completed";
     return "";
   };
 
@@ -696,15 +1613,42 @@ function StatusTimeline({ currentStatus }: { currentStatus: Status }) {
   );
 }
 
-function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: { order: Order; admin: boolean; onClose: () => void; onUpdate: (id: string, s: Status, payload?: { reportFile?: File, holdReason?: string, cancelReason?: string, refundReason?: string, refundAmount?: number }) => void; onResubmit: (id: string, audioFile?: File, contactsFile?: File) => void }) {
+function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: { 
+  order: Order; 
+  admin: boolean; 
+  onClose: () => void; 
+  onUpdate: (
+    id: string, 
+    s: Status, 
+    payload?: { 
+      reportFile?: File; 
+      holdReason?: string; 
+      cancelReason?: string; 
+      refundReason?: string; 
+      refundAmount?: number;
+      partialRefundAmount?: number;
+      confirmPartialRefundAmount?: number;
+      adminComment?: string;
+    }
+  ) => void; 
+  onResubmit: (id: string, audioFile?: File, contactsFile?: File) => void 
+}) {
   const [status, setStatus] = useState<Status>(order.status);
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [holdReason, setHoldReason] = useState(order.holdReason || "");
   const [cancelReason, setCancelReason] = useState(order.cancelReason || "");
   const [refundReason, setRefundReason] = useState(order.refundReason || "");
   const [refundAmount, setRefundAmount] = useState(order.refundAmount || "");
+  
+  // Double entry partial refund
+  const [partialRefundAmount, setPartialRefundAmount] = useState<string>(order.partialRefundAmount ? String(order.partialRefundAmount) : "");
+  const [confirmPartialRefundAmount, setConfirmPartialRefundAmount] = useState<string>("");
+  const [adminComment, setAdminComment] = useState<string>(order.adminComment || "");
+
   const [resubmitAudio, setResubmitAudio] = useState<File | null>(null);
   const [resubmitContacts, setResubmitContacts] = useState<File | null>(null);
+
+  const partialRefundMismatch = (partialRefundAmount.trim() !== "" || confirmPartialRefundAmount.trim() !== "") && (partialRefundAmount !== confirmPartialRefundAmount);
 
   const handleDownload = async (key: string) => {
     const res = await getDownloadUrl(key);
@@ -715,6 +1659,251 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: { order: Or
     }
   };
 
-  return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{order.broadcastNo}</p><h2>{order.name}</h2><p>{order.customer} · {order.contacts}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><StatusTimeline currentStatus={order.status}/><div className="detail-grid"><div><small>Current status</small><Badge status={order.status}/></div><div><small>Schedule</small><strong>{order.schedule}</strong></div><div><small>Audio asset</small>{order.audioKey ? <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download Audio</button> : <span className="text-muted">No file</span>}</div><div><small>Contact list</small>{order.contactsKey ? <button className="text-button" onClick={() => handleDownload(order.contactsKey!)} title={order.contactsKey}><Icon name="download" size={14}/>Download Contacts</button> : <span className="text-muted">No file</span>}</div></div>{order.notes && <div className="detail-note"><strong>Customer instructions</strong><p>{order.notes}</p></div>}{order.report && <div className="report-ready"><Icon name="check"/><div><strong>Performance report ready</strong><p>Report has been uploaded to this order.</p></div><button className="outline" onClick={() => handleDownload(order.reportKey!)}><Icon name="download" size={14}/>Download</button></div>}{/* Show hold reason to customer */}{!admin && order.status === "On hold" && order.holdReason && <div className="hold-reason-box"><Icon name="pause" size={18}/><div><strong>Order on hold — Action required</strong><p>{order.holdReason}</p></div></div>}{/* Cancel & Refund Info for customer */}{!admin && order.status === "Cancelled" && order.cancelReason && <div className="cancel-reason-box"><Icon name="close" size={18}/><div><strong>Order Cancelled</strong><p>{order.cancelReason}</p></div></div>}{!admin && order.status === "Refunded" && <div className="refund-box"><Icon name="check" size={18}/><div><strong>Order Refunded (Amount: ${order.refundAmount})</strong><p>{order.refundReason}</p></div></div>}{/* Customer resubmit section — only when on hold */}{!admin && order.status === "On hold" && <div className="resubmit-section"><h3>Resubmit files to resolve the issue</h3><p style={{fontSize:'12px',color:'#78350f',margin:'0 0 12px'}}>Upload a corrected audio file and/or contact list. Your order will be moved back to &quot;Placed&quot; for review.</p><div className="form-grid"><label>Audio file <span className="dropzone">{resubmitAudio ? <><Icon name="check"/><b>{resubmitAudio.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace audio</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitAudio(e.target.files?.[0] || null)}/></span></label><label>Contact list <span className="dropzone">{resubmitContacts ? <><Icon name="check"/><b>{resubmitContacts.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace contacts</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitContacts(e.target.files?.[0] || null)}/></span></label></div><button className="primary" onClick={() => onResubmit(order.id, resubmitAudio || undefined, resubmitContacts || undefined)} disabled={!resubmitAudio && !resubmitContacts}>Resubmit files <Icon name="arrow" size={16}/></button></div>}{admin && <div className="admin-update"><label>Update order status<select value={status} onChange={e => setStatus(e.target.value as Status)}><option>Placed</option><option>In progress</option><option>Completed</option><option>Cancelled</option><option>On hold</option><option>Refunded</option></select></label>{status === "On hold" && <label>Hold reason<textarea value={holdReason} onChange={e => setHoldReason(e.target.value)} rows={3} placeholder="Describe the issue..."/></label>}{status === "Completed" && <label>Performance report<input type="file" accept=".csv,.pdf,.zip" onChange={e => setReportFile(e.target.files?.[0] || null)}/></label>}{status === "Cancelled" && <label>Cancellation reason<textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={3} placeholder="Why is this cancelled?"/></label>}{status === "Refunded" && <><label>Refund amount ($)<input type="number" step="0.01" value={refundAmount} onChange={e => setRefundAmount(e.target.value)} placeholder="0.00"/></label><label>Refund reason<textarea value={refundReason} onChange={e => setRefundReason(e.target.value)} rows={2} placeholder="Reason for refund"/></label></>}<button className="primary" onClick={() => onUpdate(order.id, status, { reportFile: reportFile || undefined, holdReason, cancelReason, refundReason, refundAmount: Number(refundAmount) })}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>;
+  const handleAdminSubmit = () => {
+    if (partialRefundMismatch) {
+      return alert("Partial refund amount and confirmation refund amount do not match! Please check for typos.");
+    }
+    const pAmt = partialRefundAmount ? parseFloat(partialRefundAmount) : 0;
+    const pConfAmt = confirmPartialRefundAmount ? parseFloat(confirmPartialRefundAmount) : 0;
+
+    let targetStatus = status;
+    if (pAmt > 0 && (status === "Completed" || status === "Placed" || status === "In progress")) {
+      targetStatus = "Partial";
+    }
+
+    onUpdate(order.id, targetStatus, {
+      reportFile: reportFile || undefined,
+      holdReason,
+      cancelReason,
+      refundReason,
+      refundAmount: Number(refundAmount),
+      partialRefundAmount: pAmt,
+      confirmPartialRefundAmount: pConfAmt,
+      adminComment
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal compact-modal" style={{maxWidth: '650px'}}>
+        <div className="modal-head">
+          <div><p className="eyebrow">{order.broadcastNo}</p><h2>{order.name}</h2><p>{order.customer} · {order.contacts}</p></div>
+          <button className="close" onClick={onClose}><Icon name="close"/></button>
+        </div>
+
+        <StatusTimeline currentStatus={order.status}/>
+
+        <div className="detail-grid">
+          <div><small>Current status</small><Badge status={order.status}/></div>
+          <div><small>Voice Type</small><strong>{order.voiceType === 'FEMALE' ? '👩 Female Voice' : '👨 Male Voice'}</strong></div>
+          <div><small>Category & Service</small><strong>{order.categoryName || 'General'}</strong><br/><small style={{color: '#2563eb'}}>{order.serviceName}</small></div>
+          <div><small>Total Charge</small><strong style={{color: '#16a34a'}}>₹{(order.charge || 0).toFixed(2)}</strong></div>
+          <div>
+            <small>Audio asset</small>
+            {order.audioKey ? (
+              <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download Audio</button>
+            ) : <span className="text-muted">No file</span>}
+          </div>
+          <div>
+            <small>Contacts Data</small>
+            {order.contactsKey ? (
+              <button className="text-button" onClick={() => handleDownload(order.contactsKey!)} title={order.contactsKey}><Icon name="download" size={14}/>Download Contacts File</button>
+            ) : order.manualContacts ? (
+              <span style={{fontSize: '12px', fontWeight: 600, color: '#0f172a'}}>Text paste ({order.contactCount} numbers)</span>
+            ) : <span className="text-muted">No data</span>}
+          </div>
+        </div>
+
+        {/* Display manual contacts to admin or customer if text paste was used */}
+        {order.manualContacts && (
+          <div className="detail-note" style={{marginTop: '10px'}}>
+            <strong>Target Phone Numbers (Text Paste)</strong>
+            <textarea readOnly rows={3} value={order.manualContacts} style={{width: '100%', marginTop: '6px', fontSize: '12px', fontFamily: 'monospace', background: '#f8fafc'}}/>
+          </div>
+        )}
+
+        {order.notes && (
+          <div className="detail-note">
+            <strong>Customer instructions / message</strong>
+            <p>{order.notes}</p>
+          </div>
+        )}
+
+        {order.adminComment && (
+          <div className="detail-note" style={{background: '#f0f9ff', borderColor: '#bae6fd'}}>
+            <strong>Admin Remarks / Report Note</strong>
+            <p>{order.adminComment}</p>
+          </div>
+        )}
+
+        {order.partialRefundAmount && order.partialRefundAmount > 0 && (
+          <div className="refund-box">
+            <Icon name="check" size={18}/>
+            <div>
+              <strong>Partial Refund Credited (₹{order.partialRefundAmount.toFixed(2)})</strong>
+              <p>Amount has been automatically credited back to customer wallet balance.</p>
+            </div>
+          </div>
+        )}
+
+        {order.report && (
+          <div className="report-ready">
+            <Icon name="check"/>
+            <div><strong>Performance report ready</strong><p>Report file has been uploaded to this order.</p></div>
+            <button className="outline" onClick={() => handleDownload(order.reportKey!)}><Icon name="download" size={14}/>Download Report</button>
+          </div>
+        )}
+
+        {!admin && order.status === "On hold" && order.holdReason && (
+          <div className="hold-reason-box"><Icon name="pause" size={18}/><div><strong>Order on hold — Action required</strong><p>{order.holdReason}</p></div></div>
+        )}
+
+        {!admin && order.status === "On hold" && (
+          <div className="resubmit-section">
+            <h3>Resubmit files to resolve the issue</h3>
+            <p style={{fontSize:'12px',color:'#78350f',margin:'0 0 12px'}}>Upload a corrected audio file and/or contact list. Your order will be moved back to &quot;Placed&quot; for review.</p>
+            <div className="form-grid">
+              <label>Audio file <span className="dropzone">{resubmitAudio ? <><Icon name="check"/><b>{resubmitAudio.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace audio</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitAudio(e.target.files?.[0] || null)}/></span></label>
+              <label>Contact list <span className="dropzone">{resubmitContacts ? <><Icon name="check"/><b>{resubmitContacts.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace contacts</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitContacts(e.target.files?.[0] || null)}/></span></label>
+            </div>
+            <button className="primary" onClick={() => onResubmit(order.id, resubmitAudio || undefined, resubmitContacts || undefined)} disabled={!resubmitAudio && !resubmitContacts}>Resubmit files <Icon name="arrow" size={16}/></button>
+          </div>
+        )}
+
+        {/* Admin fulfillment & status update modal form */}
+        {admin && (
+          <div className="admin-update" style={{background: '#f8fafc', padding: '16px', borderRadius: '10px', border: '1px solid #cbd5e1', marginTop: '15px'}}>
+            <h3 style={{margin: '0 0 12px', fontSize: '15px', color: '#0f172a'}}>Admin Fulfillment & Status Update</h3>
+            
+            <label>Update Order Status
+              <select value={status} onChange={e => setStatus(e.target.value as Status)}>
+                <option>Placed</option>
+                <option>In progress</option>
+                <option>Completed</option>
+                <option>Partial</option>
+                <option>On hold</option>
+                <option>Cancelled</option>
+                <option>Refunded</option>
+              </select>
+            </label>
+
+            {(status === "Completed" || status === "Partial" || status === "Placed" || status === "In progress") && (
+              <div style={{background: 'white', padding: '14px', borderRadius: '8px', border: '1px solid #e2e8f0', margin: '10px 0'}}>
+                <h4 style={{margin: '0 0 8px', fontSize: '14px', color: '#0f172a'}}>Partial Refund Section (Optional)</h4>
+                <p style={{fontSize: '12px', color: '#64748b', margin: '0 0 12px'}}>If some calls were undelivered/unanswered, enter the refund amount. You must type the amount 2 times for double-verification.</p>
+                
+                <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px'}}>
+                  <label style={{fontSize: '13px'}}>Partial Refund Amount (₹)
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      placeholder="0.00" 
+                      value={partialRefundAmount} 
+                      onChange={e => setPartialRefundAmount(e.target.value)}
+                      style={{padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1'}}
+                    />
+                  </label>
+                  <label style={{fontSize: '13px'}}>Confirm Refund Amount (₹)
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      placeholder="0.00" 
+                      value={confirmPartialRefundAmount} 
+                      onChange={e => setConfirmPartialRefundAmount(e.target.value)}
+                      style={{
+                        padding: '8px 10px', 
+                        borderRadius: '6px', 
+                        border: partialRefundMismatch ? '2px solid #ef4444' : '1px solid #cbd5e1'
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {partialRefundMismatch && (
+                  <div style={{color: '#dc2626', fontSize: '12px', fontWeight: 600, marginTop: '8px'}}>
+                    ⚠️ Mismatch warning: Both partial refund amounts must match exactly!
+                  </div>
+                )}
+
+                {partialRefundAmount && !partialRefundMismatch && parseFloat(partialRefundAmount) > 0 && (
+                  <div style={{color: '#16a34a', fontSize: '12px', fontWeight: 600, marginTop: '8px'}}>
+                    ✓ Valid: ₹{parseFloat(partialRefundAmount).toFixed(2)} will be credited back to customer's wallet balance.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(status === "Completed" || status === "Partial") && (
+              <label>Campaign Report File
+                <input type="file" accept=".csv,.pdf,.zip,.xlsx" onChange={e => setReportFile(e.target.files?.[0] || null)}/>
+              </label>
+            )}
+
+            <label>Admin Comment / Remarks for Customer
+              <textarea 
+                rows={2} 
+                placeholder="Add final report comment or notes for customer..." 
+                value={adminComment} 
+                onChange={e => setAdminComment(e.target.value)}
+              />
+            </label>
+
+            {status === "On hold" && (
+              <label>Hold reason<textarea value={holdReason} onChange={e => setHoldReason(e.target.value)} rows={3} placeholder="Describe why this order is on hold..."/></label>
+            )}
+
+            {status === "Cancelled" && (
+              <label>Cancellation reason<textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={3} placeholder="Why is this order cancelled?"/></label>
+            )}
+
+            <button 
+              className="primary" 
+              onClick={handleAdminSubmit}
+              disabled={partialRefundMismatch}
+              style={{marginTop: '10px'}}
+            >
+              Save & Process Fulfillment
+            </button>
+          </div>
+        )}
+
+        <div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
 }
-function TicketViewModal({ ticket, admin, onClose, onUpdate }: { ticket: Ticket; admin: boolean; onClose: () => void; onUpdate: (id: string, s: TicketStatus, reply?: string) => void }) { const [status, setStatus] = useState<TicketStatus>(ticket.status); const [reply, setReply] = useState<string>(ticket.reply || ""); return <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal compact-modal"><div className="modal-head"><div><p className="eyebrow">{ticket.id}</p><h2>{ticket.subject}</h2><p>{ticket.customer} · {ticket.created}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div><div className="detail-grid"><div><small>Current status</small><Badge status={ticket.status}/></div><div><small>Priority</small><span className={ticket.priority === "High" ? "priority overdue" : "priority new"}>{ticket.priority}</span></div></div><div className="detail-note"><strong>Customer Message</strong><p>{ticket.message}</p></div>{ticket.reply && !admin && <div className="detail-note" style={{background: '#f0f9ff', borderColor: '#bae6fd'}}><strong>Admin Reply</strong><p>{ticket.reply}</p></div>}{admin && <div className="admin-update"><label>Update ticket status<select value={status} onChange={e => setStatus(e.target.value as TicketStatus)}><option>Open</option><option>In progress</option><option>Resolved</option></select></label><label>Reply to customer<textarea value={reply} onChange={e => setReply(e.target.value)} rows={3} placeholder="Type your response here..."/></label><button className="primary" onClick={() => onUpdate(ticket.id, status, reply)}>Save update</button></div>}<div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div></div></div>; }
+
+function TicketViewModal({ ticket, admin, onClose, onUpdate }: { ticket: Ticket; admin: boolean; onClose: () => void; onUpdate: (id: string, s: TicketStatus, reply?: string) => void }) { 
+  const [status, setStatus] = useState<TicketStatus>(ticket.status); 
+  const [reply, setReply] = useState<string>(ticket.reply || ""); 
+  
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal compact-modal">
+        <div className="modal-head"><div><p className="eyebrow">{ticket.id}</p><h2>{ticket.subject}</h2><p>{ticket.customer} · {ticket.created}</p></div><button className="close" onClick={onClose}><Icon name="close"/></button></div>
+        <div className="detail-grid">
+          <div><small>Current status</small><Badge status={ticket.status}/></div>
+          <div><small>Priority</small><span className={ticket.priority === "High" ? "priority overdue" : "priority new"}>{ticket.priority}</span></div>
+        </div>
+        <div className="detail-note"><strong>Customer Message</strong><p>{ticket.message}</p></div>
+        {ticket.reply && !admin && <div className="detail-note" style={{background: '#f0f9ff', borderColor: '#bae6fd'}}><strong>Admin Reply</strong><p>{ticket.reply}</p></div>}
+        {admin && (
+          <div className="admin-update">
+            <label>Update ticket status
+              <select value={status} onChange={e => setStatus(e.target.value as TicketStatus)}>
+                <option>Open</option>
+                <option>In progress</option>
+                <option>Resolved</option>
+              </select>
+            </label>
+            <label>Reply to customer
+              <textarea value={reply} onChange={e => setReply(e.target.value)} rows={3} placeholder="Type your response here..."/>
+            </label>
+            <button className="primary" onClick={() => onUpdate(ticket.id, status, reply)}>Save update</button>
+          </div>
+        )}
+        <div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  ); 
+}

@@ -66,14 +66,30 @@ export async function createBroadcast(formData: FormData) {
 
   const supabase = await createServiceRoleClient()
 
-  const name = String(formData.get("name") || "")
+  const categoryId = String(formData.get("categoryId") || "")
+  const categoryName = String(formData.get("categoryName") || "")
+  const serviceId = String(formData.get("serviceId") || "")
+  const serviceName = String(formData.get("serviceName") || "")
+  const voiceType = String(formData.get("voiceType") || "MALE").toUpperCase()
   const notes = String(formData.get("notes") || "")
-  
-  const audio = formData.get("audio") as File
-  const contacts = formData.get("contacts") as File
+  const contactsInputType = String(formData.get("contactsInputType") || "FILE").toUpperCase()
+  const manualContacts = String(formData.get("manualContacts") || "")
+  const contactCount = formData.get("contactCount") ? parseInt(String(formData.get("contactCount")), 10) : 0
+  const charge = formData.get("charge") ? parseFloat(String(formData.get("charge"))) : 0
 
-  if (!name || !audio?.name || !contacts?.name) {
-    return { error: 'Missing required fields or files.' }
+  const audio = formData.get("audio") as File | null
+  const contacts = formData.get("contacts") as File | null
+
+  if (!audio || !audio.name || audio.size === 0) {
+    return { error: 'Please upload an audio file.' }
+  }
+
+  if (contactsInputType === 'FILE' && (!contacts || !contacts.name || contacts.size === 0)) {
+    return { error: 'Please upload a contact list file.' }
+  }
+
+  if (contactsInputType === 'MANUAL' && !manualContacts.trim()) {
+    return { error: 'Please enter target phone numbers.' }
   }
 
   // File size validation
@@ -81,28 +97,47 @@ export async function createBroadcast(formData: FormData) {
   if (audio.size > MAX_FILE_SIZE) {
     return { error: 'Audio file exceeds 25 MB limit.' }
   }
-  if (contacts.size > MAX_FILE_SIZE) {
+  if (contacts && contacts.size > MAX_FILE_SIZE) {
     return { error: 'Contacts file exceeds 25 MB limit.' }
   }
 
-  // Upload to Supabase Storage
-  const audio_key = `audio/${crypto.randomUUID()}-${audio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-  const contacts_key = `contacts/${crypto.randomUUID()}-${contacts.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-  const reference_no = `BR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
+  // Check user balance first if there is a charge
+  const { data: userProfile } = await supabase
+    .from('users')
+    .select('balance')
+    .eq('id', user.id)
+    .single()
 
-  const audioUpload = await supabase.storage.from('xpack_files').upload(audio_key, audio)
-  const contactsUpload = await supabase.storage.from('xpack_files').upload(contacts_key, contacts)
-
-  if (audioUpload.error || contactsUpload.error) {
-    console.error('Storage Upload Error:', audioUpload.error || contactsUpload.error)
-    // Clean up any successfully uploaded file to avoid orphans
-    if (!audioUpload.error) await supabase.storage.from('xpack_files').remove([audio_key])
-    if (!contactsUpload.error) await supabase.storage.from('xpack_files').remove([contacts_key])
-    return { error: 'Failed to upload files.' }
+  const currentBalance = userProfile ? Number(userProfile.balance) : 0
+  if (charge > 0 && currentBalance < charge) {
+    return { error: `Insufficient funds. Wallet balance is ₹${currentBalance.toFixed(2)}, but order cost is ₹${charge.toFixed(2)}. Please add funds to proceed.` }
   }
 
+  // Upload Audio to Supabase Storage
+  const audio_key = `audio/${crypto.randomUUID()}-${audio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+  const audioUpload = await supabase.storage.from('xpack_files').upload(audio_key, audio)
+
+  if (audioUpload.error) {
+    console.error('Audio Upload Error:', audioUpload.error)
+    return { error: 'Failed to upload audio file.' }
+  }
+
+  // Upload Contacts if file input type
+  let contacts_key: string | null = null
+  if (contactsInputType === 'FILE' && contacts && contacts.name) {
+    contacts_key = `contacts/${crypto.randomUUID()}-${contacts.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    const contactsUpload = await supabase.storage.from('xpack_files').upload(contacts_key, contacts)
+    if (contactsUpload.error) {
+      console.error('Contacts Upload Error:', contactsUpload.error)
+      await supabase.storage.from('xpack_files').remove([audio_key])
+      return { error: 'Failed to upload contacts file.' }
+    }
+  }
+
+  const reference_no = `BR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
   const schedule = String(formData.get("schedule") || "")
   const scheduled_for = schedule && schedule !== 'Start on processing' ? new Date(schedule).toISOString() : null
+  const broadcastName = serviceName ? `${categoryName} - ${serviceName}` : `Broadcast ${reference_no}`
 
   const { data, error } = await supabase
     .from('broadcasts')
@@ -110,10 +145,19 @@ export async function createBroadcast(formData: FormData) {
       {
         user_id: user.id,
         reference_no,
-        name,
+        name: broadcastName,
+        category_id: categoryId || null,
+        service_id: serviceId || null,
+        category_name: categoryName || null,
+        service_name: serviceName || null,
+        voice_type: voiceType,
         description: notes,
         audio_key,
+        contacts_input_type: contactsInputType,
         contacts_key,
+        manual_contacts: contactsInputType === 'MANUAL' ? manualContacts : null,
+        contact_count: contactCount,
+        charge,
         scheduled_for,
         status: 'PLACED'
       }
@@ -123,7 +167,10 @@ export async function createBroadcast(formData: FormData) {
 
   if (error) {
     console.error('Create Broadcast Error:', error)
-    return { error: 'Failed to create broadcast' }
+    // Cleanup uploaded files
+    await supabase.storage.from('xpack_files').remove([audio_key])
+    if (contacts_key) await supabase.storage.from('xpack_files').remove([contacts_key])
+    return { error: 'Failed to create broadcast order' }
   }
 
   // Insert initial history record
@@ -132,45 +179,29 @@ export async function createBroadcast(formData: FormData) {
     status: 'PLACED'
   }])
 
-  // Deduct balance for the broadcast based on estimated cost
-  // The frontend calculates estimated cost and passes it; server validates against balance
-  const estimatedCost = formData.get("estimatedCost") ? parseFloat(String(formData.get("estimatedCost"))) : 0
-  if (estimatedCost > 0) {
-    // Check user balance first
-    const { data: userProfile } = await supabase
-      .from('users')
-      .select('balance')
-      .eq('id', user.id)
-      .single()
+  // Deduct user balance for the service price
+  if (charge > 0) {
+    const { error: deductError } = await supabase.rpc('increment_balance', {
+      uid: user.id,
+      amt: -charge
+    })
 
-    if (userProfile && Number(userProfile.balance) >= estimatedCost) {
-      // Deduct balance atomically via RPC
-      const { error: deductError } = await supabase.rpc('increment_balance', {
-        uid: user.id,
-        amt: -estimatedCost
-      })
-
-      if (deductError) {
-        // Fallback if RPC not available
-        console.warn("RPC increment_balance not available for deduction:", deductError)
-        await supabase
-          .from('users')
-          .update({ balance: Number(userProfile.balance) - estimatedCost })
-          .eq('id', user.id)
-      }
-
-      // Record the debit transaction
-      await supabase.from('transactions').insert([{
-        user_id: user.id,
-        amount: estimatedCost,
-        type: 'DEBIT',
-        status: 'SUCCESS',
-        order_id: reference_no
-      }])
-    } else {
-      // Broadcast created but insufficient balance — flag it
-      console.warn(`User ${user.id} has insufficient balance for broadcast ${reference_no}. Balance: ${userProfile?.balance}, Cost: ${estimatedCost}`)
+    if (deductError) {
+      console.warn("RPC increment_balance fallback:", deductError.message)
+      await supabase
+        .from('users')
+        .update({ balance: currentBalance - charge })
+        .eq('id', user.id)
     }
+
+    // Record the debit transaction
+    await supabase.from('transactions').insert([{
+      user_id: user.id,
+      amount: charge,
+      type: 'DEBIT',
+      status: 'SUCCESS',
+      order_id: reference_no
+    }])
   }
 
   return { data }
@@ -183,7 +214,7 @@ export async function updateBroadcastStatus(formData: FormData) {
 
   const id = String(formData.get("id"))
   const status = String(formData.get("status")).toUpperCase()
-  const validBroadcastStatuses = ['PLACED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'ON_HOLD', 'REFUNDED']
+  const validBroadcastStatuses = ['PLACED', 'IN_PROGRESS', 'COMPLETED', 'PARTIAL', 'CANCELLED', 'ON_HOLD', 'REFUNDED']
   if (!validBroadcastStatuses.includes(status)) {
     return { error: 'Invalid status value.' }
   }
@@ -191,14 +222,30 @@ export async function updateBroadcastStatus(formData: FormData) {
   const holdReason = String(formData.get("holdReason") || "")
   const cancelReason = String(formData.get("cancelReason") || "")
   const refundReason = String(formData.get("refundReason") || "")
-  const refundAmount = formData.get("refundAmount") ? parseFloat(String(formData.get("refundAmount"))) : null
+  const adminComment = String(formData.get("adminComment") || "")
+
+  const partialRefundStr = String(formData.get("partialRefundAmount") || "")
+  const confirmPartialRefundStr = String(formData.get("confirmPartialRefundAmount") || "")
+
+  let partialRefundAmount: number | null = null
+  if (partialRefundStr || confirmPartialRefundStr) {
+    const val1 = parseFloat(partialRefundStr)
+    const val2 = parseFloat(confirmPartialRefundStr)
+    if (isNaN(val1) || isNaN(val2) || val1 !== val2 || val1 < 0) {
+      return { error: 'Partial refund amount and confirmation refund amount must match exactly and be valid non-negative numbers.' }
+    }
+    if (val1 > 0) {
+      partialRefundAmount = val1
+    }
+  }
 
   const updatePayload: any = { status, updated_at: new Date().toISOString() }
   
   updatePayload.hold_reason = status === 'ON_HOLD' ? (holdReason || null) : null
   updatePayload.cancel_reason = status === 'CANCELLED' ? (cancelReason || null) : null
   updatePayload.refund_reason = status === 'REFUNDED' ? (refundReason || null) : null
-  updatePayload.refund_amount = status === 'REFUNDED' ? refundAmount : null
+  if (adminComment) updatePayload.admin_comment = adminComment
+  if (partialRefundAmount !== null) updatePayload.partial_refund_amount = partialRefundAmount
 
   let query = supabase
     .from('broadcasts')
@@ -219,7 +266,8 @@ export async function updateBroadcastStatus(formData: FormData) {
     return { error: 'Failed to update broadcast' }
   }
 
-  if (status === 'COMPLETED' && reportFile && reportFile.size > 0) {
+  // Handle report file upload for COMPLETED or PARTIAL
+  if ((status === 'COMPLETED' || status === 'PARTIAL') && reportFile && reportFile.size > 0) {
     const file_key = `reports/${crypto.randomUUID()}-${reportFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
     
     const { error: uploadError } = await supabase.storage.from('xpack_files').upload(file_key, reportFile)
@@ -241,11 +289,46 @@ export async function updateBroadcastStatus(formData: FormData) {
     }
   }
 
+  // Process partial refund credit to user wallet if partial refund amount > 0
+  if (partialRefundAmount && partialRefundAmount > 0) {
+    const { data: owner } = await supabase
+      .from('users')
+      .select('balance')
+      .eq('id', data.user_id)
+      .single()
+
+    const currentBal = owner ? Number(owner.balance) : 0
+    const { error: creditError } = await supabase.rpc('increment_balance', {
+      uid: data.user_id,
+      amt: partialRefundAmount
+    })
+
+    if (creditError) {
+      console.warn("RPC increment_balance credit fallback:", creditError.message)
+      await supabase
+        .from('users')
+        .update({ balance: currentBal + partialRefundAmount })
+        .eq('id', data.user_id)
+    }
+
+    // Record credit transaction
+    await supabase.from('transactions').insert([{
+      user_id: data.user_id,
+      amount: partialRefundAmount,
+      type: 'CREDIT',
+      status: 'SUCCESS',
+      order_id: data.reference_no
+    }])
+  }
+
   // Record history
-  let historyReason = null
+  let historyReason = adminComment || null
   if (status === 'ON_HOLD') historyReason = holdReason
   if (status === 'CANCELLED') historyReason = cancelReason
-  if (status === 'REFUNDED') historyReason = refundReason ? `${refundReason} (Amount: ${refundAmount})` : `Amount: ${refundAmount}`
+  if (status === 'REFUNDED') historyReason = refundReason ? `${refundReason} (Amount: ${formData.get("refundAmount")})` : `Amount: ${formData.get("refundAmount")}`
+  if (partialRefundAmount && partialRefundAmount > 0) {
+    historyReason = `Partial refund processed: ₹${partialRefundAmount}. ${adminComment || ''}`
+  }
 
   await supabase.from('broadcast_status_history').insert([{
     broadcast_id: data.id,
