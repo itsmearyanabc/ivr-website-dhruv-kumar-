@@ -162,6 +162,11 @@ export async function signIn(formData: FormData, isAdmin = false) {
       console.error('Failed to sync Admin profile:', e)
       return { error: 'Admin database synchronization failed.' }
     }
+  } else {
+    const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase();
+    if (adminEmail && email === adminEmail) {
+      return { error: 'Please use the Administrator portal to log in.' }
+    }
   }
 
   // Sign in natively
@@ -178,13 +183,14 @@ export async function signIn(formData: FormData, isAdmin = false) {
   const supabaseService = await createServiceRoleClient()
   const { data: profile } = await supabaseService
     .from('users')
-    .select('full_name, company_name')
+    .select('full_name, company_name, role')
     .eq('id', data.user.id)
     .single()
 
   return {
     success: true,
     user: {
+      role: profile?.role === 'ADMIN' ? 'admin' : 'customer',
       name: profile?.full_name || 'User',
       company: profile?.company_name || ''
     }

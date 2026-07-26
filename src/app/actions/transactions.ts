@@ -1,6 +1,6 @@
 "use server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
-
+import { checkIsAdmin } from '@/app/actions/auth';
 export async function getUserBalance() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -58,6 +58,21 @@ export async function getUserTransactions() {
     .from('transactions')
     .select('*')
     .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+    
+  if (error || !data) return [];
+  
+  return data;
+}
+
+export async function getAllTransactions() {
+  const isAdmin = await checkIsAdmin();
+  if (!isAdmin) return [];
+  
+  const supabaseService = await createServiceRoleClient();
+  const { data, error } = await supabaseService
+    .from('transactions')
+    .select('*')
     .order('created_at', { ascending: false });
     
   if (error || !data) return [];

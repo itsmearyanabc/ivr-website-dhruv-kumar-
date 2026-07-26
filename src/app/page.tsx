@@ -7,7 +7,7 @@ import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
-import { getUserBalance } from "@/app/actions/transactions";
+import { getUserBalance, getUserTransactions, getAllTransactions } from "@/app/actions/transactions";
 import { getAllUsers, adminAddFunds } from "@/app/actions/users";
 import { 
   getCategoriesWithServices, 
@@ -142,7 +142,18 @@ function mapBroadcast(b: any, index: number): Order {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
-  const [view, setView] = useState("Overview");
+  const [view, setView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('xpack_view') || "Overview";
+    }
+    return "Overview";
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('xpack_view', view);
+    }
+  }, [view]);
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [tickets, setTickets] = useState<Ticket[]>(initialTickets);
   const [toast, setToast] = useState("");
@@ -153,6 +164,8 @@ export default function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [balance, setBalance] = useState(0);
   const [usersList, setUsersList] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [price, setPrice] = useState("0.25");
 
   useEffect(() => {
@@ -192,9 +205,15 @@ export default function App() {
       if (currentSession.role === "admin") {
         const usersData = await getAllUsers();
         if (mounted) setUsersList(usersData);
+        
+        const txData = await getAllTransactions();
+        if (mounted) setTransactions(txData);
       } else {
         const bal = await getUserBalance();
         if (mounted) setBalance(bal);
+
+        const txData = await getUserTransactions();
+        if (mounted) setTransactions(txData);
       }
 
       const { data: bData } = await getBroadcasts();
@@ -221,8 +240,8 @@ export default function App() {
     return () => { mounted = false; };
   }, []);
 
-  const login = (s: Session) => { setSession(s); setView("Overview"); };
-  const logout = async () => { await signOut(); setSession(null); setOrders(initialOrders); setTickets(initialTickets); };
+  const login = (s: Session) => { setSession(s); setView("Overview"); sessionStorage.setItem('xpack_view', 'Overview'); };
+  const logout = async () => { await signOut(); setSession(null); setOrders(initialOrders); setTickets(initialTickets); sessionStorage.removeItem('xpack_view'); };
   
   const message = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 4500); };
   
@@ -369,10 +388,22 @@ export default function App() {
           <div className="user-card">
             <span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span>
             <div><strong>{session.name}</strong><p>{session.role === "admin" ? "Xpack administrator" : "Customer account"}</p></div>
-            <button title="Sign out" onClick={logout}><Icon name="logout"/></button>
+            <button title="Sign out" onClick={() => setShowLogoutConfirm(true)}><Icon name="logout"/></button>
           </div>
         </div>
       </aside>
+      {showLogoutConfirm && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{maxWidth: '400px', textAlign: 'center', padding: '30px'}}>
+            <h2 style={{marginTop: 0}}>Confirm Logout</h2>
+            <p style={{marginBottom: '20px', color: '#64748b'}}>Are you sure you want to sign out?</p>
+            <div style={{display: 'flex', gap: '10px', justifyContent: 'center'}}>
+              <button className="outline" onClick={() => setShowLogoutConfirm(false)}>Cancel</button>
+              <button className="primary" onClick={() => { setShowLogoutConfirm(false); logout(); }}>Sign out</button>
+            </div>
+          </div>
+        </div>
+      )}
       <section className="content">
         <header>
           <div className="mobile-brand">Xpack</div>
@@ -387,9 +418,9 @@ export default function App() {
         </header>
         <div className="page">
           {session.role === "customer" ? (
-            <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} />
+            <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} transactions={transactions} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} />
           ) : (
-            <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} onRefreshBroadcasts={refreshBroadcasts}/>
+            <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} transactions={transactions} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} onRefreshBroadcasts={refreshBroadcasts}/>
           )}
         </div>
       </section>
@@ -417,6 +448,10 @@ function CustomerProfileModal({ customer, orders, onClose, refreshData }: { cust
     const numAmount = Number(amount);
     if (isNaN(numAmount) || numAmount <= 0) {
       setError("Please enter a valid positive amount.");
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to add ₹${numAmount} to this account?`)) {
       return;
     }
 
@@ -584,7 +619,7 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
       }
       setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
       onLogin({ 
-        role: mode === "admin" ? "admin" : "customer", 
+        role: result.user?.role as Role || (mode === "admin" ? "admin" : "customer"), 
         name: result.user?.name || (mode === "admin" ? "Admin" : "User"), 
         email, 
         company: result.user?.company || "" 
@@ -637,7 +672,48 @@ function Auth({ onLogin }: { onLogin: (s: Session) => void }) {
   );
 }
 
-function CustomerPage({ view, orders, tickets, setView, create, ticket, select, selectTicket, session, balance }: { view: string; orders: Order[]; tickets: Ticket[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number }) {
+function TransactionTable({ transactions }: { transactions: any[] }) {
+  if (!transactions || transactions.length === 0) {
+    return <p className="text-muted" style={{ padding: '24px', textAlign: 'center' }}>No transactions found.</p>;
+  }
+  return (
+    <div className="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Order Ref</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {transactions.map(t => (
+            <tr key={t.id}>
+              <td style={{ color: '#64748b' }}>{new Date(t.created_at).toLocaleString()}</td>
+              <td>
+                <span style={{ 
+                  display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                  backgroundColor: t.type === 'CREDIT' ? '#e8f7ef' : '#fff0f2',
+                  color: t.type === 'CREDIT' ? '#166534' : '#991b1b' 
+                }}>
+                  <Icon name={t.type === 'CREDIT' ? 'arrow' : 'arrow'} size={12} />
+                  {t.type}
+                </span>
+              </td>
+              <td style={{ fontWeight: 600 }}>₹{Number(t.amount).toFixed(2)}</td>
+              <td style={{ color: '#64748b' }}>{t.order_id || '-'}</td>
+              <td><Badge status={t.status === 'SUCCESS' ? 'Completed' : t.status} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CustomerPage({ view, orders, tickets, transactions, setView, create, ticket, select, selectTicket, session, balance }: { view: string; orders: Order[]; tickets: Ticket[]; transactions: any[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number }) {
   if (view === "My broadcasts") {
     return (
       <>
@@ -712,6 +788,10 @@ function CustomerPage({ view, orders, tickets, setView, create, ticket, select, 
             </form>
           </aside>
         </div>
+        <section className="panel" style={{ marginTop: '24px' }}>
+          <h3 style={{ padding: '24px 24px 0', margin: 0 }}>Transaction History</h3>
+          <TransactionTable transactions={transactions} />
+        </section>
       </>
     );
   }
@@ -788,7 +868,7 @@ function CustomerPage({ view, orders, tickets, setView, create, ticket, select, 
   );
 }
 
-function AdminPage({ view, orders, tickets, users, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void }) {
+function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [actFilterDate, setActFilterDate] = useState("");
@@ -886,8 +966,8 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
       grouped[dStr].push(e);
     });
 
-    const customersTotal = new Set(orders.map(o => o.email)).size;
-    const statuses = { placed: 0, progress: 0, hold: 0, completed: 0, cancelled: 0 };
+    const customersTotal = users.length;
+    const statuses = { placed: 0, progress: 0, hold: 0, completed: 0, cancelled: 0, refunded: 0 };
     let totalRefunds = 0;
     
     const chartOrders = chartDateFilter ? orders.filter(o => {
@@ -902,11 +982,18 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
       else if (o.status === "On hold") statuses.hold++;
       else if (o.status === "Completed" || o.status === "Partial") statuses.completed++;
       else if (o.status === "Cancelled") statuses.cancelled++;
-      if (o.refundAmount) totalRefunds += Number(o.refundAmount);
+      else if (o.status === "Refunded") statuses.refunded++;
+      
+      if (o.status === "Cancelled" || o.status === "Refunded") {
+        if (o.charge) totalRefunds += Number(o.charge);
+      }
+      if (o.partialRefundAmount) {
+        totalRefunds += Number(o.partialRefundAmount);
+      }
     });
     const maxVal = Math.max(...Object.values(statuses), 1);
 
-    return <><Heading eyebrow="ADMIN PORTAL" title="Activity dashboard" text="Audit trail and operational metrics."/><div className="activity-dashboard"><div className="chart-card"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3>Order Distribution</h3><div className="activity-filters" style={{marginBottom:0}}><input type="date" className="date-filter" value={chartDateFilter} onChange={e => setChartDateFilter(e.target.value)}/>{chartDateFilter && <button className="text-button" onClick={() => setChartDateFilter("")}>Till now</button>}</div></div><div className="bar-chart"><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.placed/maxVal)*100}%`}}></div><span className="bar-val">{statuses.placed}</span><span className="bar-label">Placed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.progress/maxVal)*100}%`, background: '#fff3df'}}></div><span className="bar-val">{statuses.progress}</span><span className="bar-label">In progress</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.hold/maxVal)*100}%`, background: '#fef3c7'}}></div><span className="bar-val">{statuses.hold}</span><span className="bar-label">On hold</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.completed/maxVal)*100}%`, background: '#e8f7ef'}}></div><span className="bar-val">{statuses.completed}</span><span className="bar-label">Completed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.cancelled/maxVal)*100}%`, background: '#fff0f2'}}></div><span className="bar-val">{statuses.cancelled}</span><span className="bar-label">Cancelled</span></div></div></div><div style={{display:'flex',flexDirection:'column',gap:'20px'}}><div className="chart-card"><h3>Total Customers</h3><p className="chart-total">{customersTotal}</p><p className="chart-sub">Registered accounts</p></div><div className="chart-card"><h3>Total Refunds</h3><p className="chart-total" style={{color:'#86198f'}}>₹{totalRefunds.toFixed(2)}</p><p className="chart-sub">Processed to wallet</p></div></div></div><section className="panel activity-log"><div className="activity-filters"><label style={{fontSize:'12px',fontWeight:700,color:'#64748b'}}>Filter by date</label><input type="date" className="date-filter" value={actFilterDate} onChange={e => setActFilterDate(e.target.value)}/>{actFilterDate && <button className="text-button" onClick={() => setActFilterDate("")}>Clear filter</button>}</div>{Object.keys(grouped).length > 0 ? Object.entries(grouped).map(([date, evs]) => <div key={date} className="event-group"><h4 className="event-group-date">{date}</h4>{evs.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />)}</div>) : <p className="text-muted" style={{ padding: '24px', textAlign: 'center' }}>No activities recorded for this period.</p>}</section></>;
+    return <><Heading eyebrow="ADMIN PORTAL" title="Activity dashboard" text="Audit trail and operational metrics."/><div className="activity-dashboard"><div className="chart-card"><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3>Order Distribution</h3><div className="activity-filters" style={{marginBottom:0}}><input type="date" className="date-filter" value={chartDateFilter} onChange={e => setChartDateFilter(e.target.value)}/>{chartDateFilter && <button className="text-button" onClick={() => setChartDateFilter("")}>Till now</button>}</div></div><div className="bar-chart"><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.placed/maxVal)*100}%`}}></div><span className="bar-val">{statuses.placed}</span><span className="bar-label">Placed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.progress/maxVal)*100}%`, background: '#fff3df'}}></div><span className="bar-val">{statuses.progress}</span><span className="bar-label">In progress</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.hold/maxVal)*100}%`, background: '#fef3c7'}}></div><span className="bar-val">{statuses.hold}</span><span className="bar-label">On hold</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.completed/maxVal)*100}%`, background: '#e8f7ef'}}></div><span className="bar-val">{statuses.completed}</span><span className="bar-label">Completed</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.cancelled/maxVal)*100}%`, background: '#fff0f2'}}></div><span className="bar-val">{statuses.cancelled}</span><span className="bar-label">Cancelled</span></div><div className="bar-wrap"><div className="bar" style={{height: `${(statuses.refunded/maxVal)*100}%`, background: '#f3e8ff'}}></div><span className="bar-val">{statuses.refunded}</span><span className="bar-label">Refunded</span></div></div></div><div style={{display:'flex',flexDirection:'column',gap:'20px'}}><div className="chart-card"><h3>Total Customers</h3><p className="chart-total">{customersTotal}</p><p className="chart-sub">Registered accounts</p></div><div className="chart-card"><h3>Total Refunds</h3><p className="chart-total" style={{color:'#86198f'}}>₹{totalRefunds.toFixed(2)}</p><p className="chart-sub">Processed to wallet</p></div></div></div><section className="panel activity-log"><div className="activity-filters"><label style={{fontSize:'12px',fontWeight:700,color:'#64748b'}}>Filter by date</label><input type="date" className="date-filter" value={actFilterDate} onChange={e => setActFilterDate(e.target.value)}/>{actFilterDate && <button className="text-button" onClick={() => setActFilterDate("")}>Clear filter</button>}</div>{Object.keys(grouped).length > 0 ? Object.entries(grouped).map(([date, evs]) => <div key={date} className="event-group"><h4 className="event-group-date">{date}</h4>{evs.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />)}</div>) : <p className="text-muted" style={{ padding: '24px', textAlign: 'center' }}>No activities recorded for this period.</p>}</section></>;
   }
   
   if (view === "Pricing") {
@@ -946,7 +1033,7 @@ function AdminPage({ view, orders, tickets, users, price, setPrice, setView, sel
     <>
       <Heading eyebrow="ADMIN PORTAL" title="Operations overview" text="A live view of your broadcast operations."/>
       <div className="metric-grid">
-        <Metric icon="users" label="Total customers" value={new Set(orders.map((o: Order) => o.email)).size} detail="Across all accounts"/>
+        <Metric icon="users" label="Total customers" value={users.length} detail="Across all accounts"/>
         <Metric icon="clock" label="Pending orders" value={pending} detail="Orders waiting for review" warning/>
         <Metric icon="activity" label="In progress" value={active} detail="Currently processing"/>
         <Metric icon="chart" label="Completed" value={done} detail="Reports delivered" success/>
@@ -1320,17 +1407,18 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
       
       if (ext === 'csv' || ext === 'txt') {
         const text = await file.text();
-        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-        count = lines.length;
+        const matches = text.match(/[\+]?[0-9]{10,15}/g);
+        count = matches ? matches.length : 0;
       } else if (ext === 'xlsx' || ext === 'xls') {
         const data = await file.arrayBuffer();
         const workbook = XLSX.read(data);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet);
-        count = json.length;
+        const csv = XLSX.utils.sheet_to_csv(sheet);
+        const matches = csv.match(/[\+]?[0-9]{10,15}/g);
+        count = matches ? matches.length : 0;
       } else {
         const text = await file.text();
-        const matches = text.match(/[\+]?[0-9]{10,12}/g);
+        const matches = text.match(/[\+]?[0-9]{10,15}/g);
         count = matches ? matches.length : Math.max(1, Math.floor(file.size / 15));
       }
       setContactsCount(count > 0 ? count : 1);
