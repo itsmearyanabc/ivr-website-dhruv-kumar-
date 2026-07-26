@@ -400,8 +400,8 @@ export default function App() {
         </div>
       </aside>
       {showLogoutConfirm && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{maxWidth: '400px', textAlign: 'center', padding: '30px'}}>
+        <div className="modal-backdrop">
+          <div className="modal" style={{maxWidth: '400px', textAlign: 'center', padding: '30px'}}>
             <h2 style={{marginTop: 0}}>Confirm Logout</h2>
             <p style={{marginBottom: '20px', color: '#64748b'}}>Are you sure you want to sign out?</p>
             <div style={{display: 'flex', gap: '10px', justifyContent: 'center'}}>
