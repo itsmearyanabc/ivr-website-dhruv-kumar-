@@ -43,7 +43,6 @@ export async function getBroadcasts() {
     return { error: 'Failed to fetch broadcasts' }
   }
 
-  // Flatten the payload for the frontend
   const formatted = broadcasts?.map((b: any) => ({
     ...b,
     customer: b.users?.company_name || 'Unknown',
@@ -92,7 +91,6 @@ export async function createBroadcast(formData: FormData) {
     return { error: 'Please enter target phone numbers.' }
   }
 
-  // File size validation
   const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
   if (audio.size > MAX_FILE_SIZE) {
     return { error: 'Audio file exceeds 25 MB limit.' }
@@ -101,16 +99,47 @@ export async function createBroadcast(formData: FormData) {
     return { error: 'Contacts file exceeds 25 MB limit.' }
   }
 
-  // Check user balance first if there is a charge
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('balance')
-    .eq('id', user.id)
-    .single()
+  if (charge < 0 || isNaN(charge)) {
+    return { error: 'Invalid charge amount.' }
+  }
 
-  const currentBalance = userProfile ? Number(userProfile.balance) : 0
-  if (charge > 0 && currentBalance < charge) {
-    return { error: `Insufficient funds. Wallet balance is ₹${currentBalance.toFixed(2)}, but order cost is ₹${charge.toFixed(2)}. Please add funds to proceed.` }
+  // FIX Bug 1 & 3: Deduct balance FIRST using atomic safe_deduct_balance RPC
+  // This prevents race conditions and ensures balance is deducted before order creation
+  if (charge > 0) {
+    const { data: deductResult, error: deductError } = await supabase.rpc('safe_deduct_balance', {
+      uid: user.id,
+      amt: charge
+    })
+
+    if (deductError) {
+      console.error('Balance deduction RPC error:', deductError)
+      // Fallback: read balance and check manually
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('balance')
+        .eq('id', user.id)
+        .single()
+
+      const currentBalance = userProfile ? Number(userProfile.balance) : 0
+      if (currentBalance < charge) {
+        return { error: `Insufficient funds. Wallet balance is ₹${currentBalance.toFixed(2)}, but order cost is ₹${charge.toFixed(2)}. Please add funds to proceed.` }
+      }
+
+      // Attempt atomic deduction via increment_balance with negative amount
+      const { error: fallbackDeductError } = await supabase.rpc('increment_balance', {
+        uid: user.id,
+        amt: -charge
+      })
+
+      if (fallbackDeductError) {
+        console.error('Fallback balance deduction error:', fallbackDeductError)
+        return { error: `Insufficient funds or failed to deduct balance. Please try again.` }
+      }
+    } else if (!deductResult?.success) {
+      // safe_deduct_balance returned success=false (insufficient funds)
+      const currentBalance = Number(deductResult?.new_balance || 0)
+      return { error: `Insufficient funds. Wallet balance is ₹${currentBalance.toFixed(2)}, but order cost is ₹${charge.toFixed(2)}. Please add funds to proceed.` }
+    }
   }
 
   // Upload Audio to Supabase Storage
@@ -119,6 +148,10 @@ export async function createBroadcast(formData: FormData) {
 
   if (audioUpload.error) {
     console.error('Audio Upload Error:', audioUpload.error)
+    // FIX Bug 3: Refund balance since we already deducted but upload failed
+    if (charge > 0) {
+      await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
+    }
     return { error: 'Failed to upload audio file.' }
   }
 
@@ -130,6 +163,10 @@ export async function createBroadcast(formData: FormData) {
     if (contactsUpload.error) {
       console.error('Contacts Upload Error:', contactsUpload.error)
       await supabase.storage.from('xpack_files').remove([audio_key])
+      // FIX Bug 3: Refund balance since we already deducted but upload failed
+      if (charge > 0) {
+        await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
+      }
       return { error: 'Failed to upload contacts file.' }
     }
   }
@@ -170,6 +207,10 @@ export async function createBroadcast(formData: FormData) {
     // Cleanup uploaded files
     await supabase.storage.from('xpack_files').remove([audio_key])
     if (contacts_key) await supabase.storage.from('xpack_files').remove([contacts_key])
+    // FIX Bug 3: Refund balance since we already deducted but insert failed
+    if (charge > 0) {
+      await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
+    }
     return { error: 'Failed to create broadcast order' }
   }
 
@@ -179,22 +220,8 @@ export async function createBroadcast(formData: FormData) {
     status: 'PLACED'
   }])
 
-  // Deduct user balance for the service price
+  // Record the debit transaction (balance was already deducted above)
   if (charge > 0) {
-    const { error: deductError } = await supabase.rpc('increment_balance', {
-      uid: user.id,
-      amt: -charge
-    })
-
-    if (deductError) {
-      console.warn("RPC increment_balance fallback:", deductError.message)
-      await supabase
-        .from('users')
-        .update({ balance: currentBalance - charge })
-        .eq('id', user.id)
-    }
-
-    // Record the debit transaction
     await supabase.from('transactions').insert([{
       user_id: user.id,
       amount: charge,
@@ -237,6 +264,33 @@ export async function updateBroadcastStatus(formData: FormData) {
     if (val1 > 0) {
       partialRefundAmount = val1
     }
+  }
+
+  // Fetch the broadcast first to get original charge and current status
+  let fetchQuery = supabase.from('broadcasts').select('*')
+  if (id.startsWith('BR-')) {
+    fetchQuery = fetchQuery.eq('reference_no', id)
+  } else {
+    fetchQuery = fetchQuery.eq('id', id)
+  }
+  const { data: existingBroadcast, error: fetchErr } = await fetchQuery.single()
+
+  if (fetchErr || !existingBroadcast) {
+    return { error: 'Broadcast not found.' }
+  }
+
+  const originalCharge = Number(existingBroadcast.charge || 0)
+
+  // FIX Bug 6: Validate partial refund amount doesn't exceed original charge
+  if (partialRefundAmount !== null && partialRefundAmount > originalCharge) {
+    return { error: `Partial refund amount (₹${partialRefundAmount.toFixed(2)}) cannot exceed the original charge (₹${originalCharge.toFixed(2)}).` }
+  }
+
+  // FIX Bug 2 & 9: Prevent invalid double-refunds
+  const currentStatus = existingBroadcast.status
+  const alreadyRefundedStatuses = ['CANCELLED', 'REFUNDED']
+  if (alreadyRefundedStatuses.includes(currentStatus) && alreadyRefundedStatuses.includes(status)) {
+    return { error: `Broadcast is already ${currentStatus}. Cannot change to ${status}.` }
   }
 
   const updatePayload: any = { status, updated_at: new Date().toISOString() }
@@ -289,26 +343,95 @@ export async function updateBroadcastStatus(formData: FormData) {
     }
   }
 
+  // FIX Bug 2: Auto full refund on CANCELLED status
+  if (status === 'CANCELLED' && originalCharge > 0) {
+    const { error: creditError } = await supabase.rpc('increment_balance', {
+      uid: data.user_id,
+      amt: originalCharge
+    })
+
+    if (creditError) {
+      console.error('Cancel refund increment_balance error:', creditError)
+      const { data: owner } = await supabase
+        .from('users')
+        .select('balance')
+        .eq('id', data.user_id)
+        .single()
+
+      if (owner) {
+        await supabase
+          .from('users')
+          .update({ balance: Number(owner.balance) + originalCharge })
+          .eq('id', data.user_id)
+      }
+    }
+
+    // Record credit transaction for cancellation refund
+    await supabase.from('transactions').insert([{
+      user_id: data.user_id,
+      amount: originalCharge,
+      type: 'CREDIT',
+      status: 'SUCCESS',
+      order_id: data.reference_no
+    }])
+  }
+
+  // FIX Bug 9: Auto full refund on REFUNDED status (if no partial refund specified)
+  if (status === 'REFUNDED' && originalCharge > 0 && partialRefundAmount === null) {
+    const { error: creditError } = await supabase.rpc('increment_balance', {
+      uid: data.user_id,
+      amt: originalCharge
+    })
+
+    if (creditError) {
+      console.error('Refund increment_balance error:', creditError)
+      const { data: owner } = await supabase
+        .from('users')
+        .select('balance')
+        .eq('id', data.user_id)
+        .single()
+
+      if (owner) {
+        await supabase
+          .from('users')
+          .update({ balance: Number(owner.balance) + originalCharge })
+          .eq('id', data.user_id)
+      }
+    }
+
+    // Record credit transaction for full refund
+    await supabase.from('transactions').insert([{
+      user_id: data.user_id,
+      amount: originalCharge,
+      type: 'CREDIT',
+      status: 'SUCCESS',
+      order_id: data.reference_no
+    }])
+  }
+
   // Process partial refund credit to user wallet if partial refund amount > 0
   if (partialRefundAmount && partialRefundAmount > 0) {
-    const { data: owner } = await supabase
-      .from('users')
-      .select('balance')
-      .eq('id', data.user_id)
-      .single()
-
-    const currentBal = owner ? Number(owner.balance) : 0
     const { error: creditError } = await supabase.rpc('increment_balance', {
       uid: data.user_id,
       amt: partialRefundAmount
     })
 
     if (creditError) {
-      console.warn("RPC increment_balance credit fallback:", creditError.message)
-      await supabase
+      console.error('Partial refund increment_balance error:', creditError)
+      // FIX Bug 5: Re-read balance right before fallback to avoid stale value
+      const { data: owner } = await supabase
         .from('users')
-        .update({ balance: currentBal + partialRefundAmount })
+        .select('balance')
         .eq('id', data.user_id)
+        .single()
+
+      if (owner) {
+        const freshBalance = Number(owner.balance)
+        await supabase
+          .from('users')
+          .update({ balance: freshBalance + partialRefundAmount })
+          .eq('id', data.user_id)
+      }
     }
 
     // Record credit transaction
@@ -325,9 +448,9 @@ export async function updateBroadcastStatus(formData: FormData) {
   let historyReason = adminComment || null
   if (status === 'ON_HOLD') historyReason = holdReason
   if (status === 'CANCELLED') historyReason = cancelReason
-  if (status === 'REFUNDED') historyReason = refundReason ? `${refundReason} (Amount: ${formData.get("refundAmount")})` : `Amount: ${formData.get("refundAmount")}`
+  if (status === 'REFUNDED') historyReason = refundReason ? `${refundReason} (Amount: ₹${originalCharge.toFixed(2)})` : `Full refund: ₹${originalCharge.toFixed(2)}`
   if (partialRefundAmount && partialRefundAmount > 0) {
-    historyReason = `Partial refund processed: ₹${partialRefundAmount}. ${adminComment || ''}`
+    historyReason = `Partial refund processed: ₹${partialRefundAmount.toFixed(2)}. ${adminComment || ''}`
   }
 
   await supabase.from('broadcast_status_history').insert([{
@@ -443,11 +566,23 @@ export async function getDownloadUrl(path: string) {
   const supabase = await createServiceRoleClient()
   
   if (!isAdmin) {
-    const { data: b1 } = await supabase.from('broadcasts').select('id').eq('user_id', user.id).eq('audio_key', path).limit(1)
-    const { data: b2 } = await supabase.from('broadcasts').select('id').eq('user_id', user.id).eq('contacts_key', path).limit(1)
-    const { data: r1 } = await supabase.from('reports').select('broadcast_id, broadcasts!inner(user_id)').eq('file_key', path).eq('broadcasts.user_id', user.id).limit(1)
+    // FIX Bug 11: Check ownership via broadcast user_id for audio/contacts
+    const { data: ownedBroadcasts } = await supabase
+      .from('broadcasts')
+      .select('id')
+      .eq('user_id', user.id)
+      .or(`audio_key.eq.${path},contacts_key.eq.${path}`)
+      .limit(1)
+
+    // Check report ownership via broadcast join
+    const { data: ownedReports } = await supabase
+      .from('reports')
+      .select('broadcast_id, broadcasts!inner(user_id)')
+      .eq('file_key', path)
+      .eq('broadcasts.user_id', user.id)
+      .limit(1)
     
-    const isOwner = (b1 && b1.length > 0) || (b2 && b2.length > 0) || (r1 && r1.length > 0)
+    const isOwner = (ownedBroadcasts && ownedBroadcasts.length > 0) || (ownedReports && ownedReports.length > 0)
     
     if (!isOwner) {
       return { error: 'Unauthorized: You do not have permission to access this file.' }
