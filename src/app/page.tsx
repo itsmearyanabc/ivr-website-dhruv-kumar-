@@ -8,7 +8,7 @@ import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, 
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
 import { getUserBalance } from "@/app/actions/transactions";
-import { getAllUsers } from "@/app/actions/users";
+import { getAllUsers, adminAddFunds } from "@/app/actions/users";
 import { 
   getCategoriesWithServices, 
   getAllCategoriesAndServices, 
@@ -403,20 +403,90 @@ export default function App() {
   );
 }
 
-function CustomerProfileModal({ customer, orders, onClose }: { customer: any, orders: Order[], onClose: () => void }) {
+function CustomerProfileModal({ customer, orders, onClose, refreshData }: { customer: any, orders: Order[], onClose: () => void, refreshData?: () => void }) {
+  const [addingFunds, setAddingFunds] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const handleAddFunds = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+    const numAmount = Number(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setError("Please enter a valid positive amount.");
+      return;
+    }
+
+    setLoading(true);
+    const res = await adminAddFunds(customer.id, numAmount);
+    setLoading(false);
+
+    if (res?.error) {
+      setError(res.error);
+    } else {
+      setSuccess(`Successfully added ₹${numAmount.toFixed(2)} to ${customer.full_name || customer.company_name}'s wallet!`);
+      setAmount("");
+      if (refreshData) refreshData();
+      
+      // Update local state to reflect new balance immediately
+      customer.balance = Number(customer.balance || 0) + numAmount;
+      
+      setTimeout(() => {
+        setAddingFunds(false);
+        setSuccess("");
+      }, 2000);
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{maxWidth: '600px'}} onClick={e => e.stopPropagation()}>
         <header className="modal-header"><h2>Customer Profile</h2><button className="close-button" onClick={onClose}><Icon name="x"/></button></header>
         <div className="modal-body" style={{display: 'flex', flexDirection: 'column', gap: '20px'}}>
           <div style={{display: 'flex', gap: '15px', alignItems: 'center'}}>
-            <span className="avatar" style={{width: '60px', height: '60px', fontSize: '24px', background: '#3b82f6', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%'}}>{customer.full_name?.slice(0,1) || customer.company_name?.slice(0,1)}</span>
+            <span className="avatar" style={{width: '60px', height: '60px', fontSize: '24px', background: '#3b82f6', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%'}}>{customer.full_name?.slice(0,1) || customer.company_name?.slice(0,1) || "C"}</span>
             <div><h3 style={{fontSize: '20px', margin: '0 0 5px 0'}}>{customer.full_name || customer.company_name}</h3><p style={{margin: 0, color: '#64748b'}}>{customer.email}</p><Badge status={customer.is_active ? "Active" : "Closed"}/></div>
           </div>
           <div className="dashboard-grid" style={{gridTemplateColumns: '1fr 1fr'}}>
             <div className="chart-card"><h3>Current Balance</h3><p className="chart-total">₹{(Number(customer.balance) || 0).toFixed(2)}</p></div>
             <div className="chart-card"><h3>Total Orders</h3><p className="chart-total">{orders.length}</p></div>
           </div>
+          
+          {addingFunds ? (
+            <div style={{background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0'}}>
+              <h4 style={{margin: '0 0 10px 0'}}>Add Funds Manually</h4>
+              <form onSubmit={handleAddFunds} style={{display: 'flex', gap: '10px', alignItems: 'flex-start'}}>
+                <div style={{flex: 1}}>
+                  <input 
+                    type="number" 
+                    value={amount} 
+                    onChange={e => setAmount(e.target.value)} 
+                    placeholder="Enter amount (e.g. 500)" 
+                    disabled={loading}
+                    style={{width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc'}}
+                  />
+                  {error && <p style={{color: 'red', fontSize: '12px', margin: '5px 0 0 0'}}>{error}</p>}
+                  {success && <p style={{color: 'green', fontSize: '12px', margin: '5px 0 0 0'}}>{success}</p>}
+                </div>
+                <button type="submit" disabled={loading} style={{background: '#10b981', color: 'white', border: 'none', padding: '9px 15px', borderRadius: '4px', cursor: loading ? 'not-allowed' : 'pointer'}}>
+                  {loading ? 'Adding...' : 'Deposit'}
+                </button>
+                <button type="button" onClick={() => setAddingFunds(false)} disabled={loading} style={{background: '#ef4444', color: 'white', border: 'none', padding: '9px 15px', borderRadius: '4px', cursor: loading ? 'not-allowed' : 'pointer'}}>
+                  Cancel
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div style={{display: 'flex', justifyContent: 'flex-start'}}>
+              <button onClick={() => setAddingFunds(true)} style={{background: '#3b82f6', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px'}}>
+                <Icon name="indian-rupee" size={16}/> Add Funds
+              </button>
+            </div>
+          )}
+
           <div className="detail-note">
             <strong>Contact Details</strong>
             <p>Phone: {customer.phone || 'Not provided'}</p>

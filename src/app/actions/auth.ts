@@ -29,8 +29,10 @@ export async function signUp(formData: FormData) {
 
   const confirm = String(formData.get("confirm") || "")
 
-  if (!email || !password || !name) {
-    return { error: 'Please fill out all required fields.' }
+  const supabase = await createClient()
+
+  if (!email || !password || !name || !phone) {
+    return { error: 'Please fill out all required fields including phone number.' }
   }
   
   if (password !== confirm) {
