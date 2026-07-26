@@ -92,7 +92,8 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     "indian-rupee": <><path d="M6 3h12"/><path d="M6 8h12"/><path d="m6 13 8.5 8"/><path d="M6 13h3"/><path d="M9 13c6.667 0 6.667-10 0-10"/></>,
     mic: <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></>,
     layers: <><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
-    trash: <><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></>
+    trash: <><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></>,
+    menu: <><path d="M3 12h18M3 6h18M3 18h18"/></>
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{p[name]}</svg>;
 }
@@ -166,6 +167,7 @@ export default function App() {
   const [usersList, setUsersList] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [price, setPrice] = useState("0.25");
 
   useEffect(() => {
@@ -376,10 +378,11 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <aside className="sidebar">
+      <div className={`sidebar-backdrop ${isMobileMenuOpen ? 'mobile-open' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
+      <aside className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
         <div className="brand"><span className="brand-mark"><b>x</b></span><span>Xpack</span></div>
         <div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1)}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div>
-        <nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); setSelectedCustomer(null); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav>
+        <nav>{nav.map(([label, icon]) => <button key={label} onClick={() => { setView(label); setSelected(null); setSelectedTicket(null); setSelectedCustomer(null); setIsMobileMenuOpen(false); }} className={view === label ? "active" : ""}><Icon name={icon as string}/>{label}</button>)}</nav>
         <div className="sidebar-bottom">
           <div className="help-card">
             <span className="help-symbol">?</span>
@@ -406,6 +409,9 @@ export default function App() {
       )}
       <section className="content">
         <header>
+          <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(true)}>
+            <Icon name="menu" size={24} />
+          </button>
           <div className="mobile-brand">Xpack</div>
           <div className="header-actions">
             <span className="access-label" style={session.role === 'customer' ? {background:'#f1f5f9',color:'#0f172a'}: {}}>

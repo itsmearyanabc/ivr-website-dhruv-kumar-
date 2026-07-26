@@ -58,3 +58,11 @@ button{font-family:inherit}.help-card button,.user-card button{border:0;backgrou
 
 @media(max-width:900px){.auth-shell{grid-template-columns:1fr}.auth-brand{min-height:300px;padding:90px 30px 40px}.auth-brand .brand{left:30px;top:26px}.auth-brand h1{font-size:37px}.auth-panel{padding:45px 25px}.support-layout{grid-template-columns:1fr}.activity-dashboard{grid-template-columns:1fr}}
 @media(max-width:760px){.access-label{display:none}.support-aside{display:none}.auth-brand{min-height:260px}.auth-points{margin-top:25px}.auth-brand h1{font-size:31px}.detail-grid{grid-template-columns:1fr}.table-tools{display:none}.status-timeline-label{font-size:8px}}
+/* Mobile navigation toggle */
+.sidebar-backdrop { display: none; }
+.mobile-menu-btn { display: none; }
+@media(max-width:760px) {
+  .mobile-menu-btn { display: block; border: none; background: none; color: #1e293b; padding: 10px; margin-right: 15px; cursor: pointer; }
+  .sidebar.mobile-open { display: flex; position: fixed; inset: 0 auto 0 0; width: 280px; max-width: 80vw; z-index: 100; box-shadow: 0 0 50px rgba(0,0,0,0.2); }
+  .sidebar-backdrop.mobile-open { display: block; position: fixed; inset: 0; background: rgba(13,29,56,0.5); z-index: 99; }
+}
