@@ -57,7 +57,7 @@ button{font-family:inherit}.help-card button,.user-card button{border:0;backgrou
 .event-group-date{font-size:12px;font-weight:700;color:#64748b;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid #f1f5f9}
 
 @media(max-width:900px){.auth-shell{grid-template-columns:1fr}.auth-brand{min-height:300px;padding:90px 30px 40px}.auth-brand .brand{left:30px;top:26px}.auth-brand h1{font-size:37px}.auth-panel{padding:45px 25px}.support-layout{grid-template-columns:1fr;min-width:0}.activity-dashboard{grid-template-columns:1fr}}
-@media(max-width:760px){.access-label{display:none}.support-aside{display:none}.auth-brand{min-height:260px}.auth-points{margin-top:25px}.auth-brand h1{font-size:31px}.detail-grid{grid-template-columns:1fr}.table-tools{display:none}.status-timeline-label{font-size:8px}}
+@media(max-width:760px){.access-label{border:none;padding:0;font-size:10px}.support-aside{display:none}.auth-brand{min-height:260px}.auth-points{margin-top:25px}.auth-brand h1{font-size:31px}.detail-grid{grid-template-columns:1fr}.table-tools{display:none}.status-timeline-label{font-size:8px}}
 /* Mobile navigation toggle */
 .sidebar-backdrop { display: none; }
 .mobile-menu-btn { display: none; }
