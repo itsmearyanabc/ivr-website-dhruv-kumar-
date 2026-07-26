@@ -6,6 +6,12 @@ export const metadata: Metadata = {
   description: "A premium IVR broadcast management portal for Xpack customers and administrators.",
 };
 
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
