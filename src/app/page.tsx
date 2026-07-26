@@ -191,6 +191,42 @@ export default function App() {
     setBalance(bal);
   };
 
+  const fetchData = async (currentSession: Session) => {
+    setIsDataLoading(true);
+    const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData] = await Promise.all([
+      getSystemSettings(),
+      getBroadcasts(),
+      getTickets(),
+      currentSession.role === "admin" ? getAllUsers() : Promise.resolve(null),
+      currentSession.role === "admin" ? getAllTransactions() : Promise.resolve(null),
+      currentSession.role !== "admin" ? getUserBalance() : Promise.resolve(null),
+      currentSession.role !== "admin" ? getUserTransactions() : Promise.resolve(null)
+    ]);
+
+        if (settings) setPrice(settings.price_per_call);
+
+    if (currentSession.role === "admin") {
+      if (usersData) setUsersList(usersData);
+      if (txAdminData) setTransactions(txAdminData);
+    } else {
+      setBalance(userBal || 0);
+      if (txUserData) setTransactions(txUserData);
+    }
+
+    if (bRes?.data) setOrders(bRes.data.map((b: any, i: number) => mapBroadcast(b, i)));
+    if (tRes?.data) setTickets(tRes.data.map((t: any) => ({
+      id: t.reference_no,
+      subject: t.subject,
+      customer: t.customer,
+      priority: t.priority === 'HIGH' ? 'High' : 'Normal',
+      status: formatStatus(t.status) as TicketStatus,
+      message: t.message || '',
+      created: new Date(t.created_at).toLocaleString(),
+      reply: t.reply,
+    })));
+    setIsDataLoading(false);
+  };
+
   useEffect(() => {
     let mounted = true;
     
@@ -204,50 +240,12 @@ export default function App() {
         setIsSessionLoading(false);
       }
     }
-    
-    async function fetchData(currentSession: Session) {
-      setIsDataLoading(true);
-      const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData] = await Promise.all([
-        getSystemSettings(),
-        getBroadcasts(),
-        getTickets(),
-        currentSession.role === "admin" ? getAllUsers() : Promise.resolve(null),
-        currentSession.role === "admin" ? getAllTransactions() : Promise.resolve(null),
-        currentSession.role !== "admin" ? getUserBalance() : Promise.resolve(null),
-        currentSession.role !== "admin" ? getUserTransactions() : Promise.resolve(null)
-      ]);
-
-      if (!mounted) return;
-
-      if (settings) setPrice(settings.price_per_call);
-
-      if (currentSession.role === "admin") {
-        if (usersData) setUsersList(usersData);
-        if (txAdminData) setTransactions(txAdminData);
-      } else {
-        setBalance(userBal || 0);
-        if (txUserData) setTransactions(txUserData);
-      }
-
-      if (bRes?.data) setOrders(bRes.data.map((b: any, i: number) => mapBroadcast(b, i)));
-      if (tRes?.data) setTickets(tRes.data.map((t: any) => ({
-        id: t.reference_no,
-        subject: t.subject,
-        customer: t.customer,
-        priority: t.priority === 'HIGH' ? 'High' : 'Normal',
-        status: formatStatus(t.status) as TicketStatus,
-        message: t.message || '',
-        created: new Date(t.created_at).toLocaleString(),
-        reply: t.reply,
-      })));
-      setIsDataLoading(false);
-    }
 
     initSession();
     return () => { mounted = false; };
   }, []);
 
-  const login = (s: Session) => { setSession(s); setView("Overview"); sessionStorage.setItem('xpack_view', 'Overview'); };
+  const login = (s: Session) => { setSession(s); setView("Overview"); sessionStorage.setItem('xpack_view', 'Overview'); fetchData(s); };
   const logout = async () => { await signOut(); setSession(null); setOrders(initialOrders); setTickets(initialTickets); sessionStorage.removeItem('xpack_view'); };
   
   const message = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 4500); };
