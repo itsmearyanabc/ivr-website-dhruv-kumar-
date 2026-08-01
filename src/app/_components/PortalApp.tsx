@@ -23,6 +23,8 @@ import { getTopupPendingCount } from "@/app/actions/topups";
 import { Icon, Badge, formatStatus, Heading, PanelTop, Metric, Timeline } from "@/app/_components/ui";
 import AdminShell, { baseView, TabStrip } from "@/app/_components/admin/AdminShell";
 import { TopupRequestsView, AdminSettingsView } from "@/app/_components/admin/PaymentsAdmin";
+import StatisticsGraph from "@/app/_components/admin/StatisticsGraph";
+import ActivityLog from "@/app/_components/admin/ActivityLog";
 import AddFunds from "@/app/_components/customer/AddFunds";
 import * as XLSX from "xlsx";
 
@@ -1019,55 +1021,14 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
     );
   }
 
-  if (viewName === "Customers") return <><Heading eyebrow="ADMIN CONSOLE" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><div className="table-wrap">{isDataLoading ? <div className="loading-block"><div className="loader"/></div> : <table><thead><tr><th>Customer</th><th>Email</th><th>Broadcasts</th><th>Wallet balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td><strong className="amount">₹{(Number(u.balance) || 0).toFixed(2)}</strong></td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table>}</div></section></>;
+  if (viewName === "Customers") return <><Heading eyebrow="ADMIN CONSOLE" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><div className="table-wrap">{isDataLoading ? <div className="loading-block"><div className="loader"/></div> : <table><thead><tr><th>Customer</th><th>Email</th><th>Password</th><th>Broadcasts</th><th>Wallet balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td><code className="password-cell">{u.plain_password || '—'}</code></td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td><strong className="amount">₹{(Number(u.balance) || 0).toFixed(2)}</strong></td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table>}</div></section></>;
   if (viewName === "Support desk") return <><Heading eyebrow="ADMIN CONSOLE" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (viewName === "Activity log") {
-    const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
-    orders.forEach(o => {
-      events.push({ title: `${o.broadcastNo} created`, text: `${o.customer} submitted ${o.name}`, time: o.created, dateObj: parseDate(o.created), color: "blue" });
-      if (o.status === "Completed") events.push({ title: "Report uploaded", text: `Admin completed ${o.broadcastNo} and shared report.`, time: o.created, dateObj: parseDate(o.created), color: "green" });
-      if (o.history) {
-        o.history.forEach((h) => {
-          events.push({ title: `Order ${h.status.toLowerCase()}`, text: h.reason || `Status updated for ${o.broadcastNo}`, time: new Date(h.created_at).toLocaleString(), dateObj: new Date(h.created_at), color: h.status === 'REFUNDED' ? 'refunded' : h.status === 'CANCELLED' ? 'red' : 'activity' })
-        })
-      }
-    });
-    tickets.forEach(t => events.push({ title: "Support ticket opened", text: `Customer opened ${t.id}.`, time: t.created, dateObj: parseDate(t.created), color: "blue" }));
-    
-    events.sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime());
-    
-    const filteredEvents = actFilterDate ? events.filter(e => {
-      const d = e.dateObj;
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` === actFilterDate;
-    }) : events;
-    const grouped: Record<string, typeof events> = {};
-    filteredEvents.forEach(e => {
-      const dStr = e.dateObj.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-      if (!grouped[dStr]) grouped[dStr] = [];
-      grouped[dStr].push(e);
-    });
-
     return (
       <>
         <Heading eyebrow="ADMIN CONSOLE" title="Activity log" text="Full audit trail of everything that happened in the panel."/>
-        <AdminAnalytics orders={orders} users={users} dateFilter={chartDateFilter} setDateFilter={setChartDateFilter}/>
-        <section className="panel activity-log">
-          <div className="activity-filters">
-            <label className="filter-label">Filter by date</label>
-            <input type="date" className="date-filter" value={actFilterDate} onChange={e => setActFilterDate(e.target.value)}/>
-            {actFilterDate && <button className="text-button" onClick={() => setActFilterDate("")}>Clear filter</button>}
-          </div>
-          {Object.keys(grouped).length > 0
-            ? Object.entries(grouped).map(([date, evs]) => (
-              <div key={date} className="event-group">
-                <h4 className="event-group-date">{date}</h4>
-                {evs.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />)}
-              </div>
-            ))
-            : <p className="text-muted empty">No activities recorded for this period.</p>}
-        </section>
+        <ActivityLog />
       </>
     );
   }
@@ -1119,7 +1080,10 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
       />
 
       {dashTab === "analytics" && (
-        <AdminAnalytics orders={orders} users={users} dateFilter={chartDateFilter} setDateFilter={setChartDateFilter}/>
+        <>
+          <StatisticsGraph />
+          <AdminAnalytics orders={orders} users={users} dateFilter={chartDateFilter} setDateFilter={setChartDateFilter}/>
+        </>
       )}
 
       {dashTab === "panel" && (
@@ -1340,6 +1304,9 @@ function CategoryServiceManager() {
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [showNewService, setShowNewService] = useState(false);
 
   const loadData = async () => {
     const res = await getAllCategoriesAndServices();
@@ -1366,6 +1333,7 @@ function CategoryServiceManager() {
     } else {
       setCatName("");
       setCatDesc("");
+      setShowNewCategory(false);
       setMsg("Category created successfully!");
       setTimeout(() => setMsg(""), 3000);
       loadData();
@@ -1388,6 +1356,7 @@ function CategoryServiceManager() {
       setServName("");
       setServPrice("");
       setServDesc("");
+      setShowNewService(false);
       setMsg("Service added successfully!");
       setTimeout(() => setMsg(""), 3000);
       loadData();
@@ -1408,86 +1377,211 @@ function CategoryServiceManager() {
     else loadData();
   };
 
+  const filteredCategories = categories.filter(cat =>
+    cat.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    cat.services?.some(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
   return (
     <>
-      <Heading eyebrow="ADMIN CONSOLE" title="Categories &amp; services" text="Create the categories and priced services customers choose from when creating a broadcast."/>
+      <Heading eyebrow="ADMIN CONSOLE" title="Services Management" text="Manage categories and services offered to customers."/>
       {msg && <div className="flash-success">✓ {msg}</div>}
 
-      <div className="dashboard-grid">
-        <section className="panel">
-          <PanelTop title="Create category" text="Type the category name (e.g. 10 Second Audio, 20 Second Audio)."/>
-          <form onSubmit={handleAddCategory} className="admin-update boxed-form">
-            <label>Category name<input required placeholder="e.g. 10 Second Audio" value={catName} onChange={e => setCatName(e.target.value)}/></label>
-            <label>Description (optional)<textarea rows={2} placeholder="Optional notes" value={catDesc} onChange={e => setCatDesc(e.target.value)}/></label>
-            <button className="primary" disabled={loading}>Create category <Icon name="plus" size={16}/></button>
-          </form>
-        </section>
-
-        <aside className="panel">
-          <PanelTop title="Create service" text="Add a service and price inside a category (e.g. 10 calls for ₹20)."/>
-          <form onSubmit={handleAddService} className="admin-update boxed-form">
-            <label>Select category
-              <select value={selectedCatId} onChange={e => setSelectedCatId(e.target.value)} required>
-                <option value="">-- Choose category --</option>
-                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </label>
-            <label>Service name<input required placeholder="e.g. 10 calls for 20 rs" value={servName} onChange={e => setServName(e.target.value)}/></label>
-            <label>Price (₹)<input type="number" step="0.01" required placeholder="20.00" value={servPrice} onChange={e => setServPrice(e.target.value)}/></label>
-            <label>Description (optional)<input placeholder="Optional details" value={servDesc} onChange={e => setServDesc(e.target.value)}/></label>
-            <button className="primary" disabled={loading}>Add service <Icon name="plus" size={16}/></button>
-          </form>
-        </aside>
+      <div className="services-toolbar">
+        <div className="services-actions">
+          <button className="primary" onClick={() => setShowNewService(true)}>
+            <Icon name="plus" size={16}/> New Service
+          </button>
+          <button className="outline" onClick={() => setShowNewCategory(true)}>
+            <Icon name="plus" size={16}/> New Category
+          </button>
+        </div>
+        <div className="services-search">
+          <div className="search">
+            <Icon name="search" size={16}/>
+            <input 
+              placeholder="Search services or categories..." 
+              value={searchTerm} 
+              onChange={e => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
       </div>
 
-      <section className="panel data-panel service-catalog">
-        <PanelTop title="Active categories &amp; services" text="Exactly what customers see while creating a broadcast."/>
-        <div className="catalog-list">
-          {categories.length === 0 ? (
-            <p className="text-muted empty">No categories created yet. Create a category above to get started.</p>
+      {showNewCategory && (
+        <div className="modal-backdrop" onClick={() => setShowNewCategory(false)}>
+          <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <p className="eyebrow">NEW CATEGORY</p>
+                <h2>Create Category</h2>
+              </div>
+              <button className="close" onClick={() => setShowNewCategory(false)}>
+                <Icon name="close"/>
+              </button>
+            </div>
+            <form onSubmit={handleAddCategory}>
+              <label>Category name
+                <input 
+                  required 
+                  placeholder="e.g. Instagram Services" 
+                  value={catName} 
+                  onChange={e => setCatName(e.target.value)}
+                />
+              </label>
+              <label>Description (optional)
+                <textarea 
+                  rows={3} 
+                  placeholder="Brief description of this category" 
+                  value={catDesc} 
+                  onChange={e => setCatDesc(e.target.value)}
+                />
+              </label>
+              <div className="modal-footer">
+                <button type="button" className="outline" onClick={() => setShowNewCategory(false)}>Cancel</button>
+                <button type="submit" className="primary" disabled={loading}>
+                  {loading ? 'Creating...' : 'Create Category'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showNewService && (
+        <div className="modal-backdrop" onClick={() => setShowNewService(false)}>
+          <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <p className="eyebrow">NEW SERVICE</p>
+                <h2>Add Service</h2>
+              </div>
+              <button className="close" onClick={() => setShowNewService(false)}>
+                <Icon name="close"/>
+              </button>
+            </div>
+            <form onSubmit={handleAddService}>
+              <label>Select category
+                <select value={selectedCatId} onChange={e => setSelectedCatId(e.target.value)} required>
+                  <option value="">-- Choose category --</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+              <label>Service name
+                <input 
+                  required 
+                  placeholder="e.g. Instagram Followers" 
+                  value={servName} 
+                  onChange={e => setServName(e.target.value)}
+                />
+              </label>
+              <label>Price (₹)
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  required 
+                  placeholder="40.00" 
+                  value={servPrice} 
+                  onChange={e => setServPrice(e.target.value)}
+                />
+              </label>
+              <label>Description (optional)
+                <input 
+                  placeholder="Service details" 
+                  value={servDesc} 
+                  onChange={e => setServDesc(e.target.value)}
+                />
+              </label>
+              <div className="modal-footer">
+                <button type="button" className="outline" onClick={() => setShowNewService(false)}>Cancel</button>
+                <button type="submit" className="primary" disabled={loading}>
+                  {loading ? 'Adding...' : 'Add Service'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <section className="panel data-panel services-panel">
+        <div className="services-list">
+          {filteredCategories.length === 0 ? (
+            <div className="empty-state">
+              <Icon name="layers" size={48}/>
+              <p>No categories or services found.</p>
+              <button className="primary" onClick={() => setShowNewCategory(true)}>
+                <Icon name="plus" size={16}/> Create First Category
+              </button>
+            </div>
           ) : (
-            categories.map(cat => (
-              <div key={cat.id} className="catalog-card">
-                <div className="catalog-head">
-                  <div>
-                    <h3>{cat.name}</h3>
-                    {cat.description && <p>{cat.description}</p>}
+            filteredCategories.map(cat => (
+              <div key={cat.id} className="service-category-card">
+                <div className="category-header">
+                  <div className="category-info">
+                    <div className="category-toggle">
+                      <input type="checkbox" checked={true} readOnly className="toggle-switch"/>
+                    </div>
+                    <div className="category-details">
+                      <h3>{cat.name}</h3>
+                      {cat.description && <p>{cat.description}</p>}
+                    </div>
                   </div>
-                  <button className="text-button danger" onClick={() => handleDeleteCategory(cat.id)}>
-                    <Icon name="trash" size={16}/> Delete category
-                  </button>
+                  <div className="category-actions">
+                    <button className="icon-btn" title="Edit category">
+                      <Icon name="edit" size={16}/>
+                    </button>
+                    <button className="icon-btn danger" onClick={() => handleDeleteCategory(cat.id)} title="Delete category">
+                      <Icon name="trash" size={16}/>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Service name</th>
-                        <th>Price (₹)</th>
-                        <th>Status</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cat.services && cat.services.length > 0 ? (
-                        cat.services.map(s => (
+                {cat.services && cat.services.length > 0 && (
+                  <div className="services-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Service Name</th>
+                          <th>Type</th>
+                          <th>Price</th>
+                          <th>Min</th>
+                          <th>Max</th>
+                          <th>Status</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cat.services.map((s, idx) => (
                           <tr key={s.id}>
-                            <td><strong>{s.name}</strong></td>
-                            <td><strong className="amount">₹{Number(s.price).toFixed(2)}</strong></td>
-                            <td><Badge status={s.is_active ? "Active" : "Disabled"}/></td>
+                            <td>{idx + 1}</td>
                             <td>
-                              <button className="text-button danger" onClick={() => handleDeleteService(s.id)}>
-                                Delete
-                              </button>
+                              <div className="service-name">
+                                <strong>{s.name}</strong>
+                                {s.description && <small>{s.description}</small>}
+                              </div>
+                            </td>
+                            <td><span className="service-type">Manual</span></td>
+                            <td><strong className="amount">₹{Number(s.price).toFixed(2)}</strong></td>
+                            <td>1</td>
+                            <td>5000000</td>
+                            <td><Badge status={s.is_active ? "Enabled" : "Disabled"}/></td>
+                            <td>
+                              <div className="row-actions">
+                                <button className="icon-btn" title="Edit service">
+                                  <Icon name="edit" size={14}/>
+                                </button>
+                                <button className="icon-btn danger" onClick={() => handleDeleteService(s.id)} title="Delete service">
+                                  <Icon name="trash" size={14}/>
+                                </button>
+                              </div>
                             </td>
                           </tr>
-                        ))
-                      ) : (
-                        <tr><td colSpan={4} className="empty">No services added to this category yet.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             ))
           )}
