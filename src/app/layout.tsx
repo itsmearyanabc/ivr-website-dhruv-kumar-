@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Xpack | IVR Broadcast Management",
-  description: "A premium IVR broadcast management portal for Xpack customers and administrators.",
+  title: "Xpack | IVR Broadcast Panel",
+  description: "Create, track, and manage IVR broadcasts from a single panel.",
 };
 
 export const viewport = {
