@@ -19,6 +19,11 @@ import {
   Category, 
   Service 
 } from "@/app/actions/categoriesServices";
+import { getTopupPendingCount } from "@/app/actions/topups";
+import { Icon, Badge, formatStatus, Heading, PanelTop, Metric, Timeline } from "@/app/_components/ui";
+import AdminShell, { baseView, TabStrip } from "@/app/_components/admin/AdminShell";
+import { TopupRequestsView, AdminSettingsView } from "@/app/_components/admin/PaymentsAdmin";
+import AddFunds from "@/app/_components/customer/AddFunds";
 import * as XLSX from "xlsx";
 
 type Role = "customer" | "admin";
@@ -62,51 +67,6 @@ type Ticket = { id: string; subject: string; customer: string; priority: "Normal
 
 const initialOrders: Order[] = [];
 const initialTickets: Ticket[] = [];
-
-function Icon({ name, size = 18 }: { name: string; size?: number }) {
-  const p: Record<string, React.ReactNode> = {
-    grid: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
-    radio: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h.01M11 15h.01M15 15h2M7 9h10"/></>, 
-    users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
-    help: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4.58 1.68c-1.15 1.06-2.08 1.38-2.08 3.32M12 17h.01"/></>, 
-    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.1 2.1-.06-.06A1.7 1.7 0 0 0 15.76 18a1.7 1.7 0 0 0-1 1.54V20h-3v-.46A1.7 1.7 0 0 0 10.76 18a1.7 1.7 0 0 0-1.88.34l-.06.06-2.1-2.1.06-.06A1.7 1.7 0 0 0 7.12 14a1.7 1.7 0 0 0-1.54-1H5.1v-3h.48A1.7 1.7 0 0 0 7.12 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.1-2.1.06.06A1.7 1.7 0 0 0 10.76 5a1.7 1.7 0 0 0 1-1.54V3h3v.46A1.7 1.7 0 0 0 15.76 5a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.1 2.1-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.54 1h.48v3h-.48A1.7 1.7 0 0 0 19.4 15Z"/></>,
-    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>, 
-    plus: <><path d="M12 5v14M5 12h14"/></>, 
-    chart: <><path d="M4 19V5M4 19h17M8 15v-3M12 15V8M16 15V5M20 15v-7"/></>, 
-    clock: <><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></>, 
-    arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>, 
-    search: <><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/></>, 
-    file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></>, 
-    more: <><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></>, 
-    close: <><path d="m6 6 12 12M18 6 6 18"/></>, 
-    upload: <><path d="M12 16V4M7 9l5-5 5-5M5 20h14"/></>, 
-    activity: <><path d="M3 12h4l2-6 4 12 2-6h6"/></>, 
-    check: <><path d="m5 12 4 4L19 6"/></>, 
-    lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>, 
-    logout: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-4"/></>, 
-    download: <><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></>, 
-    eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></>, 
-    "eye-off": <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61M2 2l20 20"/></>, 
-    pause: <><path d="M10 4H6v16h4V4ZM18 4h-4v16h4V4Z"/></>,
-    "dollar-sign": <><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></>,
-    "indian-rupee": <><path d="M6 3h12"/><path d="M6 8h12"/><path d="m6 13 8.5 8"/><path d="M6 13h3"/><path d="M9 13c6.667 0 6.667-10 0-10"/></>,
-    mic: <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></>,
-    layers: <><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></>,
-    trash: <><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></>,
-    menu: <><path d="M3 12h18M3 6h18M3 18h18"/></>
-  };
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{p[name]}</svg>;
-}
-
-function formatStatus(raw: string): Status | TicketStatus {
-  const map: Record<string, string> = {
-    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'PARTIAL': 'Completed', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold', 'REFUNDED': 'Refunded',
-    'OPEN': 'Open', 'RESOLVED': 'Resolved', 'CLOSED': 'Closed',
-  };
-  return (map[raw] || raw.charAt(0) + raw.slice(1).toLowerCase()) as Status | TicketStatus;
-}
-
-function Badge({ status }: { status: string }) { return <span className={`badge ${status.toLowerCase().replaceAll(" ", "-")}`}><i />{status}</span>; }
 
 function mapBroadcast(b: any, index: number): Order {
   return {
@@ -172,6 +132,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [price, setPrice] = useState("0.25");
+  const [pendingTopups, setPendingTopups] = useState(0);
 
   useEffect(() => {
     (window as any).selectCustomer = (u: any) => setSelectedCustomer(u);
@@ -192,16 +153,21 @@ export default function PortalApp({ portal }: { portal: Role }) {
     setBalance(bal);
   };
 
+  const refreshPendingTopups = async () => {
+    setPendingTopups(await getTopupPendingCount());
+  };
+
   const fetchData = async (currentSession: Session) => {
     setIsDataLoading(true);
-    const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData] = await Promise.all([
+    const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData, topupCount] = await Promise.all([
       getSystemSettings(),
       getBroadcasts(),
       getTickets(),
       currentSession.role === "admin" ? getAllUsers() : Promise.resolve(null),
       currentSession.role === "admin" ? getAllTransactions() : Promise.resolve(null),
       currentSession.role !== "admin" ? getUserBalance() : Promise.resolve(null),
-      currentSession.role !== "admin" ? getUserTransactions() : Promise.resolve(null)
+      currentSession.role !== "admin" ? getUserTransactions() : Promise.resolve(null),
+      currentSession.role === "admin" ? getTopupPendingCount() : Promise.resolve(0)
     ]);
 
         if (settings) setPrice(settings.price_per_call);
@@ -209,6 +175,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
     if (currentSession.role === "admin") {
       if (usersData) setUsersList(usersData);
       if (txAdminData) setTransactions(txAdminData);
+      setPendingTopups(topupCount || 0);
     } else {
       setBalance(userBal || 0);
       if (txUserData) setTransactions(txUserData);
@@ -378,9 +345,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
   if (!session) return <Auth portal={portal} onLogin={login} />;
   if (session.role !== portal) return <WrongPortal role={session.role} portal={portal} onSignOut={logout} />;
 
-  const nav: Array<[string, string]> = session.role === "customer"
-    ? [["Dashboard", "grid"], ["New broadcast", "plus"], ["My broadcasts", "radio"], ["Add funds", "indian-rupee"], ["Support", "help"], ["Settings", "settings"]]
-    : [["Dashboard", "grid"], ["Broadcasts", "radio"], ["Services", "layers"], ["Customers", "users"], ["Support desk", "help"], ["Activity log", "activity"], ["Pricing", "dollar-sign"]];
+  const nav: Array<[string, string]> = [["Dashboard", "grid"], ["New broadcast", "plus"], ["My broadcasts", "radio"], ["Add funds", "indian-rupee"], ["Support", "help"], ["Settings", "settings"]];
 
   const goTo = (label: string) => {
     setIsMobileMenuOpen(false);
@@ -391,25 +356,13 @@ export default function PortalApp({ portal }: { portal: Role }) {
     setSelectedCustomer(null);
   };
 
-  return (
-    <main className="app-shell">
-      <div className={`sidebar-backdrop ${isMobileMenuOpen ? 'mobile-open' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
-      <aside className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
-        <div className="brand"><span className="brand-mark"><b>X</b></span><span>XPACK<em>{session.role === "admin" ? "ADMIN" : "PANEL"}</em></span></div>
-        <div className="workspace"><span className="company-dot">{session.role === "admin" ? "X" : session.name.slice(0, 1).toUpperCase()}</span><span>{session.role === "admin" ? "Xpack Operations" : session.company || session.name}</span></div>
-        <nav>{nav.map(([label, icon]) => <button key={label} onClick={() => goTo(label)} className={view === label ? "active" : ""}><Icon name={icon}/>{label}</button>)}</nav>
-        <div className="sidebar-bottom">
-          <div className="help-card">
-            <span className="help-symbol">?</span>
-            <div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => goTo(session.role === "admin" ? "Support desk" : "Support")}>Open support <Icon name="arrow" size={13}/></button></div>
-          </div>
-          <div className="user-card">
-            <span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span>
-            <div><strong>{session.name}</strong><p>{session.role === "admin" ? "Administrator" : "Customer account"}</p></div>
-            <button title="Sign out" onClick={() => setShowLogoutConfirm(true)}><Icon name="logout"/></button>
-          </div>
-        </div>
-      </aside>
+  const overlays = (
+    <>
+      {showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />}
+      {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>}
+      {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>}
+      {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>}
+      {selectedCustomer && <CustomerProfileModal customer={selectedCustomer} orders={orders.filter(o => o.email === selectedCustomer.email)} onClose={() => setSelectedCustomer(null)}/>}
       {showLogoutConfirm && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal confirm-modal">
@@ -422,6 +375,60 @@ export default function PortalApp({ portal }: { portal: Role }) {
           </div>
         </div>
       )}
+      {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}
+    </>
+  );
+
+  // The admin console runs on its own top-navigation chrome. The customer panel keeps the
+  // sidebar shell below, unchanged.
+  if (session.role === "admin") {
+    return (
+      <AdminShell
+        view={view}
+        onNavigate={goTo}
+        userName={session.name}
+        pendingTopups={pendingTopups}
+        onLogout={() => setShowLogoutConfirm(true)}
+      >
+        <AdminPage
+          view={view}
+          orders={orders}
+          tickets={tickets}
+          users={usersList}
+          transactions={transactions}
+          price={price}
+          setPrice={setPrice}
+          setView={setView}
+          select={setSelected}
+          selectTicket={setSelectedTicket}
+          onRefreshBroadcasts={refreshBroadcasts}
+          isDataLoading={isDataLoading}
+          onTopupsChanged={refreshPendingTopups}
+        />
+        {overlays}
+      </AdminShell>
+    );
+  }
+
+  return (
+    <main className="app-shell">
+      <div className={`sidebar-backdrop ${isMobileMenuOpen ? 'mobile-open' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
+      <aside className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
+        <div className="brand"><span className="brand-mark"><b>X</b></span><span>XPACK<em>PANEL</em></span></div>
+        <div className="workspace"><span className="company-dot">{session.name.slice(0, 1).toUpperCase()}</span><span>{session.company || session.name}</span></div>
+        <nav>{nav.map(([label, icon]) => <button key={label} onClick={() => goTo(label)} className={view === label ? "active" : ""}><Icon name={icon}/>{label}</button>)}</nav>
+        <div className="sidebar-bottom">
+          <div className="help-card">
+            <span className="help-symbol">?</span>
+            <div><strong>Need help?</strong><p>Our team is here for you.</p><button onClick={() => goTo("Support")}>Open support <Icon name="arrow" size={13}/></button></div>
+          </div>
+          <div className="user-card">
+            <span className="avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span>
+            <div><strong>{session.name}</strong><p>Customer account</p></div>
+            <button title="Sign out" onClick={() => setShowLogoutConfirm(true)}><Icon name="logout"/></button>
+          </div>
+        </div>
+      </aside>
       <section className="content">
         <header>
           <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(true)}>
@@ -429,16 +436,11 @@ export default function PortalApp({ portal }: { portal: Role }) {
           </button>
           <div className="mobile-brand">XPACK</div>
           <div className="header-actions">
-            {session.role === "customer" && (
-              <button className="balance-chip" onClick={() => goTo("Add funds")} title="Add funds">
-                <Icon name="indian-rupee" size={14}/>
-                <b>₹{balance.toFixed(2)}</b>
-                <span className="balance-chip-plus"><Icon name="plus" size={12}/></span>
-              </button>
-            )}
-            {session.role === "admin" && (
-              <span className="access-label"><Icon name="lock" size={14}/>Admin access</span>
-            )}
+            <button className="balance-chip" onClick={() => goTo("Add funds")} title="Add funds">
+              <Icon name="indian-rupee" size={14}/>
+              <b>₹{balance.toFixed(2)}</b>
+              <span className="balance-chip-plus"><Icon name="plus" size={12}/></span>
+            </button>
             <div className="header-user">
               <span className="header-avatar">{session.name.split(" ").map(x => x[0]).join("").slice(0,2)}</span>
               <span className="header-name">{session.name}</span>
@@ -447,19 +449,10 @@ export default function PortalApp({ portal }: { portal: Role }) {
           </div>
         </header>
         <div className="page">
-          {session.role === "customer" ? (
-            <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} transactions={transactions} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} />
-          ) : (
-            <AdminPage view={view} orders={orders} tickets={tickets} users={usersList} transactions={transactions} price={price} setPrice={setPrice} setView={setView} select={setSelected} selectTicket={setSelectedTicket} onRefreshBroadcasts={refreshBroadcasts} isDataLoading={isDataLoading} />
-          )}
+          <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} transactions={transactions} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} onCredited={refreshBalance} />
         </div>
       </section>
-      {showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />} 
-      {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>} 
-      {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>} 
-      {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>} 
-      {selectedCustomer && <CustomerProfileModal customer={selectedCustomer} orders={orders.filter(o => o.email === selectedCustomer.email)} onClose={() => setSelectedCustomer(null)}/>} 
-      {toast && <div className="toast"><span><Icon name="check" size={16}/></span>{toast}</div>}
+      {overlays}
     </main>
   );
 }
@@ -785,7 +778,7 @@ function TransactionTable({ transactions }: { transactions: any[] }) {
   );
 }
 
-function CustomerPage({ view, orders, tickets, transactions, setView, create, ticket, select, selectTicket, session, balance }: { view: string; orders: Order[]; tickets: Ticket[]; transactions: any[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number }) {
+function CustomerPage({ view, orders, tickets, transactions, setView, create, ticket, select, selectTicket, session, balance, onCredited }: { view: string; orders: Order[]; tickets: Ticket[]; transactions: any[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number; onCredited: () => void }) {
   if (view === "My broadcasts") {
     return (
       <>
@@ -841,30 +834,7 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
   }
   
   if (view === "Add funds") {
-    return (
-      <>
-        <Heading eyebrow="WALLET" title="Add funds" text="Top up your wallet to create broadcasts."/>
-        <div className="dashboard-grid">
-          <section className="panel balance-panel">
-            <div className="balance-orb"><Icon name="indian-rupee" size={32}/></div>
-            <p className="eyebrow">CURRENT BALANCE</p>
-            <h2 className="balance-amount">₹{balance.toFixed(2)}</h2>
-            <p className="text-muted balance-note">Your wallet is debited the service price the moment a broadcast is created, and credited back automatically on cancellations and refunds.</p>
-          </section>
-          <aside className="panel pay-panel">
-            <PanelTop title="Add funds via Paytm" text="Recharge your wallet instantly."/>
-            <form method="POST" action="/api/paytm/initiate" className="admin-update pay-form">
-              <label>Amount (₹)<input type="number" name="amount" min="10" step="1" required defaultValue="500"/></label>
-              <button type="submit" className="primary">Pay with Paytm <Icon name="arrow" size={16}/></button>
-            </form>
-          </aside>
-        </div>
-        <section className="panel data-panel funds-history">
-          <PanelTop title="Transaction history" text="Every debit and credit on your wallet."/>
-          <TransactionTable transactions={transactions} />
-        </section>
-      </>
-    );
+    return <AddFunds balance={balance} transactions={transactions} onCredited={onCredited} />;
   }
   
   const placed = orders.filter((o: Order) => o.status === "Placed").length;
@@ -947,26 +917,60 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
   );
 }
 
-function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts, isDataLoading }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void; isDataLoading?: boolean }) {
+function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts, isDataLoading, onTopupsChanged }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void; isDataLoading?: boolean; onTopupsChanged?: () => void }) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All statuses");
+  const [dashTab, setDashTab] = useState("summary");
   const [actFilterDate, setActFilterDate] = useState("");
   const [chartDateFilter, setChartDateFilter] = useState("");
-  const [scheduleFilter, setScheduleFilter] = useState("current");
+  const [broadcastFilters, setBroadcastFilters] = useState<{ view: string; schedule: string; status: string } | null>(null);
   const [localPrice, setLocalPrice] = useState(price);
   
   useEffect(() => { setLocalPrice(price); }, [price]);
+
+  // A view can carry an argument after a colon, e.g. "Broadcasts:scheduled". The menu uses
+  // it to preselect a filter; the admin can still change the filter once the page is open.
+  const [viewName, viewArg] = view.split(":");
+
+  // Filters default from the menu entry and are remembered per view, so navigating to
+  // "Needs action" always lands on the placed queue without an effect resetting state.
+  const defaultSchedule = viewArg === "scheduled" ? "later" : "current";
+  const defaultStatus = viewArg === "pending" ? "Placed" : "All statuses";
+  const filtersMatchView = broadcastFilters?.view === view;
+  const scheduleFilter = filtersMatchView ? broadcastFilters!.schedule : defaultSchedule;
+  const statusFilter = filtersMatchView ? broadcastFilters!.status : defaultStatus;
+  const setScheduleFilter = (schedule: string) => setBroadcastFilters({ view, schedule, status: statusFilter });
+  const setStatusFilter = (status: string) => setBroadcastFilters({ view, schedule: scheduleFilter, status });
 
   const parseDate = (dStr: string) => {
     const d = new Date(dStr);
     return isNaN(d.getTime()) ? new Date() : d;
   };
 
-  if (view === "Services") {
+  if (viewName === "Services") {
     return <CategoryServiceManager />;
   }
 
-  if (view === "Broadcasts") {
+  if (viewName === "Topups") {
+    return <TopupRequestsView onCredited={onTopupsChanged} />;
+  }
+
+  if (viewName === "Transactions") {
+    return <AdminTransactionsView transactions={transactions} users={users} />;
+  }
+
+  if (viewName === "Settings") {
+    return (
+      <AdminSettingsView
+        tab={viewArg || "general"}
+        onTabChange={(tab) => setView(`Settings:${tab}`)}
+        price={price}
+        onPriceSaved={setPrice}
+        stats={{ users: users.length, broadcasts: orders.length, tickets: tickets.length }}
+      />
+    );
+  }
+
+  if (viewName === "Broadcasts") {
     let filtered = orders.filter(o => {
       const isLater = o.schedule && o.schedule !== 'Start on processing' && new Date(o.schedule) > new Date();
       if (scheduleFilter === "later") return isLater;
@@ -1015,10 +1019,10 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
     );
   }
 
-  if (view === "Customers") return <><Heading eyebrow="ADMIN CONSOLE" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><div className="table-wrap">{isDataLoading ? <div className="loading-block"><div className="loader"/></div> : <table><thead><tr><th>Customer</th><th>Email</th><th>Broadcasts</th><th>Wallet balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td><strong className="amount">₹{(Number(u.balance) || 0).toFixed(2)}</strong></td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table>}</div></section></>;
-  if (view === "Support desk") return <><Heading eyebrow="ADMIN CONSOLE" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
+  if (viewName === "Customers") return <><Heading eyebrow="ADMIN CONSOLE" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><div className="table-wrap">{isDataLoading ? <div className="loading-block"><div className="loader"/></div> : <table><thead><tr><th>Customer</th><th>Email</th><th>Broadcasts</th><th>Wallet balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td><strong className="amount">₹{(Number(u.balance) || 0).toFixed(2)}</strong></td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table>}</div></section></>;
+  if (viewName === "Support desk") return <><Heading eyebrow="ADMIN CONSOLE" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
-  if (view === "Activity log") {
+  if (viewName === "Activity log") {
     const events: Array<{ title: string; text: string; time: string; dateObj: Date; color: string }> = [];
     orders.forEach(o => {
       events.push({ title: `${o.broadcastNo} created`, text: `${o.customer} submitted ${o.name}`, time: o.created, dateObj: parseDate(o.created), color: "blue" });
@@ -1045,37 +1049,30 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
       grouped[dStr].push(e);
     });
 
-    const customersTotal = users.length;
-    const statuses = { placed: 0, progress: 0, hold: 0, completed: 0, cancelled: 0, refunded: 0 };
-    let totalRefunds = 0;
-    
-    const chartOrders = chartDateFilter ? orders.filter(o => {
-      const d = parseDate(o.created);
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` === chartDateFilter;
-    }) : orders;
-
-    chartOrders.forEach(o => {
-      if (o.status === "Placed") statuses.placed++;
-      else if (o.status === "In progress") statuses.progress++;
-      else if (o.status === "On hold") statuses.hold++;
-      else if (o.status === "Completed") statuses.completed++;
-      else if (o.status === "Cancelled") statuses.cancelled++;
-      else if (o.status === "Refunded") statuses.refunded++;
-      
-      if (o.status === "Cancelled" || o.status === "Refunded") {
-        if (o.charge) totalRefunds += Number(o.charge);
-      }
-      if (o.partialRefundAmount) {
-        totalRefunds += Number(o.partialRefundAmount);
-      }
-    });
-    const maxVal = Math.max(...Object.values(statuses), 1);
-
-    return <><Heading eyebrow="ADMIN CONSOLE" title="Activity dashboard" text="Audit trail and operational metrics."/><div className="activity-dashboard"><div className="chart-card"><div className="chart-head"><h3>Broadcast distribution</h3><div className="activity-filters" style={{marginBottom:0}}><input type="date" className="date-filter" value={chartDateFilter} onChange={e => setChartDateFilter(e.target.value)}/>{chartDateFilter && <button className="text-button" onClick={() => setChartDateFilter("")}>Till now</button>}</div></div><div className="bar-chart"><div className="bar-wrap"><div className="bar placed" style={{height: `${(statuses.placed/maxVal)*100}%`}}></div><span className="bar-val">{statuses.placed}</span><span className="bar-label">Placed</span></div><div className="bar-wrap"><div className="bar progress" style={{height: `${(statuses.progress/maxVal)*100}%`}}></div><span className="bar-val">{statuses.progress}</span><span className="bar-label">In progress</span></div><div className="bar-wrap"><div className="bar hold" style={{height: `${(statuses.hold/maxVal)*100}%`}}></div><span className="bar-val">{statuses.hold}</span><span className="bar-label">On hold</span></div><div className="bar-wrap"><div className="bar done" style={{height: `${(statuses.completed/maxVal)*100}%`}}></div><span className="bar-val">{statuses.completed}</span><span className="bar-label">Completed</span></div><div className="bar-wrap"><div className="bar cancel" style={{height: `${(statuses.cancelled/maxVal)*100}%`}}></div><span className="bar-val">{statuses.cancelled}</span><span className="bar-label">Cancelled</span></div><div className="bar-wrap"><div className="bar refund" style={{height: `${(statuses.refunded/maxVal)*100}%`}}></div><span className="bar-val">{statuses.refunded}</span><span className="bar-label">Refunded</span></div></div></div><div className="chart-column"><div className="chart-card"><h3>Total customers</h3><p className="chart-total">{customersTotal}</p><p className="chart-sub">Registered accounts</p></div><div className="chart-card"><h3>Total refunds</h3><p className="chart-total refund-total">₹{totalRefunds.toFixed(2)}</p><p className="chart-sub">Processed to wallet</p></div></div></div><section className="panel activity-log"><div className="activity-filters"><label className="filter-label">Filter by date</label><input type="date" className="date-filter" value={actFilterDate} onChange={e => setActFilterDate(e.target.value)}/>{actFilterDate && <button className="text-button" onClick={() => setActFilterDate("")}>Clear filter</button>}</div>{Object.keys(grouped).length > 0 ? Object.entries(grouped).map(([date, evs]) => <div key={date} className="event-group"><h4 className="event-group-date">{date}</h4>{evs.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />)}</div>) : <p className="text-muted empty">No activities recorded for this period.</p>}</section></>;
+    return (
+      <>
+        <Heading eyebrow="ADMIN CONSOLE" title="Activity log" text="Full audit trail of everything that happened in the panel."/>
+        <AdminAnalytics orders={orders} users={users} dateFilter={chartDateFilter} setDateFilter={setChartDateFilter}/>
+        <section className="panel activity-log">
+          <div className="activity-filters">
+            <label className="filter-label">Filter by date</label>
+            <input type="date" className="date-filter" value={actFilterDate} onChange={e => setActFilterDate(e.target.value)}/>
+            {actFilterDate && <button className="text-button" onClick={() => setActFilterDate("")}>Clear filter</button>}
+          </div>
+          {Object.keys(grouped).length > 0
+            ? Object.entries(grouped).map(([date, evs]) => (
+              <div key={date} className="event-group">
+                <h4 className="event-group-date">{date}</h4>
+                {evs.map((ev, i) => <Timeline key={i} color={ev.color} title={ev.title} text={ev.text} time={ev.time} />)}
+              </div>
+            ))
+            : <p className="text-muted empty">No activities recorded for this period.</p>}
+        </section>
+      </>
+    );
   }
   
-  if (view === "Pricing") {
+  if (viewName === "Pricing") {
     const handleSavePricing = async () => {
       const res = await updatePricePerCall(localPrice);
       if (res.error) alert(res.error);
@@ -1105,9 +1102,51 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
   const onHoldCount = orders.filter((o: Order) => o.status === "On hold").length;
   const urgentTickets = tickets.filter((t: Ticket) => t.status !== "Resolved" && t.status !== "Closed" && t.priority === "High").length;
 
+  const walletTotal = users.reduce((sum: number, u: any) => sum + Number(u.balance || 0), 0);
+
   return (
     <>
       <Heading eyebrow="ADMIN CONSOLE" title="Operations overview" text="A live view of your broadcast operations."/>
+
+      <TabStrip
+        tabs={[
+          { key: "summary", label: "Summary" },
+          { key: "analytics", label: "Analytics" },
+          { key: "panel", label: "Panel information" },
+        ]}
+        active={dashTab}
+        onChange={setDashTab}
+      />
+
+      {dashTab === "analytics" && (
+        <AdminAnalytics orders={orders} users={users} dateFilter={chartDateFilter} setDateFilter={setChartDateFilter}/>
+      )}
+
+      {dashTab === "panel" && (
+        <div className="dashboard-grid">
+          <section className="panel">
+            <PanelTop title="Panel information" text="What this deployment currently holds."/>
+            <div className="info-list">
+              <div><span>Registered customers</span><strong>{users.length}</strong></div>
+              <div><span>Broadcasts all time</span><strong>{orders.length}</strong></div>
+              <div><span>Support tickets</span><strong>{tickets.length}</strong></div>
+              <div><span>Customer wallet float</span><strong>₹{walletTotal.toFixed(2)}</strong></div>
+              <div><span>Default price per call</span><strong>₹{Number(price || 0).toFixed(2)}</strong></div>
+            </div>
+          </section>
+          <aside className="panel">
+            <PanelTop title="Quick links" text="Jump straight into the common admin jobs."/>
+            <div className="quick-links">
+              <button onClick={() => setView("Topups")}><span className="icon-box red"><Icon name="wallet"/></span><span><strong>Verify top-ups</strong><small>Approve UTR submissions</small></span><Icon name="arrow" size={16}/></button>
+              <button onClick={() => setView("Settings:payments")}><span className="icon-box green"><Icon name="qr"/></span><span><strong>Payment methods</strong><small>UPI QR and verification</small></span><Icon name="arrow" size={16}/></button>
+              <button onClick={() => setView("Services")}><span className="icon-box red"><Icon name="layers"/></span><span><strong>Services</strong><small>Categories and pricing</small></span><Icon name="arrow" size={16}/></button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {dashTab === "summary" && (
+      <>
       <div className="metric-grid">
         <Metric icon="users" label="Total customers" value={users.length} detail="Across all accounts"/>
         <Metric icon="clock" label="Pending broadcasts" value={pending} detail="Waiting for review" warning/>
@@ -1150,6 +1189,139 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
           <span className="pipe-line"/>
           <div><span className="pipe-number green-fill">{done}</span><strong>Completed</strong><p>Reports delivered</p></div>
           {onHoldCount > 0 && <><span className="pipe-line"/><div><span className="pipe-number hold-fill">{onHoldCount}</span><strong>On hold</strong><p>Awaiting fix</p></div></>}
+        </div>
+      </section>
+      </>
+      )}
+    </>
+  );
+}
+
+/** Broadcast distribution and wallet totals. Shared by the dashboard tab and the activity log. */
+function AdminAnalytics({ orders, users, dateFilter, setDateFilter }: { orders: Order[]; users: any[]; dateFilter: string; setDateFilter: (v: string) => void }) {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const asKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  const chartOrders = dateFilter
+    ? orders.filter(o => {
+        const d = new Date(o.created);
+        return !isNaN(d.getTime()) && asKey(d) === dateFilter;
+      })
+    : orders;
+
+  const statuses = { placed: 0, progress: 0, hold: 0, completed: 0, cancelled: 0, refunded: 0 };
+  let totalRefunds = 0;
+
+  chartOrders.forEach(o => {
+    if (o.status === "Placed") statuses.placed++;
+    else if (o.status === "In progress") statuses.progress++;
+    else if (o.status === "On hold") statuses.hold++;
+    else if (o.status === "Completed") statuses.completed++;
+    else if (o.status === "Cancelled") statuses.cancelled++;
+    else if (o.status === "Refunded") statuses.refunded++;
+
+    if ((o.status === "Cancelled" || o.status === "Refunded") && o.charge) totalRefunds += Number(o.charge);
+    if (o.partialRefundAmount) totalRefunds += Number(o.partialRefundAmount);
+  });
+
+  const maxVal = Math.max(...Object.values(statuses), 1);
+  const bars: Array<[string, string, number]> = [
+    ["placed", "Placed", statuses.placed],
+    ["progress", "In progress", statuses.progress],
+    ["hold", "On hold", statuses.hold],
+    ["done", "Completed", statuses.completed],
+    ["cancel", "Cancelled", statuses.cancelled],
+    ["refund", "Refunded", statuses.refunded],
+  ];
+
+  return (
+    <div className="activity-dashboard">
+      <div className="chart-card">
+        <div className="chart-head">
+          <h3>Broadcast distribution</h3>
+          <div className="activity-filters" style={{ marginBottom: 0 }}>
+            <input type="date" className="date-filter" value={dateFilter} onChange={e => setDateFilter(e.target.value)}/>
+            {dateFilter && <button className="text-button" onClick={() => setDateFilter("")}>Till now</button>}
+          </div>
+        </div>
+        <div className="bar-chart">
+          {bars.map(([cls, label, value]) => (
+            <div className="bar-wrap" key={cls}>
+              <div className={`bar ${cls}`} style={{ height: `${(value / maxVal) * 100}%` }} />
+              <span className="bar-val">{value}</span>
+              <span className="bar-label">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="chart-column">
+        <div className="chart-card"><h3>Total customers</h3><p className="chart-total">{users.length}</p><p className="chart-sub">Registered accounts</p></div>
+        <div className="chart-card"><h3>Total refunds</h3><p className="chart-total refund-total">₹{totalRefunds.toFixed(2)}</p><p className="chart-sub">Processed to wallet</p></div>
+      </div>
+    </div>
+  );
+}
+
+/** Every wallet movement across all customers. */
+function AdminTransactionsView({ transactions, users }: { transactions: any[]; users: any[] }) {
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("All");
+
+  const nameFor = (userId: string) => {
+    const u = users.find((x: any) => x.id === userId);
+    return u ? (u.company_name || u.full_name || u.email) : "Unknown";
+  };
+  const emailFor = (userId: string) => users.find((x: any) => x.id === userId)?.email || "";
+
+  let visible = transactions || [];
+  if (typeFilter !== "All") visible = visible.filter((t: any) => t.type === typeFilter);
+  if (search.trim()) {
+    const term = search.trim().toLowerCase();
+    visible = visible.filter((t: any) =>
+      String(t.order_id || "").toLowerCase().includes(term) ||
+      nameFor(t.user_id).toLowerCase().includes(term) ||
+      emailFor(t.user_id).toLowerCase().includes(term)
+    );
+  }
+
+  const credits = (transactions || []).filter((t: any) => t.type === "CREDIT").reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+  const debits = (transactions || []).filter((t: any) => t.type === "DEBIT").reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+
+  return (
+    <>
+      <Heading eyebrow="PAYMENTS" title="Wallet transactions" text="Every credit and debit recorded against customer wallets."/>
+      <div className="metric-grid three">
+        <Metric icon="indian-rupee" label="Total credited" value={`₹${credits.toFixed(2)}`} detail="Top-ups and refunds" success/>
+        <Metric icon="chart" label="Total debited" value={`₹${debits.toFixed(2)}`} detail="Broadcast charges"/>
+        <Metric icon="activity" label="Transactions" value={(transactions || []).length} detail="All time"/>
+      </div>
+      <section className="panel data-panel">
+        <div className="table-tools">
+          <div className="search"><Icon name="search" size={16}/><input placeholder="Search customer or reference" value={search} onChange={e => setSearch(e.target.value)}/></div>
+          <div className="segmented">
+            <button className={typeFilter === "All" ? "on" : ""} onClick={() => setTypeFilter("All")}>All</button>
+            <button className={typeFilter === "CREDIT" ? "on" : ""} onClick={() => setTypeFilter("CREDIT")}>Credits</button>
+            <button className={typeFilter === "DEBIT" ? "on" : ""} onClick={() => setTypeFilter("DEBIT")}>Debits</button>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Customer</th><th>Type</th><th>Amount</th><th>Reference</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {visible.length ? visible.map((t: any) => (
+                <tr key={t.id}>
+                  <td className="muted-cell">{new Date(t.created_at).toLocaleString()}</td>
+                  <td><strong>{nameFor(t.user_id)}</strong><div className="service-line">{emailFor(t.user_id)}</div></td>
+                  <td><span className={`txn-tag ${t.type === "CREDIT" ? "credit" : "debit"}`}>{t.type}</span></td>
+                  <td><strong className="amount">₹{Number(t.amount).toFixed(2)}</strong></td>
+                  <td className="muted-cell">{t.order_id || "-"}</td>
+                  <td><Badge status={t.status === "SUCCESS" ? "Completed" : t.status}/></td>
+                </tr>
+              )) : <tr><td colSpan={6} className="empty">No transactions found.</td></tr>}
+            </tbody>
+          </table>
         </div>
       </section>
     </>
@@ -1324,11 +1496,6 @@ function CategoryServiceManager() {
     </>
   );
 }
-
-function Heading({ eyebrow, title, text, action, onAction }: { eyebrow: string; title: string; text: string; action?: string; onAction?: () => void }) { return <div className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{text}</p></div>{action && <button className="primary" onClick={onAction}><Icon name="plus"/>{action}</button>}</div>; }
-function PanelTop({ title, text, action, onAction }: { title: string; text: string; action?: string; onAction?: () => void }) { return <div className="panel-top"><div><h2>{title}</h2><p>{text}</p></div>{action && <button className="text-button" onClick={onAction}>{action}<Icon name="arrow" size={15}/></button>}</div>; }
-function Metric({ icon, label, value, detail, warning, success }: { icon: string; label: string; value: number | string; detail: string; warning?: boolean; success?: boolean }) { return <article className="metric panel"><div className={`metric-icon ${warning ? "orange" : success ? "green" : "red"}`}><Icon name={icon} size={20}/></div><div className="metric-body"><p>{label}</p><h2>{value}</h2><small className={warning ? "warning-text" : success ? "success-text" : ""}>{detail}</small></div></article>; }
-function Timeline({ color, title, text, time }: { color: string; title: string; text: string; time: string }) { return <div className="timeline-item"><span className={`timeline-dot ${color}`}><Icon name={color === "green" ? "chart" : color === "red" ? "help" : "activity"} size={13}/></span><div><strong>{title}</strong><p>{text}</p><small>{time}</small></div></div>; }
 
 const BROADCAST_TABS: Array<[string, (o: Order) => boolean]> = [
   ["All", () => true],
