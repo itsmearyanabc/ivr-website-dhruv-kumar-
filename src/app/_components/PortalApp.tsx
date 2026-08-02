@@ -2009,25 +2009,21 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
         </div>
 
         {/* 1. Category Selection */}
-        <div className="field-block">
-          <label className="field-label">Category</label>
-          {categories.length > 0 ? (
-            <div className="pill-picker">
-              {categories.map(c => (
-                <button
-                  type="button"
-                  key={c.id}
-                  className={`pill ${selectedCatId === c.id ? "on" : ""}`}
-                  onClick={() => { setSelectedCatId(c.id); setSelectedServiceId(""); }}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted">No categories are available yet. Please contact support.</p>
-          )}
-        </div>
+        <label className="field-label">Category
+          <select
+            value={selectedCatId}
+            onChange={e => { setSelectedCatId(e.target.value); setSelectedServiceId(""); }}
+            required
+          >
+            <option value="">-- Select category --</option>
+            {categories.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+        {categories.length === 0 && (
+          <p className="text-muted">No categories are available yet. Please contact support.</p>
+        )}
 
         {/* 2. Service Selection */}
         <label className="field-label">Service
