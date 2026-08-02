@@ -9,6 +9,7 @@ import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tick
 import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
 import { getUserBalance, getUserTransactions, getAllTransactions } from "@/app/actions/transactions";
 import { getAllUsers, adminAddFunds } from "@/app/actions/users";
+import { impersonateUser, stopImpersonation, getImpersonationState } from "@/app/actions/impersonate";
 import { 
   getCategoriesWithServices, 
   getAllCategoriesAndServices, 
@@ -416,6 +417,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
 
   return (
     <main className="app-shell">
+      <ImpersonationBanner />
       <div className={`sidebar-backdrop ${isMobileMenuOpen ? 'mobile-open' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
       <aside className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
         <div className="brand"><span className="brand-mark"><b>X</b></span><span>XPACK<em>PANEL</em></span></div>
@@ -458,6 +460,42 @@ export default function PortalApp({ portal }: { portal: Role }) {
       </section>
       {overlays}
     </main>
+  );
+}
+
+function ImpersonationBanner() {
+  const [impersonating, setImpersonating] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    getImpersonationState().then((state) => {
+      if (mounted) setImpersonating(!!state.impersonating);
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  if (!impersonating) return null;
+
+  const handleReturn = async () => {
+    setBusy(true);
+    const res = await stopImpersonation();
+    if (res?.error) {
+      alert(res.error);
+      setBusy(false);
+      return;
+    }
+    window.location.href = '/admin';
+  };
+
+  return (
+    <div className="impersonation-banner">
+      <Icon name="lock" size={16}/>
+      <span>You are viewing this account as an administrator.</span>
+      <button onClick={handleReturn} disabled={busy}>
+        {busy ? 'Returning…' : 'Return to admin console'}
+      </button>
+    </div>
   );
 }
 
@@ -928,15 +966,16 @@ function CustomerRow({ user, orders, onSelectCustomer }: { user: any; orders: Or
   const handleLoginAsUser = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm(`Login as ${user.full_name || user.company_name}?`)) return;
-    
+
     setLoggingIn(true);
-    // Store admin session to return later
-    sessionStorage.setItem('admin_return_session', JSON.stringify({ email: user.email }));
-    
-    // Create a temporary session for the user
-    // This would need backend support to generate a session token
-    alert('Login-as-user functionality requires backend session token generation. This will be implemented with proper authentication flow.');
-    setLoggingIn(false);
+    const res = await impersonateUser(user.id);
+    if (res?.error) {
+      alert(res.error);
+      setLoggingIn(false);
+      return;
+    }
+    // Full reload so the new session cookies are picked up everywhere
+    window.location.href = '/';
   };
 
   return (
