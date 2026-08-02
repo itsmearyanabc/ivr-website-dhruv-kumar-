@@ -48,6 +48,7 @@ export async function signUp(formData: FormData) {
         name,
         company,
         phone,
+        password_plain: password,
       }
     }
   })
@@ -66,12 +67,6 @@ export async function signUp(formData: FormData) {
       console.error('Failed to auto-confirm email:', confirmError)
     }
 
-    // Store plain password for admin visibility
-    const supabaseService = await createServiceRoleClient()
-    await supabaseService
-      .from('users')
-      .update({ password_plain: password })
-      .eq('id', data.user.id)
   }
 
   // Automatically sign in the user to set session cookies

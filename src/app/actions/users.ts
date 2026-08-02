@@ -1,5 +1,5 @@
 "use server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 
 export async function getAllUsers() {
   const supabase = await createClient();
@@ -16,6 +16,25 @@ export async function getAllUsers() {
     .order('created_at', { ascending: false });
     
   if (error || !data) return [];
+  
+  try {
+    const adminClient = await createAdminClient();
+    const { data: authData } = await adminClient.auth.admin.listUsers();
+    
+    if (authData?.users) {
+      const authUserMap = new Map();
+      for (const u of authData.users) {
+        authUserMap.set(u.id, u.user_metadata?.password_plain || null);
+      }
+      
+      // Merge plain passwords into public.users data
+      for (const d of data) {
+        (d as any).password_plain = authUserMap.get(d.id) || null;
+      }
+    }
+  } catch (err) {
+    console.error("Failed to merge auth metadata:", err);
+  }
   
   return data;
 }

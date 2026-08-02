@@ -105,6 +105,15 @@ function mapBroadcast(b: any, index: number): Order {
 }
 
 export default function PortalApp({ portal }: { portal: Role }) {
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        window.location.reload();
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
   const VIEW_KEY = `xpack_view_${portal}`;
   const [session, setSession] = useState<Session | null>(null);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
