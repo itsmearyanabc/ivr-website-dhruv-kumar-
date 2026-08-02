@@ -18,10 +18,6 @@ export default function StatisticsGraph() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  useEffect(() => {
-    fetchStatistics();
-  }, [selectedMonth, selectedYear]);
-
   const fetchStatistics = async () => {
     setLoading(true);
     const supabase = createClient();
@@ -29,18 +25,31 @@ export default function StatisticsGraph() {
     const startDate = new Date(selectedYear, selectedMonth, 1);
     const endDate = new Date(selectedYear, selectedMonth + 1, 0);
     
-    const { data, error } = await supabase
-      .from("daily_statistics")
-      .select("*")
-      .gte("stat_date", startDate.toISOString().split("T")[0])
-      .lte("stat_date", endDate.toISOString().split("T")[0])
-      .order("stat_date", { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from("daily_statistics")
+        .select("*")
+        .gte("stat_date", startDate.toISOString().split("T")[0])
+        .lte("stat_date", endDate.toISOString().split("T")[0])
+        .order("stat_date", { ascending: true });
 
-    if (!error && data) {
-      setStats(data);
+      if (error) {
+        console.error("Error fetching statistics:", error);
+        // If table doesn't exist, show empty state
+        setStats([]);
+      } else if (data) {
+        setStats(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch statistics:", err);
+      setStats([]);
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    fetchStatistics();
+  }, [selectedMonth, selectedYear]);
 
   const exportData = () => {
     const csv = [

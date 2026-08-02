@@ -50,14 +50,6 @@ export const ADMIN_NAV: NavGroup[] = [
     ],
   },
   { label: "Support", icon: "help", view: "Support desk" },
-  {
-    label: "Control panel",
-    icon: "settings",
-    entries: [
-      { label: "Panel settings", view: "Settings:general", hint: "General configuration" },
-      { label: "Payment methods", view: "Settings:payments", hint: "UPI QR and verification" },
-    ],
-  },
 ];
 
 /** "Settings:payments" -> "Settings". Menu highlighting compares base views only. */

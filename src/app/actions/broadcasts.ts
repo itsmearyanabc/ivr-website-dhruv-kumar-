@@ -83,9 +83,15 @@ export async function createBroadcast(formData: FormData) {
 
   const audio = formData.get("audio") as File | null
   const contacts = formData.get("contacts") as File | null
+  const audioInputMethod = String(formData.get("audioInputMethod") || "FILE")
+  const ttsText = String(formData.get("ttsText") || "")
 
-  if (!audio || !audio.name || audio.size === 0) {
+  // Validate audio input based on method
+  if (audioInputMethod === 'FILE' && (!audio || !audio.name || audio.size === 0)) {
     return { error: 'Please upload an audio file.' }
+  }
+  if (audioInputMethod === 'TTS' && !ttsText.trim()) {
+    return { error: 'Text to convert to speech is required.' }
   }
 
   if (contactsInputType === 'FILE' && (!contacts || !contacts.name || contacts.size === 0)) {
@@ -97,7 +103,7 @@ export async function createBroadcast(formData: FormData) {
   }
 
   const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
-  if (audio.size > MAX_FILE_SIZE) {
+  if (audio && audio.size > MAX_FILE_SIZE) {
     return { error: 'Audio file exceeds 25 MB limit.' }
   }
   if (contacts && contacts.size > MAX_FILE_SIZE) {
@@ -150,17 +156,36 @@ export async function createBroadcast(formData: FormData) {
     }
   }
 
-  // Upload Audio to Supabase Storage
-  const audio_key = `audio/${crypto.randomUUID()}-${audio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-  const audioUpload = await supabase.storage.from('xpack_files').upload(audio_key, audio)
-
-  if (audioUpload.error) {
-    console.error('Audio Upload Error:', audioUpload.error)
-    // FIX Bug 3: Refund balance since we already deducted but upload failed
-    if (charge > 0) {
-      await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
+  // Upload Audio to Supabase Storage or store TTS text
+  let audio_key: string
+  if (audioInputMethod === 'TTS') {
+    // For TTS, store the text as a .txt file
+    const ttsBlob = new Blob([ttsText], { type: 'text/plain' })
+    const ttsFile = new File([ttsBlob], `tts-${Date.now()}.txt`, { type: 'text/plain' })
+    audio_key = `audio/tts-${crypto.randomUUID()}.txt`
+    const audioUpload = await supabase.storage.from('xpack_files').upload(audio_key, ttsFile)
+    if (audioUpload.error) {
+      console.error('TTS Upload Error:', audioUpload.error)
+      if (charge > 0) {
+        await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
+      }
+      return { error: 'Failed to save text for speech conversion.' }
     }
-    return { error: 'Failed to upload audio file.' }
+  } else {
+    // For file upload
+    if (!audio) {
+      return { error: 'Audio file is required.' }
+    }
+    audio_key = `audio/${crypto.randomUUID()}-${audio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    const audioUpload = await supabase.storage.from('xpack_files').upload(audio_key, audio)
+    if (audioUpload.error) {
+      console.error('Audio Upload Error:', audioUpload.error)
+      // FIX Bug 3: Refund balance since we already deducted but upload failed
+      if (charge > 0) {
+        await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
+      }
+      return { error: 'Failed to upload audio file.' }
+    }
   }
 
   // Upload Contacts if file input type

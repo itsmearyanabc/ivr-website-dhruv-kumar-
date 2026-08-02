@@ -234,6 +234,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
     formData.append("contactCount", String(orderPayload.contactCount || 0));
     formData.append("charge", String(orderPayload.charge || 0));
     formData.append("schedule", orderPayload.schedule || "Start on processing");
+    formData.append("audioInputMethod", orderPayload.audioInputMethod || "FILE");
+    formData.append("ttsText", orderPayload.ttsText || "");
 
     if (orderPayload.audioFile) {
       formData.append("audio", orderPayload.audioFile);
@@ -919,6 +921,61 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
   );
 }
 
+function CustomerRow({ user, orders, onSelectCustomer }: { user: any; orders: Order[]; onSelectCustomer: (u: any) => void }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  const handleLoginAsUser = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Login as ${user.full_name || user.company_name}?`)) return;
+    
+    setLoggingIn(true);
+    // Store admin session to return later
+    sessionStorage.setItem('admin_return_session', JSON.stringify({ email: user.email }));
+    
+    // Create a temporary session for the user
+    // This would need backend support to generate a session token
+    alert('Login-as-user functionality requires backend session token generation. This will be implemented with proper authentication flow.');
+    setLoggingIn(false);
+  };
+
+  return (
+    <tr className="clickable-row" onClick={() => onSelectCustomer?.(user)}>
+      <td>
+        <button className="customer-link" onClick={(e) => { e.stopPropagation(); onSelectCustomer?.(user); }}>
+          <strong>{user.full_name || user.company_name}</strong>
+        </button>
+      </td>
+      <td>{user.email}</td>
+      <td>
+        <div className="password-cell-wrapper">
+          <code className="password-cell">{showPassword ? (user.plain_password || '—') : '••••••••'}</code>
+          <button 
+            className="password-toggle-btn" 
+            onClick={(e) => { e.stopPropagation(); setShowPassword(!showPassword); }}
+            title={showPassword ? "Hide password" : "Show password"}
+          >
+            <Icon name={showPassword ? "eye-off" : "eye"} size={14}/>
+          </button>
+        </div>
+      </td>
+      <td>{orders.filter((x: Order) => x.email === user.email).length}</td>
+      <td><strong className="amount">₹{(Number(user.balance) || 0).toFixed(2)}</strong></td>
+      <td><Badge status={user.is_active ? "Active" : "Closed"}/></td>
+      <td>
+        <button 
+          className="outline small" 
+          onClick={handleLoginAsUser}
+          disabled={loggingIn}
+          title="Login as this user"
+        >
+          <Icon name="login" size={14}/> {loggingIn ? 'Logging in...' : 'Login as user'}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts, isDataLoading, onTopupsChanged }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void; isDataLoading?: boolean; onTopupsChanged?: () => void }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [dashTab, setDashTab] = useState("summary");
@@ -1021,7 +1078,7 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
     );
   }
 
-  if (viewName === "Customers") return <><Heading eyebrow="ADMIN CONSOLE" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><div className="table-wrap">{isDataLoading ? <div className="loading-block"><div className="loader"/></div> : <table><thead><tr><th>Customer</th><th>Email</th><th>Password</th><th>Broadcasts</th><th>Wallet balance</th><th>Account</th></tr></thead><tbody>{users.map(u => <tr key={u.email} className="clickable-row" onClick={() => { (window as any).selectCustomer?.(u); }}><td><button className="customer-link" onClick={(e) => { e.stopPropagation(); (window as any).selectCustomer?.(u); }}><strong>{u.full_name || u.company_name}</strong></button></td><td>{u.email}</td><td><code className="password-cell">{u.plain_password || '—'}</code></td><td>{orders.filter((x: Order) => x.email === u.email).length}</td><td><strong className="amount">₹{(Number(u.balance) || 0).toFixed(2)}</strong></td><td><Badge status={u.is_active ? "Active" : "Closed"}/></td></tr>)}</tbody></table>}</div></section></>;
+  if (viewName === "Customers") return <><Heading eyebrow="ADMIN CONSOLE" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><div className="table-wrap">{isDataLoading ? <div className="loading-block"><div className="loader"/></div> : <table><thead><tr><th>Customer</th><th>Email</th><th>Password</th><th>Broadcasts</th><th>Wallet balance</th><th>Account</th><th>Actions</th></tr></thead><tbody>{users.filter(u => u.email !== 'admin@xpack.in' && u.role !== 'ADMIN').map(u => <CustomerRow key={u.email} user={u} orders={orders} onSelectCustomer={(window as any).selectCustomer}/>)}</tbody></table>}</div></section></>;
   if (viewName === "Support desk") return <><Heading eyebrow="ADMIN CONSOLE" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (viewName === "Activity log") {
@@ -1307,6 +1364,10 @@ function CategoryServiceManager() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [showNewService, setShowNewService] = useState(false);
+  const [showEditCategory, setShowEditCategory] = useState(false);
+  const [showEditService, setShowEditService] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editingService, setEditingService] = useState<Service | null>(null);
 
   const loadData = async () => {
     const res = await getAllCategoriesAndServices();
@@ -1375,6 +1436,51 @@ function CategoryServiceManager() {
     const res = await deleteService(id);
     if (res.error) alert(res.error);
     else loadData();
+  };
+
+  const handleEditCategory = (cat: Category) => {
+    setEditingCategory(cat);
+    setCatName(cat.name);
+    setCatDesc(cat.description || "");
+    setShowEditCategory(true);
+  };
+
+  const handleEditService = (service: Service, categoryId: string) => {
+    setEditingService(service);
+    setSelectedCatId(categoryId);
+    setServName(service.name);
+    setServPrice(String(service.price));
+    setServDesc(service.description || "");
+    setShowEditService(true);
+  };
+
+  const handleUpdateCategory = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory || !catName.trim()) return alert("Category name is required.");
+    setLoading(true);
+    // Note: You'll need to implement updateCategory in your actions
+    alert("Update category functionality needs to be implemented in the backend actions.");
+    setLoading(false);
+    setShowEditCategory(false);
+    setEditingCategory(null);
+    setCatName("");
+    setCatDesc("");
+  };
+
+  const handleUpdateService = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editingService || !servName.trim()) return alert("Service name is required.");
+    const priceNum = parseFloat(servPrice);
+    if (isNaN(priceNum) || priceNum < 0) return alert("Please enter a valid price.");
+    setLoading(true);
+    // Note: You'll need to implement updateService in your actions
+    alert("Update service functionality needs to be implemented in the backend actions.");
+    setLoading(false);
+    setShowEditService(false);
+    setEditingService(null);
+    setServName("");
+    setServPrice("");
+    setServDesc("");
   };
 
   const filteredCategories = categories.filter(cat =>
@@ -1527,7 +1633,7 @@ function CategoryServiceManager() {
                     </div>
                   </div>
                   <div className="category-actions">
-                    <button className="icon-btn" title="Edit category">
+                    <button className="icon-btn" onClick={() => handleEditCategory(cat)} title="Edit category">
                       <Icon name="edit" size={16}/>
                     </button>
                     <button className="icon-btn danger" onClick={() => handleDeleteCategory(cat.id)} title="Delete category">
@@ -1545,8 +1651,6 @@ function CategoryServiceManager() {
                           <th>Service Name</th>
                           <th>Type</th>
                           <th>Price</th>
-                          <th>Min</th>
-                          <th>Max</th>
                           <th>Status</th>
                           <th>Actions</th>
                         </tr>
@@ -1563,12 +1667,10 @@ function CategoryServiceManager() {
                             </td>
                             <td><span className="service-type">Manual</span></td>
                             <td><strong className="amount">₹{Number(s.price).toFixed(2)}</strong></td>
-                            <td>1</td>
-                            <td>5000000</td>
                             <td><Badge status={s.is_active ? "Enabled" : "Disabled"}/></td>
                             <td>
                               <div className="row-actions">
-                                <button className="icon-btn" title="Edit service">
+                                <button className="icon-btn" onClick={() => handleEditService(s, cat.id)} title="Edit service">
                                   <Icon name="edit" size={14}/>
                                 </button>
                                 <button className="icon-btn danger" onClick={() => handleDeleteService(s.id)} title="Delete service">
@@ -1587,6 +1689,101 @@ function CategoryServiceManager() {
           )}
         </div>
       </section>
+
+      {showEditCategory && editingCategory && (
+        <div className="modal-backdrop" onClick={() => setShowEditCategory(false)}>
+          <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <p className="eyebrow">EDIT CATEGORY</p>
+                <h2>Update Category</h2>
+              </div>
+              <button className="close" onClick={() => setShowEditCategory(false)}>
+                <Icon name="close"/>
+              </button>
+            </div>
+            <form onSubmit={handleUpdateCategory}>
+              <label>Category name
+                <input 
+                  required 
+                  placeholder="e.g. Instagram Services" 
+                  value={catName} 
+                  onChange={e => setCatName(e.target.value)}
+                />
+              </label>
+              <label>Description (optional)
+                <textarea 
+                  rows={3} 
+                  placeholder="Brief description of this category" 
+                  value={catDesc} 
+                  onChange={e => setCatDesc(e.target.value)}
+                />
+              </label>
+              <div className="modal-footer">
+                <button type="button" className="outline" onClick={() => setShowEditCategory(false)}>Cancel</button>
+                <button type="submit" className="primary" disabled={loading}>
+                  {loading ? 'Updating...' : 'Update Category'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showEditService && editingService && (
+        <div className="modal-backdrop" onClick={() => setShowEditService(false)}>
+          <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <p className="eyebrow">EDIT SERVICE</p>
+                <h2>Update Service</h2>
+              </div>
+              <button className="close" onClick={() => setShowEditService(false)}>
+                <Icon name="close"/>
+              </button>
+            </div>
+            <form onSubmit={handleUpdateService}>
+              <label>Select category
+                <select value={selectedCatId} onChange={e => setSelectedCatId(e.target.value)} required>
+                  <option value="">-- Choose category --</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </label>
+              <label>Service name
+                <input 
+                  required 
+                  placeholder="e.g. Instagram Followers" 
+                  value={servName} 
+                  onChange={e => setServName(e.target.value)}
+                />
+              </label>
+              <label>Price (₹)
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  required 
+                  placeholder="40.00" 
+                  value={servPrice} 
+                  onChange={e => setServPrice(e.target.value)}
+                />
+              </label>
+              <label>Description (optional)
+                <input 
+                  placeholder="Service details" 
+                  value={servDesc} 
+                  onChange={e => setServDesc(e.target.value)}
+                />
+              </label>
+              <div className="modal-footer">
+                <button type="button" className="outline" onClick={() => setShowEditService(false)}>Cancel</button>
+                <button type="submit" className="primary" disabled={loading}>
+                  {loading ? 'Updating...' : 'Update Service'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1678,6 +1875,8 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   const [voiceType, setVoiceType] = useState<'MALE' | 'FEMALE'>("MALE");
   
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioInputMethod, setAudioInputMethod] = useState<'FILE' | 'TTS'>("FILE");
+  const [ttsText, setTtsText] = useState("");
   
   // Numbers upload tab
   const [inputMethod, setInputMethod] = useState<'FILE' | 'MANUAL'>("FILE");
@@ -1759,7 +1958,13 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     if (!selectedCatId) return alert("Please select a Category.");
     if (!selectedServiceId) return alert("Please select a Service.");
     if (!canAfford) return alert(`Insufficient balance. Wallet balance is ₹${balance.toFixed(2)}, but service cost is ₹${calculatedCost.toFixed(2)}.`);
-    if (!audioFile) return alert("Please upload an audio file."); 
+    
+    if (audioInputMethod === 'FILE' && !audioFile) {
+      return alert("Please upload an audio file.");
+    }
+    if (audioInputMethod === 'TTS' && !ttsText.trim()) {
+      return alert("Please enter text to convert to speech.");
+    }
     
     if (inputMethod === 'FILE' && !contactsFile) {
       return alert("Please upload a target contact list file.");
@@ -1783,7 +1988,9 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
       serviceName: currentService?.name || '',
       voiceType,
       notes: String(data.get("notes") || ""), 
-      audioFile,
+      audioFile: audioInputMethod === 'FILE' ? audioFile : null,
+      audioInputMethod,
+      ttsText: audioInputMethod === 'TTS' ? ttsText : '',
       contactsInputType: inputMethod,
       contactsFile: inputMethod === 'FILE' ? contactsFile : null,
       manualContacts: inputMethod === 'MANUAL' ? manualText : '',
@@ -1850,17 +2057,41 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
           </div>
         </div>
 
-        {/* 4. Audio File Upload */}
-        <label className="field-label">Audio file
-          <span className="dropzone">
-            {audioFile ? (
-              <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></>
-            ) : (
-              <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB (.mp3, .wav, .aac)</small></>
-            )}
-            <input name="audio" type="file" required onChange={e => setAudioFile(e.target.files?.[0] || null)} accept="audio/*"/>
-          </span>
-        </label>
+        {/* 4. Audio Input Method Selection */}
+        <div className="field-block">
+          <div className="field-row">
+            <label className="field-label">Audio source</label>
+            <div className="segmented tight">
+              <button type="button" className={audioInputMethod === 'FILE' ? 'on' : ''} onClick={() => setAudioInputMethod('FILE')}>Upload file</button>
+              <button type="button" className={audioInputMethod === 'TTS' ? 'on' : ''} onClick={() => setAudioInputMethod('TTS')}>Text to speech</button>
+            </div>
+          </div>
+
+          {audioInputMethod === 'FILE' ? (
+            <label className="field-label">Audio file
+              <span className="dropzone">
+                {audioFile ? (
+                  <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></>
+                ) : (
+                  <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB (.mp3, .wav, .aac)</small></>
+                )}
+                <input name="audio" type="file" onChange={e => setAudioFile(e.target.files?.[0] || null)} accept="audio/*"/>
+              </span>
+            </label>
+          ) : (
+            <label className="field-label">Text to convert to speech
+              <textarea
+                rows={4}
+                placeholder="Type or paste the text you want to convert to speech. The system will generate an audio file using AI voice..."
+                value={ttsText}
+                onChange={e => setTtsText(e.target.value)}
+              />
+              {ttsText.trim().length > 0 && (
+                <div className="flash-success small-flash">✓ {ttsText.trim().length} characters ready for conversion</div>
+              )}
+            </label>
+          )}
+        </div>
 
         {/* 5. Target Numbers Upload (Two Methods) */}
         <div className="field-block">

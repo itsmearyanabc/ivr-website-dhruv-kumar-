@@ -1472,6 +1472,30 @@ td.empty { display: table-cell; }
   background: var(--red-soft);
 }
 
+.password-cell-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.password-toggle-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.password-toggle-btn:hover {
+  background: var(--red-soft);
+  color: var(--text);
+}
+
 /* ------------------------------------------------------------
    Services Management Page
    ------------------------------------------------------------ */
