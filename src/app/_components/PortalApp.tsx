@@ -960,7 +960,6 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
 }
 
 function CustomerRow({ user, orders, onSelectCustomer }: { user: any; orders: Order[]; onSelectCustomer: (u: any) => void }) {
-  const [showPassword, setShowPassword] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
 
   const handleLoginAsUser = async (e: React.MouseEvent) => {
@@ -988,14 +987,7 @@ function CustomerRow({ user, orders, onSelectCustomer }: { user: any; orders: Or
       <td>{user.email}</td>
       <td>
         <div className="password-cell-wrapper">
-          <code className="password-cell">{showPassword ? (user.plain_password || '—') : '••••••••'}</code>
-          <button 
-            className="password-toggle-btn" 
-            onClick={(e) => { e.stopPropagation(); setShowPassword(!showPassword); }}
-            title={showPassword ? "Hide password" : "Show password"}
-          >
-            <Icon name={showPassword ? "eye-off" : "eye"} size={14}/>
-          </button>
+          <code className="password-cell">{user.password_plain || '—'}</code>
         </div>
       </td>
       <td>{orders.filter((x: Order) => x.email === user.email).length}</td>

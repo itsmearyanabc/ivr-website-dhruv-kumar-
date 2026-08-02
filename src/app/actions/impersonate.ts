@@ -64,12 +64,16 @@ export async function impersonateUser(userId: string) {
   if (!admin) return { error: 'Admin access required.' }
 
   const service = await createServiceRoleClient()
-  const { data: target } = await service
+  const { data: target, error } = await service
     .from('users')
     .select('id, email, role, is_active, full_name, company_name, password_plain')
     .eq('id', userId)
     .single()
 
+  if (error) {
+    console.error('impersonateUser query error:', error);
+    return { error: 'Failed to fetch user: ' + error.message };
+  }
   if (!target) return { error: 'User not found.' }
   if (target.role === 'ADMIN') return { error: 'Cannot impersonate another administrator.' }
   if (target.is_active === false) return { error: 'This account is disabled.' }

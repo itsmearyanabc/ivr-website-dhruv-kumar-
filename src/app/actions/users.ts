@@ -12,7 +12,7 @@ export async function getAllUsers() {
   
   const { data, error } = await supabase
     .from('users')
-    .select('id, email, full_name, company_name, phone, role, is_active, balance, created_at')
+    .select('id, email, full_name, company_name, phone, role, is_active, balance, created_at, password_plain')
     .order('created_at', { ascending: false });
     
   if (error || !data) return [];
