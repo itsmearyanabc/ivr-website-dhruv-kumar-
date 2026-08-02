@@ -90,11 +90,11 @@ export async function impersonateUser(userId: string) {
 
   // Sign in as the target user. Prefer the stored plain password (kept for
   // admin visibility); fall back to generating a one-time recovery link.
-  if (target.password_plain) {
+  if ((target as any).password_plain) {
     const supabase = await createClient()
     const { error } = await supabase.auth.signInWithPassword({
       email: target.email,
-      password: target.password_plain,
+      password: (target as any).password_plain,
     })
     if (!error) {
       return {
