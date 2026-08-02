@@ -66,7 +66,7 @@ export async function impersonateUser(userId: string) {
   const service = await createServiceRoleClient()
   const { data: target, error } = await service
     .from('users')
-    .select('id, email, role, is_active, full_name, company_name, password_plain')
+    .select('id, email, role, is_active, full_name, company_name')
     .eq('id', userId)
     .single()
 
