@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import React, { useCallback, useEffect, useState } from "react";
+import { getActivityLogs } from "@/app/actions/activity";
 import { Icon } from "@/app/_components/ui";
 
 interface ActivityLogEntry {
@@ -21,67 +21,39 @@ export default function ActivityLog() {
   const [loading, setLoading] = useState(true);
   const [filterDate, setFilterDate] = useState("");
 
-  const fetchLogs = async () => {
-    setLoading(true);
-    const supabase = createClient();
-    
-    let query = supabase
-      .from("activity_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(100);
-
-    if (filterDate) {
-      const startOfDay = new Date(filterDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(filterDate);
-      endOfDay.setHours(23, 59, 59, 999);
-      
-      query = query
-        .gte("created_at", startOfDay.toISOString())
-        .lte("created_at", endOfDay.toISOString());
-    }
-
-    const { data, error } = await query;
-
-    if (!error && data) {
-      setLogs(data);
-    }
-    setLoading(false);
-  };
-
+  // Read through a server action rather than the browser client: the anon-key client depends
+  // on RLS resolving is_admin() for the session, and it silently returned an empty list when
+  // it did not. The action checks admin server-side and reads with the service role.
   useEffect(() => {
-    const loadLogs = async () => {
-      await fetchLogs();
-    };
-    loadLogs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    getActivityLogs(filterDate || undefined).then((rows) => {
+      if (cancelled) return;
+      setLogs(rows as ActivityLogEntry[]);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [filterDate]);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLogs((await getActivityLogs(filterDate || undefined)) as ActivityLogEntry[]);
+    setLoading(false);
   }, [filterDate]);
 
   const getActionIcon = (actionType: string) => {
-    switch (actionType) {
-      case "ORDER_CREATED":
-      case "ORDER_UPDATED":
-        return "orders";
-      case "PAYMENT_APPROVED":
-      case "PAYMENT_REJECTED":
-        return "payments";
-      case "USER_REGISTERED":
-      case "USER_UPDATED":
-        return "users";
-      case "TICKET_CREATED":
-      case "TICKET_UPDATED":
-        return "support";
-      default:
-        return "activity";
-    }
+    if (actionType.startsWith("ORDER")) return "orders";
+    if (actionType.startsWith("PAYMENT") || actionType.startsWith("WALLET")) return "payments";
+    if (actionType.startsWith("USER")) return "users";
+    if (actionType.startsWith("TICKET")) return "support";
+    if (actionType.startsWith("ADMIN_IMPERSONATION")) return "login";
+    return "activity";
   };
 
   const getActionColor = (actionType: string) => {
-    if (actionType.includes("CREATED")) return "action-created";
-    if (actionType.includes("UPDATED")) return "action-updated";
-    if (actionType.includes("APPROVED")) return "action-approved";
-    if (actionType.includes("REJECTED")) return "action-rejected";
+    if (actionType.includes("CREATED") || actionType.includes("REGISTERED")) return "action-created";
+    if (actionType.includes("UPDATED") || actionType.includes("CHANGED")) return "action-updated";
+    if (actionType.includes("APPROVED") || actionType.includes("CREDITED") || actionType.includes("ENABLED")) return "action-approved";
+    if (actionType.includes("REJECTED") || actionType.includes("DISABLED")) return "action-rejected";
     if (actionType.includes("DELETED")) return "action-deleted";
     return "action-default";
   };
@@ -106,6 +78,9 @@ export default function ActivityLog() {
               Clear
             </button>
           )}
+          <button className="clear-filter" onClick={refresh} title="Reload the log">
+            Refresh
+          </button>
         </div>
       </div>
 

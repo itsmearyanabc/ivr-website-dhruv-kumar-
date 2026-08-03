@@ -1,5 +1,7 @@
 'use server'
 import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { logActivity } from '@/app/actions/activity'
+import { hasPasswordColumn } from '@/lib/supabase/schema'
 
 export async function checkIsAdmin() {
   try {
@@ -67,6 +69,25 @@ export async function signUp(formData: FormData) {
       console.error('Failed to auto-confirm email:', confirmError)
     }
 
+    // The profile trigger copies password_plain across on databases where the migration has
+    // run; writing it here too covers the case where the trigger predates that change.
+    if (await hasPasswordColumn()) {
+      const service = await createServiceRoleClient()
+      await service
+        .from('users')
+        .update({ password_plain: password, password_updated_at: new Date().toISOString() })
+        .eq('id', data.user.id)
+    }
+
+    await logActivity({
+      userId: data.user.id,
+      userEmail: email,
+      userName: company || name,
+      actionType: 'USER_REGISTERED',
+      entityType: 'USER',
+      entityId: data.user.id,
+      description: `${name} (${email}) created a customer account.`,
+    })
   }
 
   // Automatically sign in the user to set session cookies
@@ -183,11 +204,28 @@ export async function signIn(formData: FormData, isAdmin = false) {
 
   // Fetch profile to return profile data
   const supabaseService = await createServiceRoleClient()
+  const storedPasswords = await hasPasswordColumn()
   const { data: profile } = await supabaseService
     .from('users')
-    .select('full_name, company_name, role')
+    .select(`full_name, company_name, role, is_active${storedPasswords ? ', password_plain' : ''}`)
     .eq('id', data.user.id)
-    .single()
+    .single<{ full_name: string; company_name: string; role: string; is_active: boolean; password_plain?: string }>()
+
+  // A disabled account was previously still able to sign in - the flag only affected how the
+  // row was rendered in the admin directory. Enforce it here, where it actually matters.
+  if (profile?.is_active === false) {
+    await supabase.auth.signOut()
+    return { error: 'This account has been disabled. Please contact support.' }
+  }
+
+  // A successful sign-in proves the password, so keep the admin-visible copy in step even if
+  // it was changed outside the panel.
+  if (storedPasswords && profile?.role !== 'ADMIN' && profile?.password_plain !== password) {
+    await supabaseService
+      .from('users')
+      .update({ password_plain: password, password_updated_at: new Date().toISOString() })
+      .eq('id', data.user.id)
+  }
 
   return {
     success: true,
@@ -203,6 +241,12 @@ export async function signOut() {
   try {
     const supabase = await createClient()
     await supabase.auth.signOut()
+
+    // Signing out during an impersonation must also drop the "return to admin" cookie,
+    // otherwise the banner would reappear on the next customer session.
+    const { cookies } = await import('next/headers')
+    const cookieStore = await cookies()
+    cookieStore.delete('xpack_impersonation')
   } catch (error) {
     console.error('SignOut Error:', error)
   }
@@ -218,9 +262,15 @@ export async function getUserSession() {
     const supabaseService = await createServiceRoleClient()
     const { data: profile } = await supabaseService
       .from('users')
-      .select('role, full_name, company_name')
+      .select('role, full_name, company_name, is_active')
       .eq('id', user.id)
       .single()
+
+    // Disabling an account takes effect on the next page load, not only at the login screen.
+    if (profile?.is_active === false) {
+      await supabase.auth.signOut()
+      return { session: null }
+    }
 
     return {
       session: {

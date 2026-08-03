@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { getDailyStatistics } from "@/app/actions/activity";
 
 interface DailyStat {
   stat_date: string;
@@ -18,37 +18,22 @@ export default function StatisticsGraph() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  const fetchStatistics = async () => {
-    setLoading(true);
-    const supabase = createClient();
-    
-    const startDate = new Date(selectedYear, selectedMonth, 1);
-    const endDate = new Date(selectedYear, selectedMonth + 1, 0);
-    
-    try {
-      const { data, error } = await supabase
-        .from("daily_statistics")
-        .select("*")
-        .gte("stat_date", startDate.toISOString().split("T")[0])
-        .lte("stat_date", endDate.toISOString().split("T")[0])
-        .order("stat_date", { ascending: true });
-
-      if (error) {
-        console.error("Error fetching statistics:", error);
-        // If table doesn't exist, show empty state
-        setStats([]);
-      } else if (data) {
-        setStats(data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch statistics:", err);
-      setStats([]);
-    }
-    setLoading(false);
-  };
-
+  // Read through a server action: the browser client relies on RLS resolving is_admin() and
+  // returned an empty chart when it did not.
   useEffect(() => {
-    fetchStatistics();
+    let cancelled = false;
+    getDailyStatistics(selectedYear, selectedMonth)
+      .then((rows) => {
+        if (!cancelled) setStats(rows as DailyStat[]);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch statistics:", err);
+        if (!cancelled) setStats([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [selectedMonth, selectedYear]);
 
   const exportData = () => {
@@ -72,8 +57,11 @@ export default function StatisticsGraph() {
   };
 
   const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+  // Built from the calendar parts, not toISOString(): east of UTC, local midnight converts to
+  // the previous day in UTC, which shifted every point one column to the left.
+  const pad = (n: number) => String(n).padStart(2, "0");
   const chartData = Array.from({ length: daysInMonth }, (_, i) => {
-    const date = new Date(selectedYear, selectedMonth, i + 1).toISOString().split("T")[0];
+    const date = `${selectedYear}-${pad(selectedMonth + 1)}-${pad(i + 1)}`;
     const stat = stats.find(s => s.stat_date === date);
     return {
       day: i + 1,

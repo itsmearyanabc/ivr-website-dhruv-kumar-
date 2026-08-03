@@ -6,6 +6,7 @@ import { headers } from 'next/headers'
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { getVerifier, canAutoCredit } from '@/lib/payments/utr'
+import { logActivity, describeActor } from '@/app/actions/activity'
 
 const METHOD_CODE = 'UPI_QR'
 const STORAGE_BUCKET = 'xpack_files'
@@ -364,6 +365,15 @@ export async function submitTopupRequest(formData: FormData) {
 
   await recordAttempt(user.id, ipHash, 'ACCEPTED')
 
+  await logActivity({
+    ...(await describeActor(user.id)),
+    actionType: 'PAYMENT_SUBMITTED',
+    entityType: 'TOPUP',
+    entityId: created.reference_no,
+    description: `Top-up ${created.reference_no} submitted for Rs ${amount.toFixed(2)} (UTR ${utr}).`,
+    metadata: { amount, verificationState: verification.state },
+  })
+
   // --- auto-credit, only on an exact verified match --------------------------------
   if (canAutoCredit(verification, Boolean(method.auto_credit_on_match))) {
     const { data: approval, error: approvalError } = await supabase.rpc('approve_wallet_topup', {
@@ -493,6 +503,15 @@ export async function approveTopupRequest(requestId: string, note?: string) {
   const result = Array.isArray(data) ? data[0] : data
   if (!result?.success) return { error: result?.message || 'Failed to approve this top-up.' }
 
+  await logActivity({
+    ...(await describeActor(user.id)),
+    actionType: 'PAYMENT_APPROVED',
+    entityType: 'TOPUP',
+    entityId: requestId,
+    description: `Top-up approved and wallet credited. New balance Rs ${Number(result.new_balance).toFixed(2)}.`,
+    metadata: { newBalance: Number(result.new_balance) },
+  })
+
   return { success: true, message: result.message, newBalance: Number(result.new_balance) }
 }
 
@@ -520,6 +539,14 @@ export async function rejectTopupRequest(requestId: string, reason: string) {
 
   const result = Array.isArray(data) ? data[0] : data
   if (!result?.success) return { error: result?.message || 'Failed to reject this top-up.' }
+
+  await logActivity({
+    ...(await describeActor(user.id)),
+    actionType: 'PAYMENT_REJECTED',
+    entityType: 'TOPUP',
+    entityId: requestId,
+    description: `Top-up rejected: ${trimmed}`,
+  })
 
   return { success: true, message: result.message }
 }

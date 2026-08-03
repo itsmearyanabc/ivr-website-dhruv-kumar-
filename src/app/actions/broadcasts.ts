@@ -3,6 +3,7 @@
 
 import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
+import { logActivity, describeActor } from '@/app/actions/activity'
 
 export async function getBroadcasts() {
   const isAdmin = await checkIsAdmin()
@@ -264,6 +265,15 @@ export async function createBroadcast(formData: FormData) {
     }])
   }
 
+  await logActivity({
+    ...(await describeActor(user.id)),
+    actionType: 'ORDER_CREATED',
+    entityType: 'BROADCAST',
+    entityId: reference_no,
+    description: `New broadcast ${reference_no} placed: ${broadcastName} (${contactCount} contacts, Rs ${charge.toFixed(2)}).`,
+    metadata: { charge, contactCount, categoryName, serviceName, voiceType },
+  })
+
   return { data }
 }
 
@@ -491,6 +501,19 @@ export async function updateBroadcastStatus(formData: FormData) {
     status,
     reason: historyReason
   }])
+
+  const supabaseAuth = await createClient()
+  const { data: { user: actor } } = await supabaseAuth.auth.getUser()
+  await logActivity({
+    ...(await describeActor(actor?.id)),
+    actionType: 'ORDER_UPDATED',
+    entityType: 'BROADCAST',
+    entityId: data.reference_no,
+    description: `Broadcast ${data.reference_no} moved from ${currentStatus} to ${status}${
+      partialRefundAmount ? ` with a Rs ${partialRefundAmount.toFixed(2)} partial refund` : ''
+    }.`,
+    metadata: { from: currentStatus, to: status, partialRefundAmount },
+  })
 
   return { success: true }
 }

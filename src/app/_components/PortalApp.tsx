@@ -8,17 +8,19 @@ import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, 
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
 import { getUserBalance, getUserTransactions, getAllTransactions } from "@/app/actions/transactions";
-import { getAllUsers, adminAddFunds } from "@/app/actions/users";
+import { getAllUsers, adminAddFunds, adminSetUserPassword, adminSetUserActive, updateMyProfile, changeMyPassword, requestPasswordHelp } from "@/app/actions/users";
 import { impersonateUser, stopImpersonation, getImpersonationState } from "@/app/actions/impersonate";
 import { 
   getCategoriesWithServices, 
   getAllCategoriesAndServices, 
   createCategory, 
   deleteCategory, 
-  createService, 
+  createService,
   deleteService,
-  Category, 
-  Service 
+  updateCategory,
+  updateService,
+  Category,
+  Service
 } from "@/app/actions/categoriesServices";
 import { getTopupPendingCount } from "@/app/actions/topups";
 import { Icon, Badge, formatStatus, Heading, PanelTop, Metric, Timeline } from "@/app/_components/ui";
@@ -146,10 +148,10 @@ export default function PortalApp({ portal }: { portal: Role }) {
   const [price, setPrice] = useState("0.25");
   const [pendingTopups, setPendingTopups] = useState(0);
 
-  useEffect(() => {
-    (window as any).selectCustomer = (u: any) => setSelectedCustomer(u);
-    return () => { delete (window as any).selectCustomer; };
-  }, []);
+  const refreshUsers = async () => {
+    const data = await getAllUsers();
+    if (data) setUsersList(data);
+  };
 
   const refreshBroadcasts = async () => {
     const { data: bData } = await getBroadcasts();
@@ -376,7 +378,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
       {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>}
       {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>}
       {selectedTicket && <TicketViewModal ticket={selectedTicket} admin={session.role === "admin"} onClose={() => setSelectedTicket(null)} onUpdate={updateTicket}/>}
-      {selectedCustomer && <CustomerProfileModal customer={selectedCustomer} orders={orders.filter(o => o.email === selectedCustomer.email)} onClose={() => setSelectedCustomer(null)}/>}
+      {selectedCustomer && <CustomerProfileModal customer={selectedCustomer} orders={orders.filter(o => o.email?.toLowerCase() === String(selectedCustomer.email || '').toLowerCase())} onClose={() => setSelectedCustomer(null)} refreshData={refreshUsers}/>}
       {showLogoutConfirm && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal confirm-modal">
@@ -418,6 +420,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
           onRefreshBroadcasts={refreshBroadcasts}
           isDataLoading={isDataLoading}
           onTopupsChanged={refreshPendingTopups}
+          onRefreshUsers={refreshUsers}
+          onSelectCustomer={setSelectedCustomer}
         />
         {overlays}
       </AdminShell>
@@ -464,7 +468,24 @@ export default function PortalApp({ portal }: { portal: Role }) {
           </div>
         </header>
         <div className="page">
-          <CustomerPage view={view} orders={orders.filter(o => o.email === session.email)} tickets={tickets.filter(t => t.customer === (session.company || session.name))} transactions={transactions} setView={setView} create={() => setShowBroadcast(true)} ticket={() => setShowTicket(true)} select={setSelected} selectTicket={setSelectedTicket} session={session} balance={balance} onCredited={refreshBalance} />
+          {/* getBroadcasts and getTickets already scope to the signed-in user server-side, so
+              these are display filters only - matched case-insensitively because an email
+              typed with different casing used to hide a customer's own records. */}
+          <CustomerPage
+            view={view}
+            orders={orders.filter(o => String(o.email || '').toLowerCase() === session.email.toLowerCase())}
+            tickets={tickets}
+            transactions={transactions}
+            setView={setView}
+            create={() => setShowBroadcast(true)}
+            ticket={() => setShowTicket(true)}
+            select={setSelected}
+            selectTicket={setSelectedTicket}
+            session={session}
+            balance={balance}
+            onCredited={refreshBalance}
+            onProfileSaved={({ name, company }) => setSession(s => (s ? { ...s, name, company } : s))}
+          />
         </div>
       </section>
       {overlays}
@@ -635,6 +656,7 @@ function Auth({ portal, onLogin }: { portal: Role; onLogin: (s: Session) => void
   const isAdminPortal = portal === "admin";
   const [mode, setMode] = useState<"login" | "signup" | "admin" | "forgot">(isAdminPortal ? "admin" : "login");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [captchaQ, setCaptchaQ] = useState({ n1: 4, n2: 7 });
   const [captchaAnswer, setCaptchaAnswer] = useState("");
@@ -658,6 +680,7 @@ function Auth({ portal, onLogin }: { portal: Role; onLogin: (s: Session) => void
     if (isAdminPortal) return;
     setMode(newMode);
     setError("");
+    setNotice("");
     resetCaptcha();
   };
 
@@ -728,7 +751,15 @@ function Auth({ portal, onLogin }: { portal: Role; onLogin: (s: Session) => void
     }
     
     if (mode === "forgot") {
-      setError("If that email exists, a password reset link has been queued.");
+      // No self-service reset: on this panel the operations team holds and resets customer
+      // passwords from the admin console, so send people down a route that actually works
+      // rather than claiming an email was sent.
+      const res = await requestPasswordHelp(email);
+      if (res?.error) return setError(res.error);
+      setNotice(
+        "Request received. Our operations team will reset your password and contact you on the email and phone number registered to this account."
+      );
+      setError("");
       return;
     }
 
@@ -772,7 +803,7 @@ function Auth({ portal, onLogin }: { portal: Role; onLogin: (s: Session) => void
       </section>
       <section className="auth-panel">
         <form className="auth-card" onSubmit={submit}>
-          <div className="auth-heading"><p className="eyebrow">{isAdminPortal ? "RESTRICTED AREA" : "XPACK PANEL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer panel in under a minute." : mode === "forgot" ? "We will email a secure reset link to you." : "Sign in to manage your broadcasts."}</p></div>
+          <div className="auth-heading"><p className="eyebrow">{isAdminPortal ? "RESTRICTED AREA" : "XPACK PANEL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer panel in under a minute." : mode === "forgot" ? "Tell us your email and our operations team will reset the password on your account." : "Sign in to manage your broadcasts."}</p></div>
           {mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}
           <label>Email address<input name="email" type="email" required placeholder={isAdminPortal ? "administrator email" : "you@company.com"} autoComplete={isAdminPortal ? "off" : "email"} disabled={isLocked}/></label>
           {mode !== "forgot" && <label>Password<div className="password-field"><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" autoComplete={isAdminPortal ? "off" : "current-password"} disabled={isLocked}/><button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}
@@ -780,7 +811,8 @@ function Auth({ portal, onLogin }: { portal: Role; onLogin: (s: Session) => void
           {mode !== "forgot" && <label>Security check: what is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}
           {mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}
           {error && <p className="auth-error">{error}</p>}
-          <button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Send reset link" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>
+          {notice && <p className="auth-notice">{notice}</p>}
+          <button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Request a password reset" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>
           {!isAdminPortal && (
             <p className="auth-switch">
               {mode === "signup" ? "Already have an account?" : mode === "forgot" ? "Remembered it?" : "New to Xpack?"}{" "}
@@ -829,7 +861,98 @@ function TransactionTable({ transactions }: { transactions: any[] }) {
   );
 }
 
-function CustomerPage({ view, orders, tickets, transactions, setView, create, ticket, select, selectTicket, session, balance, onCredited }: { view: string; orders: Order[]; tickets: Ticket[]; transactions: any[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number; onCredited: () => void }) {
+/** Customer account screen: profile details and password change, both persisted. */
+function CustomerSettings({ session, onProfileSaved }: { session: Session; onProfileSaved: (p: { name: string; company: string }) => void }) {
+  const [fullName, setFullName] = useState(session.name);
+  const [company, setCompany] = useState(session.company || "");
+  const [phone, setPhone] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileMsg, setProfileMsg] = useState("");
+  const [profileErr, setProfileErr] = useState("");
+
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordMsg, setPasswordMsg] = useState("");
+  const [passwordErr, setPasswordErr] = useState("");
+
+  const saveProfile = async (e: FormEvent) => {
+    e.preventDefault();
+    setProfileMsg("");
+    setProfileErr("");
+
+    const formData = new FormData();
+    formData.set("full_name", fullName);
+    formData.set("company_name", company);
+    formData.set("phone", phone);
+
+    setSavingProfile(true);
+    const res = await updateMyProfile(formData);
+    setSavingProfile(false);
+
+    if (res?.error) return setProfileErr(res.error);
+    setProfileMsg("Profile saved.");
+    onProfileSaved({ name: res?.profile?.full_name || fullName, company: res?.profile?.company_name || "" });
+    setTimeout(() => setProfileMsg(""), 3000);
+  };
+
+  const savePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    setPasswordMsg("");
+    setPasswordErr("");
+
+    if (newPassword.length < 8) return setPasswordErr("The new password must be at least 8 characters long.");
+    if (newPassword !== confirmPassword) return setPasswordErr("The new passwords do not match.");
+
+    setSavingPassword(true);
+    const res = await changeMyPassword(currentPassword, newPassword);
+    setSavingPassword(false);
+
+    if (res?.error) return setPasswordErr(res.error);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordMsg("Password changed.");
+    setTimeout(() => setPasswordMsg(""), 3000);
+  };
+
+  return (
+    <>
+      <Heading eyebrow="ACCOUNT" title="Profile and preferences" text="Keep your account details up to date."/>
+      <section className="panel settings-panel">
+        <form className="setting-section" onSubmit={saveProfile}>
+          <h2>Profile information</h2>
+          <p>These details appear on your broadcast requests.</p>
+          <div className="form-grid">
+            <label>Full name<input value={fullName} onChange={e => setFullName(e.target.value)} required/></label>
+            <label>Company<input value={company} onChange={e => setCompany(e.target.value)} placeholder="Optional"/></label>
+            <label>Email address<input value={session.email} disabled title="Contact support to change your email address"/></label>
+            <label>Phone number<input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Add a phone number"/></label>
+          </div>
+          {profileErr && <p className="form-error">{profileErr}</p>}
+          {profileMsg && <p className="form-success">✓ {profileMsg}</p>}
+          <button className="primary" disabled={savingProfile}>{savingProfile ? "Saving…" : "Save changes"}</button>
+        </form>
+
+        <form className="setting-section" onSubmit={savePassword}>
+          <h2>Change password</h2>
+          <p>You will stay signed in on this device after changing it.</p>
+          <div className="form-grid">
+            <label>Current password<input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required/></label>
+            <label>New password<input type="password" minLength={8} value={newPassword} onChange={e => setNewPassword(e.target.value)} required/></label>
+            <label>Confirm new password<input type="password" minLength={8} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required/></label>
+          </div>
+          {passwordErr && <p className="form-error">{passwordErr}</p>}
+          {passwordMsg && <p className="form-success">✓ {passwordMsg}</p>}
+          <button className="primary" disabled={savingPassword}>{savingPassword ? "Updating…" : "Update password"}</button>
+        </form>
+      </section>
+    </>
+  );
+}
+
+function CustomerPage({ view, orders, tickets, transactions, setView, create, ticket, select, selectTicket, session, balance, onCredited, onProfileSaved }: { view: string; orders: Order[]; tickets: Ticket[]; transactions: any[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number; onCredited: () => void; onProfileSaved: (p: { name: string; company: string }) => void }) {
   if (view === "My broadcasts") {
     return (
       <>
@@ -859,29 +982,7 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
   }
 
   if (view === "Settings") {
-    return (
-      <>
-        <Heading eyebrow="ACCOUNT" title="Profile and preferences" text="Keep your account and notification preferences up to date."/>
-        <section className="panel settings-panel">
-          <div className="setting-section">
-            <h2>Profile information</h2>
-            <p>These details appear on your broadcast requests.</p>
-            <div className="form-grid">
-              <label>Full name<input defaultValue={session.name}/></label>
-              <label>Company<input defaultValue={session.company}/></label>
-              <label>Email address<input defaultValue={session.email}/></label>
-              <label>Phone number<input placeholder="Add a phone number"/></label>
-            </div>
-            <button className="primary" onClick={() => alert("Profile changes are saved.")}>Save changes</button>
-          </div>
-          <div className="setting-section">
-            <h2>Notification preferences</h2>
-            <p>Receive an email when a broadcast changes status or a report is ready.</p>
-            <label className="toggle-row">Email status updates<input type="checkbox" defaultChecked/></label>
-          </div>
-        </section>
-      </>
-    );
+    return <CustomerSettings session={session} onProfileSaved={onProfileSaved}/>;
   }
   
   if (view === "Add funds") {
@@ -968,12 +1069,35 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
   );
 }
 
-function CustomerRow({ user, orders, onSelectCustomer }: { user: any; orders: Order[]; onSelectCustomer: (u: any) => void }) {
+/**
+ * One row of the admin customer directory.
+ *
+ * The password is stored in plain text on purpose so operations can read it here; the cell
+ * stays masked until the admin reveals it so the column is not readable over a shoulder or
+ * in a screen share by default.
+ */
+function CustomerRow({ user, orders, onSelectCustomer, onChanged, revealAll }: {
+  user: any;
+  orders: Order[];
+  onSelectCustomer: (u: any) => void;
+  onChanged: () => void;
+  revealAll: boolean;
+}) {
   const [loggingIn, setLoggingIn] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const showPassword = revealAll || revealed;
+  const password = user.password_plain || "";
+  const displayName = user.full_name || user.company_name || user.email;
+
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   const handleLoginAsUser = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Login as ${user.full_name || user.company_name}?`)) return;
+    if (!confirm(`Sign in as ${displayName}?\n\nYou will be taken to their customer panel. Use the banner at the top to return to the admin console.`)) return;
 
     setLoggingIn(true);
     const res = await impersonateUser(user.id);
@@ -982,41 +1106,217 @@ function CustomerRow({ user, orders, onSelectCustomer }: { user: any; orders: Or
       setLoggingIn(false);
       return;
     }
-    // Full reload so the new session cookies are picked up everywhere
-    window.location.href = '/';
+    // Full reload so the swapped session cookies are picked up everywhere.
+    window.location.href = "/";
   };
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!password) return;
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert("Could not copy. Reveal the password and copy it manually.");
+    }
+  };
+
+  const handleResetPassword = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = prompt(`Set a new password for ${displayName}.\n\nMinimum 8 characters. This replaces their current password immediately.`);
+    if (next === null) return;
+    if (next.length < 8) return alert("Password must be at least 8 characters long.");
+
+    setResetting(true);
+    const res = await adminSetUserPassword(user.id, next);
+    setResetting(false);
+
+    if (res?.error) return alert(res.error);
+    if (res?.warning) alert(res.warning);
+    setRevealed(true);
+    onChanged();
+  };
+
+  const handleToggleActive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextActive = !user.is_active;
+    if (!confirm(`${nextActive ? "Enable" : "Disable"} the account for ${displayName}?`)) return;
+
+    setBusy(true);
+    const res = await adminSetUserActive(user.id, nextActive);
+    setBusy(false);
+    if (res?.error) return alert(res.error);
+    onChanged();
+  };
+
+  const broadcastCount = orders.filter(
+    (x: Order) => x.email?.toLowerCase() === String(user.email || "").toLowerCase()
+  ).length;
 
   return (
     <tr className="clickable-row" onClick={() => onSelectCustomer?.(user)}>
       <td>
-        <button className="customer-link" onClick={(e) => { e.stopPropagation(); onSelectCustomer?.(user); }}>
-          <strong>{user.full_name || user.company_name}</strong>
+        <button className="customer-link" onClick={(e) => { stop(e); onSelectCustomer?.(user); }}>
+          <strong>{displayName}</strong>
         </button>
+        {user.company_name && user.full_name && <div className="service-line">{user.company_name}</div>}
       </td>
       <td>{user.email}</td>
       <td>
         <div className="password-cell-wrapper">
-          <code className="password-cell">{user.password_plain || '—'}</code>
+          {password ? (
+            <>
+              <code className="password-cell">{showPassword ? password : "•".repeat(Math.min(password.length, 12))}</code>
+              <button
+                className="password-toggle-btn"
+                onClick={(e) => { stop(e); setRevealed(!revealed); }}
+                title={showPassword ? "Hide password" : "Reveal password"}
+                type="button"
+              >
+                <Icon name={showPassword ? "eye-off" : "eye"} size={14} />
+              </button>
+              <button
+                className="password-toggle-btn"
+                onClick={handleCopy}
+                title="Copy password"
+                type="button"
+              >
+                <Icon name={copied ? "check" : "copy"} size={14} />
+              </button>
+            </>
+          ) : (
+            <span className="text-muted no-password">Not captured</span>
+          )}
         </div>
       </td>
-      <td>{orders.filter((x: Order) => x.email === user.email).length}</td>
+      <td>{broadcastCount}</td>
       <td><strong className="amount">₹{(Number(user.balance) || 0).toFixed(2)}</strong></td>
-      <td><Badge status={user.is_active ? "Active" : "Closed"}/></td>
+      <td><Badge status={user.is_active ? "Active" : "Closed"} /></td>
       <td>
-        <button 
-          className="outline small" 
-          onClick={handleLoginAsUser}
-          disabled={loggingIn}
-          title="Login as this user"
-        >
-          <Icon name="login" size={14}/> {loggingIn ? 'Logging in...' : 'Login as user'}
-        </button>
+        <div className="row-actions">
+          <button
+            className="primary small"
+            onClick={handleLoginAsUser}
+            disabled={loggingIn || user.is_active === false}
+            title={user.is_active === false ? "Enable this account before signing in as the customer" : "Sign in as this customer"}
+            type="button"
+          >
+            <Icon name="login" size={14} /> {loggingIn ? "Signing in…" : "Login as user"}
+          </button>
+          <button
+            className="outline small"
+            onClick={handleResetPassword}
+            disabled={resetting}
+            title={password ? "Set a new password" : "No password on file — set one to enable the fast login path"}
+            type="button"
+          >
+            <Icon name="key" size={14} /> {resetting ? "Saving…" : password ? "Reset" : "Set password"}
+          </button>
+          <button
+            className="outline small"
+            onClick={handleToggleActive}
+            disabled={busy}
+            title={user.is_active ? "Disable this account" : "Enable this account"}
+            type="button"
+          >
+            <Icon name={user.is_active ? "ban" : "check"} size={14} /> {user.is_active ? "Disable" : "Enable"}
+          </button>
+        </div>
       </td>
     </tr>
   );
 }
 
-function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts, isDataLoading, onTopupsChanged }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void; isDataLoading?: boolean; onTopupsChanged?: () => void }) {
+/** Admin customer directory: search, plain-password access, and per-account actions. */
+function CustomerDirectory({ users, orders, isDataLoading, onSelectCustomer, onChanged }: {
+  users: any[];
+  orders: Order[];
+  isDataLoading?: boolean;
+  onSelectCustomer: (u: any) => void;
+  onChanged: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [revealAll, setRevealAll] = useState(false);
+
+  const customers = users.filter((u: any) => u.role !== "ADMIN");
+  const term = search.trim().toLowerCase();
+  const visible = term
+    ? customers.filter((u: any) =>
+        [u.full_name, u.company_name, u.email, u.phone]
+          .some((field: any) => String(field || "").toLowerCase().includes(term))
+      )
+    : customers;
+
+  const withoutPassword = customers.filter((u: any) => !u.password_plain).length;
+
+  return (
+    <>
+      <Heading eyebrow="ADMIN CONSOLE" title="Customer directory" text="Review customers, their activity, and account standing." />
+      <section className="panel data-panel">
+        <div className="table-tools">
+          <div className="search">
+            <Icon name="search" size={16} />
+            <input placeholder="Search name, company, email, or phone" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <button className="outline small" onClick={() => setRevealAll(!revealAll)} type="button">
+            <Icon name={revealAll ? "eye-off" : "eye"} size={14} /> {revealAll ? "Hide all passwords" : "Reveal all passwords"}
+          </button>
+          <button className="outline small" onClick={onChanged} type="button">
+            <Icon name="refresh" size={14} /> Refresh
+          </button>
+        </div>
+
+        {withoutPassword > 0 && (
+          <div className="detail-note info directory-note">
+            <strong>{withoutPassword} account{withoutPassword > 1 ? "s have" : " has"} no password on file</strong>
+            <p>
+              Accounts created before password capture was switched on have nothing to display. Use
+              &ldquo;Set password&rdquo; on the row to choose one — that also enables the instant
+              &ldquo;Login as user&rdquo; path for them.
+            </p>
+          </div>
+        )}
+
+        <div className="table-wrap">
+          {isDataLoading ? (
+            <div className="loading-block"><div className="loader" /></div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Customer</th>
+                  <th>Email</th>
+                  <th>Password</th>
+                  <th>Broadcasts</th>
+                  <th>Wallet balance</th>
+                  <th>Account</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.length ? visible.map((u: any) => (
+                  <CustomerRow
+                    key={u.id || u.email}
+                    user={u}
+                    orders={orders}
+                    onSelectCustomer={onSelectCustomer}
+                    onChanged={onChanged}
+                    revealAll={revealAll}
+                  />
+                )) : (
+                  <tr><td colSpan={7} className="empty">No customers match &ldquo;{search}&rdquo;.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts, isDataLoading, onTopupsChanged, onRefreshUsers, onSelectCustomer }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void; isDataLoading?: boolean; onTopupsChanged?: () => void; onRefreshUsers: () => void; onSelectCustomer: (u: any) => void }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [dashTab, setDashTab] = useState("summary");
   const [actFilterDate, setActFilterDate] = useState("");
@@ -1118,7 +1418,17 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
     );
   }
 
-  if (viewName === "Customers") return <><Heading eyebrow="ADMIN CONSOLE" title="Customer directory" text="Review customers, their activity, and account standing."/><section className="panel data-panel"><div className="table-wrap">{isDataLoading ? <div className="loading-block"><div className="loader"/></div> : <table><thead><tr><th>Customer</th><th>Email</th><th>Password</th><th>Broadcasts</th><th>Wallet balance</th><th>Account</th><th>Actions</th></tr></thead><tbody>{users.filter(u => u.email !== 'admin@xpack.in' && u.role !== 'ADMIN').map(u => <CustomerRow key={u.email} user={u} orders={orders} onSelectCustomer={(window as any).selectCustomer}/>)}</tbody></table>}</div></section></>;
+  if (viewName === "Customers") {
+    return (
+      <CustomerDirectory
+        users={users}
+        orders={orders}
+        isDataLoading={isDataLoading}
+        onSelectCustomer={onSelectCustomer}
+        onChanged={onRefreshUsers}
+      />
+    );
+  }
   if (viewName === "Support desk") return <><Heading eyebrow="ADMIN CONSOLE" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
   if (viewName === "Activity log") {
@@ -1497,14 +1807,20 @@ function CategoryServiceManager() {
   const handleUpdateCategory = async (e: FormEvent) => {
     e.preventDefault();
     if (!editingCategory || !catName.trim()) return alert("Category name is required.");
+
     setLoading(true);
-    // Note: You'll need to implement updateCategory in your actions
-    alert("Update category functionality needs to be implemented in the backend actions.");
+    const res = await updateCategory(editingCategory.id, catName, catDesc, editingCategory.is_active);
     setLoading(false);
+
+    if (res.error) return alert(res.error);
+
     setShowEditCategory(false);
     setEditingCategory(null);
     setCatName("");
     setCatDesc("");
+    setMsg("Category updated successfully!");
+    setTimeout(() => setMsg(""), 3000);
+    loadData();
   };
 
   const handleUpdateService = async (e: FormEvent) => {
@@ -1512,15 +1828,34 @@ function CategoryServiceManager() {
     if (!editingService || !servName.trim()) return alert("Service name is required.");
     const priceNum = parseFloat(servPrice);
     if (isNaN(priceNum) || priceNum < 0) return alert("Please enter a valid price.");
+
     setLoading(true);
-    // Note: You'll need to implement updateService in your actions
-    alert("Update service functionality needs to be implemented in the backend actions.");
+    const res = await updateService(editingService.id, servName, priceNum, servDesc, editingService.is_active);
     setLoading(false);
+
+    if (res.error) return alert(res.error);
+
     setShowEditService(false);
     setEditingService(null);
     setServName("");
     setServPrice("");
     setServDesc("");
+    setMsg("Service updated successfully!");
+    setTimeout(() => setMsg(""), 3000);
+    loadData();
+  };
+
+  /** The category switch controls what customers can see in the new-broadcast picker. */
+  const handleToggleCategory = async (cat: Category) => {
+    const res = await updateCategory(cat.id, cat.name, cat.description, !cat.is_active);
+    if (res.error) return alert(res.error);
+    loadData();
+  };
+
+  const handleToggleService = async (service: Service) => {
+    const res = await updateService(service.id, service.name, Number(service.price), service.description, !service.is_active);
+    if (res.error) return alert(res.error);
+    loadData();
   };
 
   const filteredCategories = categories.filter(cat =>
@@ -1665,10 +2000,16 @@ function CategoryServiceManager() {
                 <div className="category-header">
                   <div className="category-info">
                     <div className="category-toggle">
-                      <input type="checkbox" checked={true} readOnly className="toggle-switch"/>
+                      <input
+                        type="checkbox"
+                        checked={cat.is_active !== false}
+                        onChange={() => handleToggleCategory(cat)}
+                        className="toggle-switch"
+                        title={cat.is_active !== false ? "Visible to customers — click to hide" : "Hidden from customers — click to show"}
+                      />
                     </div>
                     <div className="category-details">
-                      <h3>{cat.name}</h3>
+                      <h3>{cat.name}{cat.is_active === false && <span className="muted-tag">Hidden</span>}</h3>
                       {cat.description && <p>{cat.description}</p>}
                     </div>
                   </div>
@@ -1707,7 +2048,16 @@ function CategoryServiceManager() {
                             </td>
                             <td><span className="service-type">Manual</span></td>
                             <td><strong className="amount">₹{Number(s.price).toFixed(2)}</strong></td>
-                            <td><Badge status={s.is_active ? "Enabled" : "Disabled"}/></td>
+                            <td>
+                              <button
+                                className="badge-button"
+                                onClick={() => handleToggleService(s)}
+                                title={s.is_active ? "Disable this service" : "Enable this service"}
+                                type="button"
+                              >
+                                <Badge status={s.is_active ? "Enabled" : "Disabled"}/>
+                              </button>
+                            </td>
                             <td>
                               <div className="row-actions">
                                 <button className="icon-btn" onClick={() => handleEditService(s, cat.id)} title="Edit service">
@@ -2266,7 +2616,55 @@ function StatusTimeline({ currentStatus }: { currentStatus: Status }) {
   );
 }
 
-function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: { 
+/**
+ * Every status this broadcast has been through, oldest first. The rows come from
+ * broadcast_status_history, which is written on creation, on every admin status change and
+ * on a customer resubmission - so this is the customer-visible order history.
+ */
+function OrderStatusHistory({ history, created }: { history?: OrderHistory[]; created: string }) {
+  const entries = history && history.length > 0
+    ? history
+    : [{ status: "PLACED", reason: undefined, created_at: created }];
+
+  const toneFor = (status: string) => {
+    const s = status.toUpperCase();
+    if (s === "COMPLETED" || s === "PARTIAL") return "green";
+    if (s === "CANCELLED" || s === "REFUNDED") return "red";
+    if (s === "ON_HOLD") return "amber";
+    return "blue";
+  };
+
+  const when = (value: string) => {
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  return (
+    <div className="order-history">
+      <div className="order-history-head">
+        <Icon name="history" size={16}/>
+        <strong>Order history</strong>
+        <span className="text-muted">{entries.length} update{entries.length > 1 ? "s" : ""}</span>
+      </div>
+      <ol className="order-history-list">
+        {entries.map((entry, i) => (
+          <li key={`${entry.created_at}-${i}`} className={`order-history-item ${toneFor(entry.status)}`}>
+            <span className="order-history-dot"/>
+            <div>
+              <div className="order-history-row">
+                <Badge status={formatStatus(entry.status)}/>
+                <small>{when(entry.created_at)}</small>
+              </div>
+              {entry.reason && <p className="order-history-reason">{entry.reason}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   order: Order; 
   admin: boolean; 
   onClose: () => void; 
@@ -2378,6 +2776,8 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
             <p>{order.notes}</p>
           </div>
         )}
+
+        <OrderStatusHistory history={order.history} created={order.created}/>
 
         {order.adminComment && (
           <div className="detail-note info">

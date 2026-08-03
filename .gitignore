@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# The template carries no secrets and is the reference for what must be set on Render.
+!.env.example
 
 # vercel
 .vercel

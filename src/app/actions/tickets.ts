@@ -3,6 +3,7 @@
 
 import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
+import { logActivity, describeActor } from '@/app/actions/activity'
 
 export async function getTickets() {
   const isAdmin = await checkIsAdmin()
@@ -17,7 +18,9 @@ export async function getTickets() {
     .select(`
       *,
       users!inner (
-        company_name
+        company_name,
+        full_name,
+        email
       ),
       support_messages (
         body,
@@ -47,7 +50,10 @@ export async function getTickets() {
 
     return {
       ...t,
-      customer: t.users?.company_name || 'Unknown',
+      // full_name is the fallback because a customer with no company name used to render as
+      // "Unknown", and the panel filters their own ticket list by this exact string.
+      customer: t.users?.company_name || t.users?.full_name || t.users?.email || 'Unknown',
+      email: t.users?.email || '',
       message: firstMessage?.body || '',
       latest_message_time: latestMessageTime,
       reply: replyMessage
@@ -110,6 +116,14 @@ export async function createTicket(formData: FormData) {
     console.error('Create Ticket Message Error:', msgError)
   }
 
+  await logActivity({
+    ...(await describeActor(user.id)),
+    actionType: 'TICKET_CREATED',
+    entityType: 'TICKET',
+    entityId: reference_no,
+    description: `Support ticket ${reference_no} opened: ${subject} (${priority.toLowerCase()} priority).`,
+  })
+
   return { data: ticket }
 }
 
@@ -158,6 +172,14 @@ export async function updateTicketStatus(id: string, status: string, replyMessag
         }
       ])
   }
+
+  await logActivity({
+    ...(await describeActor(user.id)),
+    actionType: 'TICKET_UPDATED',
+    entityType: 'TICKET',
+    entityId: ticket.reference_no,
+    description: `Ticket ${ticket.reference_no} set to ${status.toUpperCase()}${replyMessage ? ' with a reply to the customer' : ''}.`,
+  })
 
   return { data: ticket }
 }
