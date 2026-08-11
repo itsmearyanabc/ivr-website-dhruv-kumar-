@@ -7,6 +7,7 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { getVerifier, canAutoCredit } from '@/lib/payments/utr'
 import { logActivity, describeActor } from '@/app/actions/activity'
+import { UPLOAD_LIMITS, describeLimit } from '@/lib/uploads'
 
 const METHOD_CODE = 'UPI_QR'
 const STORAGE_BUCKET = 'xpack_files'
@@ -183,8 +184,8 @@ export async function updatePaymentMethod(formData: FormData) {
     if (!qrFile.type.startsWith('image/')) {
       return { error: 'The QR code must be an image file (PNG or JPG).' }
     }
-    if (qrFile.size > 4 * 1024 * 1024) {
-      return { error: 'QR image must be smaller than 4 MB.' }
+    if (qrFile.size > UPLOAD_LIMITS.QR_IMAGE) {
+      return { error: `QR image must be smaller than ${describeLimit(UPLOAD_LIMITS.QR_IMAGE)}.` }
     }
 
     const extension = qrFile.name.split('.').pop()?.toLowerCase() || 'png'

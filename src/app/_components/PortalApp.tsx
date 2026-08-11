@@ -2,7 +2,7 @@
 // cspell:ignore Xpack xpack Dhruv Kaveri Proximo supabase SUPABASE
 "use client";
 
-import React, { FormEvent, useEffect, useState } from "react";
+import React, { FormEvent, useCallback, useEffect, useState } from "react";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
@@ -29,6 +29,7 @@ import { TopupRequestsView, AdminSettingsView } from "@/app/_components/admin/Pa
 import StatisticsGraph from "@/app/_components/admin/StatisticsGraph";
 import ActivityLog from "@/app/_components/admin/ActivityLog";
 import AddFunds from "@/app/_components/customer/AddFunds";
+import { UPLOAD_LIMITS, formatFileSize, describeLimit } from "@/lib/uploads";
 import * as XLSX from "xlsx";
 
 type Role = "customer" | "admin";
@@ -73,7 +74,53 @@ type Ticket = { id: string; subject: string; customer: string; priority: "Normal
 const initialOrders: Order[] = [];
 const initialTickets: Ticket[] = [];
 
+/**
+ * `reports.broadcast_id` carries a UNIQUE constraint, so PostgREST resolves the embed as a
+ * to-one relationship and returns a bare object - not the single-element array this used to
+ * index into. `reports[0]` was therefore always undefined, which is why a completed order
+ * never showed its report to the customer even after the admin uploaded one.
+ * Accept either shape so the mapping survives a future relationship change too.
+ */
+function reportFileKey(reports: any): string | undefined {
+  if (!reports) return undefined;
+  const row = Array.isArray(reports) ? reports[0] : reports;
+  return row?.file_key || undefined;
+}
+
+/** What every modal submit handler hands back so the form can stay open and explain itself. */
+type SubmitResult = { ok: boolean; error?: string };
+
+/** Module scope on purpose: reading the clock is impure and must not sit in a render path. */
+function isInTheFuture(value: string): boolean {
+  const parsed = new Date(value).getTime();
+  return !isNaN(parsed) && parsed > Date.now();
+}
+
+
+/**
+ * Turns a thrown Server Action into something an operator can act on.
+ *
+ * A Server Action that throws (rather than returning `{ error }`) used to reject silently:
+ * the caller had already closed the modal and nothing caught the rejection, so the screen
+ * simply never changed. The 413 is called out by name because it is the one an operator can
+ * fix themselves by picking a smaller file.
+ */
+function describeActionError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e ?? "");
+
+  if (/body exceeded|413|payload too large|entity too large/i.test(raw)) {
+    return "That file is too large to upload. Please compress it or split it, then try again.";
+  }
+  if (/fetch failed|networkerror|failed to fetch|load failed/i.test(raw)) {
+    return "Lost connection to the server. Check your network and try again — nothing was saved.";
+  }
+  return raw
+    ? `The server rejected this request: ${raw}`
+    : "Something went wrong and the change was not saved. Please try again.";
+}
+
 function mapBroadcast(b: any, index: number): Order {
+  const reportKey = reportFileKey(b.reports);
   return {
     id: b.reference_no,
     broadcastNo: `BR-${index + 1}`,
@@ -87,8 +134,8 @@ function mapBroadcast(b: any, index: number): Order {
     notes: b.description,
     audioKey: b.audio_key,
     contactsKey: b.contacts_key,
-    reportKey: b.reports?.[0]?.file_key,
-    report: (b.status === 'COMPLETED' || b.status === 'PARTIAL') && !!b.reports?.[0]?.file_key,
+    reportKey,
+    report: !!reportKey,
     holdReason: b.hold_reason || '',
     cancelReason: b.cancel_reason || '',
     refundReason: b.refund_reason || '',
@@ -232,8 +279,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
   
   const message = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 4500); };
   
-  const addOrder = async (orderPayload: any) => { 
-    setShowBroadcast(false);
+  const addOrder = async (orderPayload: any): Promise<SubmitResult> => {
     const formData = new FormData();
     formData.append("categoryId", orderPayload.categoryId || "");
     formData.append("categoryName", orderPayload.categoryName || "");
@@ -256,28 +302,39 @@ export default function PortalApp({ portal }: { portal: Role }) {
       formData.append("contacts", orderPayload.contactsFile);
     }
 
-    const { error } = await createBroadcast(formData);
-
-    if (error) {
-      message(error);
-    } else {
-      message("Broadcast request created successfully.");
-      await refreshBroadcasts();
-      await refreshBalance();
+    // The modal stays open until the order is actually accepted. Closing first meant a
+    // rejected upload left the customer looking at a dashboard with no order and no reason.
+    try {
+      const { error } = await createBroadcast(formData);
+      if (error) return { ok: false, error };
+    } catch (e) {
+      return { ok: false, error: describeActionError(e) };
     }
+
+    setShowBroadcast(false);
+    message("Broadcast request created successfully.");
+    await refreshBroadcasts();
+    await refreshBalance();
+    return { ok: true };
   };
 
-  const addTicket = async (newTicket: Ticket) => {
-    setShowTicket(false);
+  const addTicket = async (newTicket: Ticket): Promise<SubmitResult> => {
     const formData = new FormData();
     formData.append("subject", newTicket.subject);
     formData.append("priority", newTicket.priority.toUpperCase());
     formData.append("message", newTicket.message);
 
-    const { data, error } = await createTicket(formData);
-    if (error) {
-      message(error);
-    } else if (data) {
+    let data: any;
+    try {
+      const res = await createTicket(formData);
+      if (res.error) return { ok: false, error: res.error };
+      data = res.data;
+    } catch (e) {
+      return { ok: false, error: describeActionError(e) };
+    }
+
+    setShowTicket(false);
+    if (data) {
       message("Ticket submitted.");
       setTickets([{
         id: data.reference_no,
@@ -289,6 +346,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
         created: new Date(data.created_at).toLocaleString()
       }, ...tickets]);
     }
+    return { ok: true };
   };
 
   const updateOrder = async (
@@ -304,8 +362,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
       confirmPartialRefundAmount?: number;
       adminComment?: string;
     }
-  ) => { 
-    setSelected(null); 
+  ): Promise<SubmitResult> => {
     const dbStatus = status.toUpperCase().replace(' ', '_');
     const formData = new FormData();
     formData.append("id", id);
@@ -319,42 +376,61 @@ export default function PortalApp({ portal }: { portal: Role }) {
     if (payload?.confirmPartialRefundAmount !== undefined) formData.append("confirmPartialRefundAmount", payload.confirmPartialRefundAmount.toString());
     if (payload?.adminComment) formData.append("adminComment", payload.adminComment);
 
-    const { error } = await updateBroadcastStatus(formData);
-    if (error) {
-      message(error);
-    } else {
-      message(status === "Completed" ? "Broadcast completed and report shared with customer." : status === "On hold" ? "Broadcast placed on hold." : `Broadcast updated to ${status}.`);
-      await refreshBroadcasts();
-      await refreshBalance();
+    try {
+      const { error } = await updateBroadcastStatus(formData);
+      if (error) return { ok: false, error };
+    } catch (e) {
+      return { ok: false, error: describeActionError(e) };
     }
+
+    setSelected(null);
+    const uploaded = Boolean(payload?.reportFile);
+    message(
+      status === "Completed"
+        ? uploaded
+          ? "Broadcast completed and the report is now available to the customer."
+          : "Broadcast marked completed. No report file was attached."
+        : status === "On hold"
+          ? "Broadcast placed on hold."
+          : `Broadcast updated to ${status}.`
+    );
+    await refreshBroadcasts();
+    await refreshBalance();
+    return { ok: true };
   };
 
-  const handleResubmit = async (id: string, audioFile?: File, contactsFile?: File) => {
-    setSelected(null);
+  const handleResubmit = async (id: string, audioFile?: File, contactsFile?: File): Promise<SubmitResult> => {
     const formData = new FormData();
     formData.append("id", id);
     if (audioFile) formData.append("audio", audioFile);
     if (contactsFile) formData.append("contacts", contactsFile);
 
-    const { error } = await resubmitFiles(formData);
-    if (error) {
-      message(error);
-    } else {
-      message("Files resubmitted successfully. Your broadcast has been moved back to Placed.");
-      await refreshBroadcasts();
+    try {
+      const { error } = await resubmitFiles(formData);
+      if (error) return { ok: false, error };
+    } catch (e) {
+      return { ok: false, error: describeActionError(e) };
     }
+
+    setSelected(null);
+    message("Files resubmitted successfully. Your broadcast has been moved back to Placed.");
+    await refreshBroadcasts();
+    return { ok: true };
   };
 
-  const updateTicket = async (id: string, status: TicketStatus, reply?: string) => { 
-    setSelectedTicket(null); 
+  const updateTicket = async (id: string, status: TicketStatus, reply?: string): Promise<SubmitResult> => {
     const dbStatus = status.toUpperCase().replace(' ', '_');
-    const { error } = await updateTicketStatus(id, dbStatus, reply);
-    if (error) {
-      message(error);
-    } else {
-      message(status === "Resolved" ? "Ticket resolved and reply sent." : `Ticket updated to ${status}.`);
-      setTickets(tickets.map(t => t.id === id ? { ...t, status, reply: reply || t.reply } : t));
+    try {
+      const { error } = await updateTicketStatus(id, dbStatus, reply);
+      if (error) return { ok: false, error };
+    } catch (e) {
+      return { ok: false, error: describeActionError(e) };
     }
+
+    setSelectedTicket(null);
+    message(status === "Resolved" ? "Ticket resolved and reply sent." : `Ticket updated to ${status}.`);
+    setTickets(tickets.map(t => t.id === id ? { ...t, status, reply: reply || t.reply } : t));
+    return { ok: true };
   };
 
   if (isSessionLoading) return <div className="boot-screen"><div className="loader"/><p>Loading your panel…</p></div>;
@@ -535,6 +611,12 @@ function CustomerProfileModal({ customer, orders, onClose, refreshData }: { cust
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  // Credits applied in this modal, held locally. Writing straight onto the `customer` prop
+  // mutated the row inside the parent's usersList without telling React, so the directory
+  // behind the modal showed a stale balance until a full reload.
+  const [creditedHere, setCreditedHere] = useState(0);
+
+  const displayedBalance = (Number(customer.balance) || 0) + creditedHere;
 
   const handleAddFunds = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -559,11 +641,9 @@ function CustomerProfileModal({ customer, orders, onClose, refreshData }: { cust
     } else {
       setSuccess(`Successfully added ₹${numAmount.toFixed(2)} to ${customer.full_name || customer.company_name}'s wallet!`);
       setAmount("");
+      setCreditedHere(credited => credited + numAmount);
       if (refreshData) refreshData();
-      
-      // Update local state to reflect new balance immediately
-      customer.balance = Number(customer.balance || 0) + numAmount;
-      
+
       setTimeout(() => {
         setAddingFunds(false);
         setSuccess("");
@@ -589,7 +669,7 @@ function CustomerProfileModal({ customer, orders, onClose, refreshData }: { cust
         </div>
 
         <div className="profile-stats">
-          <div className="chart-card"><h3>Wallet balance</h3><p className="chart-total">₹{(Number(customer.balance) || 0).toFixed(2)}</p></div>
+          <div className="chart-card"><h3>Wallet balance</h3><p className="chart-total">₹{displayedBalance.toFixed(2)}</p></div>
           <div className="chart-card"><h3>Total broadcasts</h3><p className="chart-total">{orders.length}</p></div>
         </div>
 
@@ -670,9 +750,11 @@ function Auth({ portal, onLogin }: { portal: Role; onLogin: (s: Session) => void
     setCaptchaAnswer("");
   };
 
-  useEffect(() => {
-    resetCaptcha();
-  }, []);
+  // The captcha starts as a fixed pair so the server and client render the same markup, then
+  // randomises once on mount. Generating it during render instead would either desync
+  // hydration or hand every visitor the same sum.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { resetCaptcha(); }, []);
 
   const changeMode = (newMode: typeof mode) => {
     // The admin console never exposes the customer sign-up / customer sign-in flows,
@@ -1322,9 +1404,11 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
   const [actFilterDate, setActFilterDate] = useState("");
   const [chartDateFilter, setChartDateFilter] = useState("");
   const [broadcastFilters, setBroadcastFilters] = useState<{ view: string; schedule: string; status: string } | null>(null);
-  const [localPrice, setLocalPrice] = useState(price);
-  
-  useEffect(() => { setLocalPrice(price); }, [price]);
+  // Track which server value the local edit belongs to, so a refreshed price flows into the
+  // field without an effect writing state on every render pass.
+  const [priceEdit, setPriceEdit] = useState<{ base: string; value: string } | null>(null);
+  const localPrice = priceEdit?.base === price ? priceEdit.value : price;
+  const setLocalPrice = (value: string) => setPriceEdit({ base: price, value });
 
   // A view can carry an argument after a colon, e.g. "Broadcasts:scheduled". The menu uses
   // it to preselect a filter; the admin can still change the filter once the page is open.
@@ -1719,19 +1803,19 @@ function CategoryServiceManager() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editingService, setEditingService] = useState<Service | null>(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const res = await getAllCategoriesAndServices();
     if (res.data) {
       setCategories(res.data);
-      if (res.data.length > 0 && !selectedCatId) {
-        setSelectedCatId(res.data[0].id);
-      }
+      // Functional update: reading selectedCatId from the closure would have pinned this to
+      // whatever it was when the callback was created.
+      setSelectedCatId(current => current || (res.data!.length > 0 ? res.data![0].id : ""));
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    (async () => { await loadData(); })();
+  }, [loadData]);
 
   const handleAddCategory = async (e: FormEvent) => {
     e.preventDefault();
@@ -2258,7 +2342,9 @@ function BroadcastTable({ orders, onSelect, admin = false, onViewCustomer }: { o
 
 function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
 
-function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClose: () => void; onSubmit: (o: any) => void; session: Session; balance: number; price: string }) { 
+function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClose: () => void; onSubmit: (o: any) => Promise<SubmitResult>; session: Session; balance: number; price: string }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCatId, setSelectedCatId] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
@@ -2343,35 +2429,50 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     setContactsCount(lines.length);
   };
 
-  const submit = (e: FormEvent<HTMLFormElement>) => { 
-    e.preventDefault(); 
-    if (!selectedCatId) return alert("Please select a Category.");
-    if (!selectedServiceId) return alert("Please select a Service.");
-    if (!canAfford) return alert(`Insufficient balance. Wallet balance is ₹${balance.toFixed(2)}, but service cost is ₹${calculatedCost.toFixed(2)}.`);
-    
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSubmitError("");
+
+    if (!selectedCatId) return setSubmitError("Please select a category.");
+    if (!selectedServiceId) return setSubmitError("Please select a service.");
+    if (!canAfford) return setSubmitError(`Insufficient balance. Your wallet holds ₹${balance.toFixed(2)}, but this service costs ₹${calculatedCost.toFixed(2)}.`);
+
     if (audioInputMethod === 'FILE' && !audioFile) {
-      return alert("Please upload an audio file.");
+      return setSubmitError("Please upload an audio file.");
     }
     if (audioInputMethod === 'TTS' && !ttsText.trim()) {
-      return alert("Please enter text to convert to speech.");
-    }
-    
-    if (inputMethod === 'FILE' && !contactsFile) {
-      return alert("Please upload a target contact list file.");
-    }
-    if (inputMethod === 'MANUAL' && !manualText.trim()) {
-      return alert("Please enter target phone numbers.");
+      return setSubmitError("Please enter the text to convert to speech.");
     }
 
-    const data = new FormData(e.currentTarget); 
+    if (inputMethod === 'FILE' && !contactsFile) {
+      return setSubmitError("Please upload a target contact list file.");
+    }
+    if (inputMethod === 'MANUAL' && !manualText.trim()) {
+      return setSubmitError("Please enter target phone numbers.");
+    }
+
+    // Checked here as well as on the server: an oversized upload is rejected by the platform
+    // before the action runs, so the server-side message would never reach the customer.
+    if (audioFile && audioFile.size > UPLOAD_LIMITS.AUDIO) {
+      return setSubmitError(`The audio file is ${formatFileSize(audioFile.size)}. The limit is ${describeLimit(UPLOAD_LIMITS.AUDIO)}.`);
+    }
+    if (contactsFile && contactsFile.size > UPLOAD_LIMITS.CONTACTS) {
+      return setSubmitError(`The contact list is ${formatFileSize(contactsFile.size)}. The limit is ${describeLimit(UPLOAD_LIMITS.CONTACTS)}.`);
+    }
+
+    const data = new FormData(e.currentTarget);
     let finalSchedule = String(data.get("schedule"));
     if (finalSchedule === "Schedule for later") {
       const dateVal = String(data.get("scheduleDate"));
-      if (!dateVal) return alert("Please select a date for the scheduled broadcast.");
+      if (!dateVal) return setSubmitError("Please select a date for the scheduled broadcast.");
+      if (!isInTheFuture(dateVal)) {
+        return setSubmitError("A scheduled broadcast must be set for a time in the future.");
+      }
       finalSchedule = dateVal;
     }
 
-    onSubmit({ 
+    setSubmitting(true);
+    const result = await onSubmit({
       categoryId: selectedCatId,
       categoryName: currentCategory?.name || '',
       serviceId: selectedServiceId,
@@ -2386,8 +2487,10 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
       manualContacts: inputMethod === 'MANUAL' ? manualText : '',
       contactCount: contactsCount,
       charge: calculatedCost,
-      schedule: finalSchedule 
-    }); 
+      schedule: finalSchedule
+    });
+    setSubmitting(false);
+    if (!result.ok) setSubmitError(result.error || "The broadcast could not be created.");
   };
 
   return (
@@ -2459,7 +2562,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
                 {audioFile ? (
                   <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></>
                 ) : (
-                  <><Icon name="upload"/><b>Upload audio file</b><small>Maximum 25 MB (.mp3, .wav, .aac)</small></>
+                  <><Icon name="upload"/><b>Upload audio file</b><small>Maximum {describeLimit(UPLOAD_LIMITS.AUDIO)} (.mp3, .wav, .aac)</small></>
                 )}
                 <input name="audio" type="file" onChange={e => setAudioFile(e.target.files?.[0] || null)} accept="audio/*"/>
               </span>
@@ -2495,7 +2598,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
                 {contactsFile ? (
                   <><Icon name="check"/><b>{contactsFile.name}</b><small>{isParsing ? "Scanning file…" : `${contactsCount} contacts found`}</small></>
                 ) : (
-                  <><Icon name="upload"/><b>Upload contact list file</b><small>Compatible with CSV, TXT, XLSX, PDF, etc.</small></>
+                  <><Icon name="upload"/><b>Upload contact list file</b><small>CSV, TXT, XLSX or PDF · up to {describeLimit(UPLOAD_LIMITS.CONTACTS)}</small></>
                 )}
                 <input type="file" onChange={handleContactsFileChange} accept=".csv,.txt,.xlsx,.xls,.pdf"/>
               </span>
@@ -2547,10 +2650,14 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
           )}
         </div>
 
+        {submitError && <div className="form-error">{submitError}</div>}
+
         <div className="modal-footer">
-          <button type="button" className="outline" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={isParsing || !selectedServiceId || !canAfford}>
-            Confirm &amp; debit ₹{calculatedCost.toFixed(2)} <Icon name="arrow" size={16}/>
+          <button type="button" className="outline" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="primary" disabled={submitting || isParsing || !selectedServiceId || !canAfford}>
+            {submitting
+              ? "Uploading & placing order…"
+              : <>Confirm &amp; debit ₹{calculatedCost.toFixed(2)} <Icon name="arrow" size={16}/></>}
           </button>
         </div>
       </form>
@@ -2558,28 +2665,36 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   ); 
 }
 
-function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => void; session: Session }) { 
-  const submit = (e: FormEvent<HTMLFormElement>) => { 
-    e.preventDefault(); 
-    const d = new FormData(e.currentTarget); 
-    onSubmit({ 
-      id: "", 
-      subject: String(d.get("subject")), 
-      customer: session.company || session.name, 
-      priority: String(d.get("priority")) as "Normal" | "High", 
-      status: "Open", 
-      message: String(d.get("message")), 
-      created: "Just now" 
-    }); 
-  }; 
+function TicketModal({ onClose, onSubmit, session }: { onClose: () => void; onSubmit: (t: Ticket) => Promise<SubmitResult>; session: Session }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const d = new FormData(e.currentTarget);
+    setSubmitting(true);
+    setError("");
+    const result = await onSubmit({
+      id: "",
+      subject: String(d.get("subject")),
+      customer: session.company || session.name,
+      priority: String(d.get("priority")) as "Normal" | "High",
+      status: "Open",
+      message: String(d.get("message")),
+      created: "Just now"
+    });
+    setSubmitting(false);
+    if (!result.ok) setError(result.error || "The ticket could not be created.");
+  };
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <form className="modal compact-modal" onSubmit={submit}>
-        <div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we'll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div>
+        <div className="modal-head"><div><p className="eyebrow">SUPPORT</p><h2>New support ticket</h2><p>Describe your issue and we&apos;ll get back to you.</p></div><button type="button" className="close" onClick={onClose}><Icon name="close"/></button></div>
         <label>Subject<input name="subject" required placeholder="How can we help?"/></label>
         <label>Priority<select name="priority"><option>Normal</option><option>High</option></select></label>
         <label>Message<textarea name="message" required rows={5} placeholder="Give us the details…"/></label>
-        <div className="modal-footer"><button type="button" className="outline" onClick={onClose}>Cancel</button><button className="primary">Create ticket <Icon name="arrow" size={16}/></button></div>
+        {error && <div className="form-error">{error}</div>}
+        <div className="modal-footer"><button type="button" className="outline" onClick={onClose} disabled={submitting}>Cancel</button><button className="primary" disabled={submitting}>{submitting ? "Submitting…" : <>Create ticket <Icon name="arrow" size={16}/></>}</button></div>
       </form>
     </div>
   ); 
@@ -2681,54 +2796,86 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
       confirmPartialRefundAmount?: number;
       adminComment?: string;
     }
-  ) => void; 
-  onResubmit: (id: string, audioFile?: File, contactsFile?: File) => void 
+  ) => Promise<SubmitResult>;
+  onResubmit: (id: string, audioFile?: File, contactsFile?: File) => Promise<SubmitResult>;
 }) {
   const [status, setStatus] = useState<Status>(order.status);
   const [reportFile, setReportFile] = useState<File | null>(null);
   const [holdReason, setHoldReason] = useState(order.holdReason || "");
   const [cancelReason, setCancelReason] = useState(order.cancelReason || "");
   const [refundReason, setRefundReason] = useState(order.refundReason || "");
-  const [refundAmount, setRefundAmount] = useState(order.refundAmount || "");
-  
+  const [refundAmount] = useState(order.refundAmount || "");
+
   // Double entry partial refund
-  const [partialRefundAmount, setPartialRefundAmount] = useState<string>(order.partialRefundAmount ? String(order.partialRefundAmount) : "");
+  const [partialRefundAmount, setPartialRefundAmount] = useState<string>("");
   const [confirmPartialRefundAmount, setConfirmPartialRefundAmount] = useState<string>("");
   const [adminComment, setAdminComment] = useState<string>(order.adminComment || "");
 
   const [resubmitAudio, setResubmitAudio] = useState<File | null>(null);
   const [resubmitContacts, setResubmitContacts] = useState<File | null>(null);
 
+  const [saving, setSaving] = useState(false);
+  const [resubmitting, setResubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+
   const partialRefundMismatch = (partialRefundAmount.trim() !== "" || confirmPartialRefundAmount.trim() !== "") && (partialRefundAmount !== confirmPartialRefundAmount);
+
+  // A partial refund is only meaningful on a completed run. Cancelled and Refunded already
+  // return the whole charge on the server, so leaving a stale amount in these fields would
+  // pay the customer twice.
+  const refundApplies = status === "Completed";
+  const partialRefundValue = refundApplies && partialRefundAmount ? parseFloat(partialRefundAmount) : 0;
+  const partialRefundOverCharge = partialRefundValue > (order.charge || 0);
+  const alreadyPartiallyRefunded = Boolean(order.partialRefundAmount && order.partialRefundAmount > 0);
+
+  const reportTooLarge = Boolean(reportFile && reportFile.size > UPLOAD_LIMITS.REPORT);
+
+  const blockingError = partialRefundMismatch
+    ? "Both partial refund amounts must match exactly."
+    : partialRefundOverCharge
+      ? `A partial refund cannot exceed the ₹${(order.charge || 0).toFixed(2)} charged for this order.`
+      : reportTooLarge
+        ? `The report file is larger than ${describeLimit(UPLOAD_LIMITS.REPORT)}. Please compress it before uploading.`
+        : "";
 
   const handleDownload = async (key: string) => {
     const res = await getDownloadUrl(key);
     if (res.url) {
       window.open(res.url, '_blank');
     } else {
-      alert("Failed to download file.");
+      setFormError("Could not generate a download link for that file. Please try again.");
     }
   };
 
-  const handleAdminSubmit = () => {
-    if (partialRefundMismatch) {
-      return alert("Partial refund amount and confirmation refund amount do not match! Please check for typos.");
-    }
-    const pAmt = partialRefundAmount ? parseFloat(partialRefundAmount) : 0;
-    const pConfAmt = confirmPartialRefundAmount ? parseFloat(confirmPartialRefundAmount) : 0;
+  const handleAdminSubmit = async () => {
+    if (blockingError) return setFormError(blockingError);
 
-    let targetStatus = status;
+    setSaving(true);
+    setFormError("");
 
-    onUpdate(order.id, targetStatus, {
+    const result = await onUpdate(order.id, status, {
       reportFile: reportFile || undefined,
       holdReason,
       cancelReason,
       refundReason,
       refundAmount: Number(refundAmount),
-      partialRefundAmount: pAmt,
-      confirmPartialRefundAmount: pConfAmt,
+      partialRefundAmount: partialRefundValue,
+      confirmPartialRefundAmount: refundApplies && confirmPartialRefundAmount ? parseFloat(confirmPartialRefundAmount) : 0,
       adminComment
     });
+
+    setSaving(false);
+    // On success the parent closes this modal; on failure it stays open holding the file the
+    // operator already picked, so the retry does not start from scratch.
+    if (!result.ok) setFormError(result.error || "The update could not be saved.");
+  };
+
+  const handleResubmitClick = async () => {
+    setResubmitting(true);
+    setFormError("");
+    const result = await onResubmit(order.id, resubmitAudio || undefined, resubmitContacts || undefined);
+    setResubmitting(false);
+    if (!result.ok) setFormError(result.error || "The files could not be resubmitted.");
   };
 
   return (
@@ -2816,9 +2963,13 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               <label>Audio file <span className="dropzone">{resubmitAudio ? <><Icon name="check"/><b>{resubmitAudio.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace audio</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitAudio(e.target.files?.[0] || null)}/></span></label>
               <label>Contact list <span className="dropzone">{resubmitContacts ? <><Icon name="check"/><b>{resubmitContacts.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace contacts</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitContacts(e.target.files?.[0] || null)}/></span></label>
             </div>
-            <button className="primary" onClick={() => onResubmit(order.id, resubmitAudio || undefined, resubmitContacts || undefined)} disabled={!resubmitAudio && !resubmitContacts}>Resubmit files <Icon name="arrow" size={16}/></button>
+            <button className="primary" onClick={handleResubmitClick} disabled={resubmitting || (!resubmitAudio && !resubmitContacts)}>
+              {resubmitting ? "Uploading…" : <>Resubmit files <Icon name="arrow" size={16}/></>}
+            </button>
           </div>
         )}
+
+        {!admin && formError && <div className="form-error">{formError}</div>}
 
         {/* Admin fulfillment & status update modal form */}
         {admin && (
@@ -2836,16 +2987,25 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               </select>
             </label>
 
-            {(status === "Completed") && (
+            {refundApplies && (
               <div className="refund-panel">
                 <h4>Partial refund (optional)</h4>
                 <p>If some calls were undelivered or unanswered, enter the refund amount. You must type the amount twice for double verification.</p>
+
+                {alreadyPartiallyRefunded && (
+                  <div className="form-warning">
+                    ⚠️ ₹{order.partialRefundAmount!.toFixed(2)} has already been refunded on this order. Anything entered
+                    below is credited <strong>on top of</strong> that. Leave both fields empty to refund nothing further.
+                  </div>
+                )}
 
                 <div className="form-grid">
                   <label>Partial refund amount (₹)
                     <input
                       type="number"
                       step="0.01"
+                      min="0"
+                      max={order.charge || undefined}
                       placeholder="0.00"
                       value={partialRefundAmount}
                       onChange={e => setPartialRefundAmount(e.target.value)}
@@ -2855,6 +3015,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                     <input
                       type="number"
                       step="0.01"
+                      min="0"
                       placeholder="0.00"
                       value={confirmPartialRefundAmount}
                       onChange={e => setConfirmPartialRefundAmount(e.target.value)}
@@ -2867,23 +3028,54 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                   <div className="form-error">⚠️ Mismatch warning: both partial refund amounts must match exactly.</div>
                 )}
 
-                {partialRefundAmount && !partialRefundMismatch && parseFloat(partialRefundAmount) > 0 && (
-                  <div className="form-success">✓ Valid: ₹{parseFloat(partialRefundAmount).toFixed(2)} will be credited back to the customer&apos;s wallet balance.</div>
+                {partialRefundOverCharge && (
+                  <div className="form-error">⚠️ A refund of ₹{partialRefundValue.toFixed(2)} exceeds the ₹{(order.charge || 0).toFixed(2)} charged for this order.</div>
+                )}
+
+                {partialRefundValue > 0 && !partialRefundMismatch && !partialRefundOverCharge && (
+                  <div className="form-success">✓ Valid: ₹{partialRefundValue.toFixed(2)} will be credited back to the customer&apos;s wallet balance.</div>
                 )}
               </div>
             )}
 
-            {(status === "Completed") && (
-              <label>Campaign report file
-                <input type="file" accept=".csv,.pdf,.zip,.xlsx" onChange={e => setReportFile(e.target.files?.[0] || null)}/>
-              </label>
+            {refundApplies && (
+              <div className="field-block">
+                <label className="field-label">Campaign report file</label>
+                <span className={`dropzone ${reportTooLarge ? "invalid" : reportFile ? "filled" : ""}`}>
+                  {reportFile ? (
+                    <><Icon name="check"/><b>{reportFile.name}</b><small>{formatFileSize(reportFile.size)} · ready to send to the customer</small></>
+                  ) : order.reportKey ? (
+                    <><Icon name="file"/><b>Replace the existing report</b><small>A report is already attached — choosing a file overwrites it</small></>
+                  ) : (
+                    <><Icon name="upload"/><b>Upload the campaign report</b><small>CSV, PDF, XLSX or ZIP · up to {describeLimit(UPLOAD_LIMITS.REPORT)}</small></>
+                  )}
+                  <input
+                    type="file"
+                    accept=".csv,.pdf,.zip,.xlsx,.xls"
+                    onChange={e => { setReportFile(e.target.files?.[0] || null); setFormError(""); }}
+                  />
+                </span>
+                {reportFile ? (
+                  <div className="dropzone-actions">
+                    <button type="button" className="text-button" onClick={() => setReportFile(null)}>
+                      <Icon name="close" size={13}/>Remove file
+                    </button>
+                  </div>
+                ) : (
+                  <p className="field-hint">
+                    {order.reportKey
+                      ? "The customer can already download the attached report."
+                      : "Optional — you can complete the order now and attach the report later."}
+                  </p>
+                )}
+              </div>
             )}
 
             <label>Admin comment / remarks for customer
-              <textarea 
-                rows={2} 
-                placeholder="Add final report comment or notes for customer..." 
-                value={adminComment} 
+              <textarea
+                rows={2}
+                placeholder="Add final report comment or notes for customer..."
+                value={adminComment}
                 onChange={e => setAdminComment(e.target.value)}
               />
             </label>
@@ -2896,26 +3088,54 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               <label>Cancellation reason<textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={3} placeholder="Why is this broadcast cancelled?"/></label>
             )}
 
+            {/* Refunded was wired through to the server and written into the order history, but
+                the field to type it never existed, so the reason was always blank. */}
+            {status === "Refunded" && (
+              <label>Refund reason<textarea value={refundReason} onChange={e => setRefundReason(e.target.value)} rows={3} placeholder="Why is this broadcast being refunded in full?"/></label>
+            )}
+
+            {(status === "Cancelled" || status === "Refunded") && (order.charge || 0) > 0 && (
+              <div className="form-warning">
+                ⚠️ Saving this refunds the full ₹{(order.charge || 0).toFixed(2)} to the customer&apos;s wallet.
+              </div>
+            )}
+
+            {formError && <div className="form-error">{formError}</div>}
+
             <button
               className="primary"
               onClick={handleAdminSubmit}
-              disabled={partialRefundMismatch}
+              disabled={saving || Boolean(blockingError)}
             >
-              Save &amp; process fulfilment
+              {saving
+                ? (reportFile ? "Uploading report…" : "Saving…")
+                : "Save & process fulfilment"}
             </button>
           </div>
         )}
 
-        <div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div>
+        <div className="modal-footer">
+          <button className="outline" onClick={onClose} disabled={saving || resubmitting}>Close</button>
+        </div>
       </div>
     </div>
   );
 }
 
-function TicketViewModal({ ticket, admin, onClose, onUpdate }: { ticket: Ticket; admin: boolean; onClose: () => void; onUpdate: (id: string, s: TicketStatus, reply?: string) => void }) { 
-  const [status, setStatus] = useState<TicketStatus>(ticket.status); 
-  const [reply, setReply] = useState<string>(ticket.reply || ""); 
-  
+function TicketViewModal({ ticket, admin, onClose, onUpdate }: { ticket: Ticket; admin: boolean; onClose: () => void; onUpdate: (id: string, s: TicketStatus, reply?: string) => Promise<SubmitResult> }) {
+  const [status, setStatus] = useState<TicketStatus>(ticket.status);
+  const [reply, setReply] = useState<string>(ticket.reply || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    const result = await onUpdate(ticket.id, status, reply);
+    setSaving(false);
+    if (!result.ok) setError(result.error || "The ticket could not be updated.");
+  };
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal compact-modal">
@@ -2938,10 +3158,11 @@ function TicketViewModal({ ticket, admin, onClose, onUpdate }: { ticket: Ticket;
             <label>Reply to customer
               <textarea value={reply} onChange={e => setReply(e.target.value)} rows={3} placeholder="Type your response here..."/>
             </label>
-            <button className="primary" onClick={() => onUpdate(ticket.id, status, reply)}>Save update</button>
+            {error && <div className="form-error">{error}</div>}
+            <button className="primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save update"}</button>
           </div>
         )}
-        <div className="modal-footer"><button className="outline" onClick={onClose}>Close</button></div>
+        <div className="modal-footer"><button className="outline" onClick={onClose} disabled={saving}>Close</button></div>
       </div>
     </div>
   ); 

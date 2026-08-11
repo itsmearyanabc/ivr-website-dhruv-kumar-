@@ -4,6 +4,7 @@
 import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { logActivity, describeActor } from '@/app/actions/activity'
+import { UPLOAD_LIMITS, describeLimit } from '@/lib/uploads'
 
 export async function getBroadcasts() {
   const isAdmin = await checkIsAdmin()
@@ -103,12 +104,11 @@ export async function createBroadcast(formData: FormData) {
     return { error: 'Please enter target phone numbers.' }
   }
 
-  const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
-  if (audio && audio.size > MAX_FILE_SIZE) {
-    return { error: 'Audio file exceeds 25 MB limit.' }
+  if (audio && audio.size > UPLOAD_LIMITS.AUDIO) {
+    return { error: `Audio file exceeds the ${describeLimit(UPLOAD_LIMITS.AUDIO)} limit.` }
   }
-  if (contacts && contacts.size > MAX_FILE_SIZE) {
-    return { error: 'Contacts file exceeds 25 MB limit.' }
+  if (contacts && contacts.size > UPLOAD_LIMITS.CONTACTS) {
+    return { error: `Contacts file exceeds the ${describeLimit(UPLOAD_LIMITS.CONTACTS)} limit.` }
   }
 
   if (charge < 0 || isNaN(charge)) {
@@ -277,6 +277,42 @@ export async function createBroadcast(formData: FormData) {
   return { data }
 }
 
+/**
+ * Moves money into a customer wallet, preferring the atomic RPC and falling back to a
+ * re-read + write only when the RPC itself is unavailable. Returns false when even the
+ * fallback failed, so the caller can refuse to record a transaction that never happened.
+ */
+async function creditWallet(
+  supabase: Awaited<ReturnType<typeof createServiceRoleClient>>,
+  userId: string,
+  amount: number,
+): Promise<boolean> {
+  if (!(amount > 0)) return true
+
+  const { error } = await supabase.rpc('increment_balance', { uid: userId, amt: amount })
+  if (!error) return true
+
+  console.error('increment_balance failed, falling back to read-then-write:', error)
+  const { data: owner } = await supabase
+    .from('users')
+    .select('balance')
+    .eq('id', userId)
+    .single()
+
+  if (!owner) return false
+
+  const { error: writeError } = await supabase
+    .from('users')
+    .update({ balance: Number(owner.balance) + amount })
+    .eq('id', userId)
+
+  if (writeError) {
+    console.error('Fallback wallet credit failed:', writeError)
+    return false
+  }
+  return true
+}
+
 export async function updateBroadcastStatus(formData: FormData) {
   const isAdmin = await checkIsAdmin()
   if (!isAdmin) return { error: 'Unauthorized' }
@@ -323,26 +359,81 @@ export async function updateBroadcastStatus(formData: FormData) {
   }
 
   const originalCharge = Number(existingBroadcast.charge || 0)
-
-  // FIX Bug 6: Validate partial refund amount doesn't exceed original charge
-  if (partialRefundAmount !== null && partialRefundAmount > originalCharge) {
-    return { error: `Partial refund amount (₹${partialRefundAmount.toFixed(2)}) cannot exceed the original charge (₹${originalCharge.toFixed(2)}).` }
-  }
+  const currentStatus = existingBroadcast.status
 
   // FIX Bug 2 & 9: Prevent invalid double-refunds
-  const currentStatus = existingBroadcast.status
   const alreadyRefundedStatuses = ['CANCELLED', 'REFUNDED']
   if (alreadyRefundedStatuses.includes(currentStatus) && alreadyRefundedStatuses.includes(status)) {
     return { error: `Broadcast is already ${currentStatus}. Cannot change to ${status}.` }
   }
 
+  // A partial refund is only meaningful against work that was actually delivered. Carrying it
+  // into a CANCELLED or REFUNDED save paid the customer the partial amount *and* the full
+  // charge, so it is dropped for every other target status.
+  const refundsPartial = status === 'COMPLETED' || status === 'PARTIAL'
+  if (!refundsPartial) partialRefundAmount = null
+
+  // The transaction ledger - not the order row - is the authority on what has already been
+  // paid back. Every refund path below writes a CREDIT against the order reference, so this
+  // sum stays correct across repeated saves and across status round-trips, which is what
+  // stopped a second click on "Save & process fulfilment" from crediting the refund twice.
+  const { data: priorCredits, error: creditsError } = await supabase
+    .from('transactions')
+    .select('amount')
+    .eq('order_id', existingBroadcast.reference_no)
+    .eq('type', 'CREDIT')
+    .eq('status', 'SUCCESS')
+
+  if (creditsError) {
+    console.error('Refund history lookup failed:', creditsError)
+    return { error: 'Could not verify what has already been refunded on this order. No changes were made.' }
+  }
+
+  const alreadyRefunded = (priorCredits || []).reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0)
+  const refundableRemaining = Math.max(0, Number((originalCharge - alreadyRefunded).toFixed(2)))
+
+  if (partialRefundAmount !== null && partialRefundAmount > refundableRemaining) {
+    return {
+      error: alreadyRefunded > 0
+        ? `Only ₹${refundableRemaining.toFixed(2)} of the ₹${originalCharge.toFixed(2)} charge is still refundable — ₹${alreadyRefunded.toFixed(2)} has already been credited back.`
+        : `Partial refund amount (₹${partialRefundAmount.toFixed(2)}) cannot exceed the original charge (₹${originalCharge.toFixed(2)}).`
+    }
+  }
+
+  // Upload the report BEFORE the status moves. Doing it afterwards meant a failed upload left
+  // the order sitting at Completed with no report attached and no way to tell from the row.
+  let reportKey: string | null = null
+  if (refundsPartial && reportFile && reportFile.size > 0) {
+    if (reportFile.size > UPLOAD_LIMITS.REPORT) {
+      return { error: `Report file exceeds the ${describeLimit(UPLOAD_LIMITS.REPORT)} limit.` }
+    }
+
+    const file_key = `reports/${crypto.randomUUID()}-${reportFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    const { error: uploadError } = await supabase.storage.from('xpack_files').upload(file_key, reportFile)
+    if (uploadError) {
+      console.error('Report Upload Error:', uploadError)
+      return { error: 'Failed to upload the report file. The order status was not changed.' }
+    }
+    reportKey = file_key
+  }
+
   const updatePayload: any = { status, updated_at: new Date().toISOString() }
-  
+
   updatePayload.hold_reason = status === 'ON_HOLD' ? (holdReason || null) : null
   updatePayload.cancel_reason = status === 'CANCELLED' ? (cancelReason || null) : null
   updatePayload.refund_reason = status === 'REFUNDED' ? (refundReason || null) : null
   if (adminComment) updatePayload.admin_comment = adminComment
-  if (partialRefundAmount !== null) updatePayload.partial_refund_amount = partialRefundAmount
+
+  // Full refunds only return what is still owed, so an order that was already partly
+  // refunded and is then cancelled cannot pay out more than the customer was charged.
+  const fullRefundAmount = alreadyRefundedStatuses.includes(status) ? refundableRemaining : 0
+  const creditAmount = partialRefundAmount && partialRefundAmount > 0 ? partialRefundAmount : fullRefundAmount
+
+  if (partialRefundAmount !== null) {
+    updatePayload.partial_refund_amount = Number(
+      (Number(existingBroadcast.partial_refund_amount || 0) + partialRefundAmount).toFixed(2)
+    )
+  }
 
   let query = supabase
     .from('broadcasts')
@@ -360,140 +451,65 @@ export async function updateBroadcastStatus(formData: FormData) {
 
   if (error || !data) {
     console.error('Update Broadcast Error:', error)
+    if (reportKey) await supabase.storage.from('xpack_files').remove([reportKey])
     return { error: 'Failed to update broadcast' }
   }
 
-  // Handle report file upload for COMPLETED or PARTIAL
-  if ((status === 'COMPLETED' || status === 'PARTIAL') && reportFile && reportFile.size > 0) {
-    const file_key = `reports/${crypto.randomUUID()}-${reportFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-    
-    const { error: uploadError } = await supabase.storage.from('xpack_files').upload(file_key, reportFile)
-    if (uploadError) {
-      console.error('Report Upload Error:', uploadError)
-      return { error: 'Failed to upload report file' }
-    }
+  if (reportKey) {
+    // Note the file being replaced before the row points somewhere else, otherwise the old
+    // blob is orphaned in the bucket forever - which adds up fast against a 1 GB quota.
+    const { data: previousReport } = await supabase
+      .from('reports')
+      .select('file_key')
+      .eq('broadcast_id', data.id)
+      .maybeSingle()
 
     const { error: upsertError } = await supabase
       .from('reports')
-      .upsert({
-        broadcast_id: data.id,
-        file_key
-      }, { onConflict: 'broadcast_id' })
-      
+      .upsert({ broadcast_id: data.id, file_key: reportKey }, { onConflict: 'broadcast_id' })
+
     if (upsertError) {
       console.error('Report Upsert Error:', upsertError)
-      return { error: 'Failed to link report file to broadcast' }
+      await supabase.storage.from('xpack_files').remove([reportKey])
+      return { error: 'The status was updated, but the report could not be attached. Please re-upload it.' }
+    }
+
+    if (previousReport?.file_key && previousReport.file_key !== reportKey) {
+      await supabase.storage.from('xpack_files').remove([previousReport.file_key])
     }
   }
 
-  // FIX Bug 2: Auto full refund on CANCELLED status
-  if (status === 'CANCELLED' && originalCharge > 0) {
-    const { error: creditError } = await supabase.rpc('increment_balance', {
-      uid: data.user_id,
-      amt: originalCharge
-    })
+  // One credit path for every refund flavour: a full return on cancel/refund, or the partial
+  // amount an admin typed against a completed run. Never both.
+  if (creditAmount > 0) {
+    const credited = await creditWallet(supabase, data.user_id, creditAmount)
 
-    if (creditError) {
-      console.error('Cancel refund increment_balance error:', creditError)
-      const { data: owner } = await supabase
-        .from('users')
-        .select('balance')
-        .eq('id', data.user_id)
-        .single()
-
-      if (owner) {
-        await supabase
-          .from('users')
-          .update({ balance: Number(owner.balance) + originalCharge })
-          .eq('id', data.user_id)
-      }
+    if (credited) {
+      await supabase.from('transactions').insert([{
+        user_id: data.user_id,
+        amount: creditAmount,
+        type: 'CREDIT',
+        status: 'SUCCESS',
+        order_id: data.reference_no
+      }])
+    } else {
+      // No ledger row without a balance move - a phantom CREDIT would make the next save
+      // think this money was already returned and silently short the customer.
+      console.error('Refund credit failed for broadcast', data.reference_no)
+      return { error: `The status was updated, but the ₹${creditAmount.toFixed(2)} refund could not be credited. Please credit it manually from the customer directory.` }
     }
-
-    // Record credit transaction for cancellation refund
-    await supabase.from('transactions').insert([{
-      user_id: data.user_id,
-      amount: originalCharge,
-      type: 'CREDIT',
-      status: 'SUCCESS',
-      order_id: data.reference_no
-    }])
-  }
-
-  // FIX Bug 9: Auto full refund on REFUNDED status (if no partial refund specified)
-  if (status === 'REFUNDED' && originalCharge > 0 && partialRefundAmount === null) {
-    const { error: creditError } = await supabase.rpc('increment_balance', {
-      uid: data.user_id,
-      amt: originalCharge
-    })
-
-    if (creditError) {
-      console.error('Refund increment_balance error:', creditError)
-      const { data: owner } = await supabase
-        .from('users')
-        .select('balance')
-        .eq('id', data.user_id)
-        .single()
-
-      if (owner) {
-        await supabase
-          .from('users')
-          .update({ balance: Number(owner.balance) + originalCharge })
-          .eq('id', data.user_id)
-      }
-    }
-
-    // Record credit transaction for full refund
-    await supabase.from('transactions').insert([{
-      user_id: data.user_id,
-      amount: originalCharge,
-      type: 'CREDIT',
-      status: 'SUCCESS',
-      order_id: data.reference_no
-    }])
-  }
-
-  // Process partial refund credit to user wallet if partial refund amount > 0
-  if (partialRefundAmount && partialRefundAmount > 0) {
-    const { error: creditError } = await supabase.rpc('increment_balance', {
-      uid: data.user_id,
-      amt: partialRefundAmount
-    })
-
-    if (creditError) {
-      console.error('Partial refund increment_balance error:', creditError)
-      // FIX Bug 5: Re-read balance right before fallback to avoid stale value
-      const { data: owner } = await supabase
-        .from('users')
-        .select('balance')
-        .eq('id', data.user_id)
-        .single()
-
-      if (owner) {
-        const freshBalance = Number(owner.balance)
-        await supabase
-          .from('users')
-          .update({ balance: freshBalance + partialRefundAmount })
-          .eq('id', data.user_id)
-      }
-    }
-
-    // Record credit transaction
-    await supabase.from('transactions').insert([{
-      user_id: data.user_id,
-      amount: partialRefundAmount,
-      type: 'CREDIT',
-      status: 'SUCCESS',
-      order_id: data.reference_no
-    }])
   }
 
   // Record history
   let historyReason = adminComment || null
   if (status === 'ON_HOLD') historyReason = holdReason
-  if (status === 'CANCELLED') historyReason = cancelReason
-  if (status === 'REFUNDED') historyReason = refundReason ? `${refundReason} (Amount: ₹${originalCharge.toFixed(2)})` : `Full refund: ₹${originalCharge.toFixed(2)}`
+  if (status === 'CANCELLED') historyReason = cancelReason || null
+  if (status === 'REFUNDED') historyReason = refundReason || null
+  if (fullRefundAmount > 0) {
+    historyReason = `${historyReason ? `${historyReason}. ` : ''}Refunded ₹${fullRefundAmount.toFixed(2)} to the customer wallet.`
+  }
   if (partialRefundAmount && partialRefundAmount > 0) {
-    historyReason = `Partial refund processed: ₹${partialRefundAmount.toFixed(2)}. ${adminComment || ''}`
+    historyReason = `Partial refund processed: ₹${partialRefundAmount.toFixed(2)}.${adminComment ? ` ${adminComment}` : ''}`
   }
 
   await supabase.from('broadcast_status_history').insert([{
@@ -531,6 +547,15 @@ export async function resubmitFiles(formData: FormData) {
 
   if ((!newAudio || !newAudio.name || newAudio.size === 0) && (!newContacts || !newContacts.name || newContacts.size === 0)) {
     return { error: 'Please select at least one file to resubmit.' }
+  }
+
+  // The create path enforced these but the resubmit path did not, so a file rejected at order
+  // time could be slipped in afterwards through the on-hold flow.
+  if (newAudio && newAudio.size > UPLOAD_LIMITS.AUDIO) {
+    return { error: `Audio file exceeds the ${describeLimit(UPLOAD_LIMITS.AUDIO)} limit.` }
+  }
+  if (newContacts && newContacts.size > UPLOAD_LIMITS.CONTACTS) {
+    return { error: `Contacts file exceeds the ${describeLimit(UPLOAD_LIMITS.CONTACTS)} limit.` }
   }
 
   // Fetch the broadcast and verify ownership + ON_HOLD status
