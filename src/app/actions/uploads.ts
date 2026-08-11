@@ -32,8 +32,14 @@ function safeName(name: string): string {
 }
 
 export type UploadTicket =
-  | { error: string; path?: undefined; token?: undefined }
-  | { path: string; token: string; error?: undefined }
+  | { error: string; path?: undefined; signedUrl?: undefined }
+  /**
+   * `signedUrl` is absolute and already carries the token, so the browser can PUT to it with
+   * nothing but fetch/XHR. That matters: it keeps the upload path free of any dependency on
+   * NEXT_PUBLIC_* reaching the client bundle, which is inlined at build time and is therefore
+   * empty whenever the bundle was built without those variables present.
+   */
+  | { path: string; signedUrl: string; error?: undefined }
 
 /**
  * Issues a one-object upload token. The returned path is the only place the token can write.
@@ -69,7 +75,7 @@ export async function createUploadTicket(
   const supabase = await createServiceRoleClient()
   const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUploadUrl(path)
 
-  if (error || !data?.token) {
+  if (error || !data?.signedUrl) {
     console.error('createUploadTicket error:', error)
     const message = error?.message || ''
     if (/bucket not found/i.test(message)) {
@@ -78,5 +84,11 @@ export async function createUploadTicket(
     return { error: 'Could not start the upload. Please try again.' }
   }
 
-  return { path: data.path || path, token: data.token }
+  // createSignedUploadUrl returns a relative URL on some versions; make it absolute so the
+  // browser never has to know the Supabase origin.
+  const signedUrl = data.signedUrl.startsWith('http')
+    ? data.signedUrl
+    : `${process.env.NEXT_PUBLIC_SUPABASE_URL!.replace(/\/$/, '')}/storage/v1${data.signedUrl.startsWith('/') ? '' : '/'}${data.signedUrl}`
+
+  return { path: data.path || path, signedUrl }
 }
