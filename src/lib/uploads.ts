@@ -1,26 +1,34 @@
 /**
- * Upload size limits, in one place.
+ * Upload limits and storage location, in one place.
  *
- * These are a memory budget as much as a policy. Server Actions buffer the entire request
- * body in memory before the handler runs, and this deployment targets Render's free instance
- * (512 MB RAM), so the combined worst case of a single request has to stay well under the
- * `experimental.serverActions.bodySizeLimit` set in next.config.ts (15 MB).
+ * These used to be a memory budget: files were posted into a Server Action, so every byte was
+ * buffered by the Next process on Render's free 512 MB instance, and Next's own Server Action
+ * body limit rejected anything larger with a 413 before the handler ran.
  *
- * The worst case is createBroadcast, which carries audio + contacts together:
- *   AUDIO (10 MB) + CONTACTS (4 MB) = 14 MB + multipart overhead.
+ * Uploads now go straight from the browser to Supabase Storage using a signed upload ticket
+ * (see src/app/actions/uploads.ts), so Render never holds the bytes and these numbers are a
+ * product decision rather than a memory constraint. The real ceiling is now the Supabase
+ * bucket's own file size limit.
  *
- * If you raise anything here, raise bodySizeLimit first - Next rejects an oversized body with
- * a 413 before the action can produce a readable error.
+ * IMPORTANT: Supabase enforces a per-file cap on the bucket itself. If an upload fails with
+ * "Payload too large", raise it in Supabase → Storage → xpack_files → Settings, or the global
+ * limit under Project Settings → Storage. Nothing here can lift that cap.
  */
+
+/** The single bucket every uploaded asset lives in. */
+export const STORAGE_BUCKET = 'xpack_files';
+
+export type UploadKind = 'audio' | 'contacts' | 'report' | 'qr';
+
 export const UPLOAD_LIMITS = {
-  /** Campaign audio. A spoken IVR message at normal bitrate is well under 2 MB. */
-  AUDIO: 10 * 1024 * 1024,
-  /** Contact list: CSV, TXT, XLSX or PDF. 100k numbers in a CSV is roughly 1.5 MB. */
-  CONTACTS: 4 * 1024 * 1024,
-  /** Fulfilment report the admin sends back to the customer. */
-  REPORT: 10 * 1024 * 1024,
+  /** Campaign audio. */
+  AUDIO: 50 * 1024 * 1024,
+  /** Contact list: CSV, TXT, XLSX, PDF or anything else the operator can read. */
+  CONTACTS: 50 * 1024 * 1024,
+  /** Fulfilment report the admin sends back to the customer. Any file type. */
+  REPORT: 50 * 1024 * 1024,
   /** Static UPI QR image shown on the top-up screen. */
-  QR_IMAGE: 4 * 1024 * 1024,
+  QR_IMAGE: 10 * 1024 * 1024,
 } as const;
 
 export function formatFileSize(bytes: number): string {
@@ -29,7 +37,7 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Human-readable ceiling for UI copy, e.g. "10 MB". */
+/** Human-readable ceiling for UI copy, e.g. "50 MB". */
 export function describeLimit(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))} MB`;
 }

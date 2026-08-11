@@ -30,6 +30,7 @@ import StatisticsGraph from "@/app/_components/admin/StatisticsGraph";
 import ActivityLog from "@/app/_components/admin/ActivityLog";
 import AddFunds from "@/app/_components/customer/AddFunds";
 import { UPLOAD_LIMITS, formatFileSize, describeLimit } from "@/lib/uploads";
+import { uploadFile, uploadFiles } from "@/lib/uploadClient";
 import * as XLSX from "xlsx";
 
 type Role = "customer" | "admin";
@@ -89,6 +90,26 @@ function reportFileKey(reports: any): string | undefined {
 
 /** What every modal submit handler hands back so the form can stay open and explain itself. */
 type SubmitResult = { ok: boolean; error?: string };
+
+/**
+ * Upload progress bar. Files go straight to Supabase Storage, so on a slow connection a large
+ * file leaves the operator staring at a disabled button for a while - this says what is
+ * happening and how far along it is.
+ */
+function UploadProgress({ percent, label, active }: { percent: number; label: string; active: boolean }) {
+  if (!active) return null;
+  return (
+    <div className="upload-progress" role="status" aria-live="polite">
+      <div className="upload-progress-head">
+        <span>{label || "Uploading…"}</span>
+        <strong>{percent}%</strong>
+      </div>
+      <div className="upload-progress-track">
+        <div className="upload-progress-bar" style={{ width: `${Math.max(4, percent)}%` }} />
+      </div>
+    </div>
+  );
+}
 
 /** Module scope on purpose: reading the clock is impure and must not sit in a render path. */
 function isInTheFuture(value: string): boolean {
@@ -294,13 +315,9 @@ export default function PortalApp({ portal }: { portal: Role }) {
     formData.append("schedule", orderPayload.schedule || "Start on processing");
     formData.append("audioInputMethod", orderPayload.audioInputMethod || "FILE");
     formData.append("ttsText", orderPayload.ttsText || "");
-
-    if (orderPayload.audioFile) {
-      formData.append("audio", orderPayload.audioFile);
-    }
-    if (orderPayload.contactsFile) {
-      formData.append("contacts", orderPayload.contactsFile);
-    }
+    // Files are already in Supabase Storage - only their keys travel through the action.
+    formData.append("audioKey", orderPayload.audioKey || "");
+    formData.append("contactsKey", orderPayload.contactsKey || "");
 
     // The modal stays open until the order is actually accepted. Closing first meant a
     // rejected upload left the customer looking at a dashboard with no order and no reason.
@@ -353,8 +370,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
     id: string, 
     status: Status, 
     payload?: { 
-      reportFile?: File; 
-      holdReason?: string; 
+      reportKey?: string;
+      holdReason?: string;
       cancelReason?: string; 
       refundReason?: string; 
       refundAmount?: number;
@@ -367,7 +384,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
     const formData = new FormData();
     formData.append("id", id);
     formData.append("status", dbStatus);
-    if (payload?.reportFile) formData.append("report", payload.reportFile);
+    if (payload?.reportKey) formData.append("reportKey", payload.reportKey);
     if (payload?.holdReason) formData.append("holdReason", payload.holdReason);
     if (payload?.cancelReason) formData.append("cancelReason", payload.cancelReason);
     if (payload?.refundReason) formData.append("refundReason", payload.refundReason);
@@ -384,7 +401,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
     }
 
     setSelected(null);
-    const uploaded = Boolean(payload?.reportFile);
+    const uploaded = Boolean(payload?.reportKey);
     message(
       status === "Completed"
         ? uploaded
@@ -399,11 +416,11 @@ export default function PortalApp({ portal }: { portal: Role }) {
     return { ok: true };
   };
 
-  const handleResubmit = async (id: string, audioFile?: File, contactsFile?: File): Promise<SubmitResult> => {
+  const handleResubmit = async (id: string, audioKey?: string, contactsKey?: string): Promise<SubmitResult> => {
     const formData = new FormData();
     formData.append("id", id);
-    if (audioFile) formData.append("audio", audioFile);
-    if (contactsFile) formData.append("contacts", contactsFile);
+    if (audioKey) formData.append("audioKey", audioKey);
+    if (contactsKey) formData.append("contactsKey", contactsKey);
 
     try {
       const { error } = await resubmitFiles(formData);
@@ -2345,6 +2362,8 @@ function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; 
 function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClose: () => void; onSubmit: (o: any) => Promise<SubmitResult>; session: Session; balance: number; price: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCatId, setSelectedCatId] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
@@ -2472,24 +2491,48 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     }
 
     setSubmitting(true);
+
+    // Upload straight to Supabase Storage first. Nothing is charged and no order is created
+    // until every file is safely stored, so a failed upload costs the customer nothing.
+    const pending: Array<{ kind: "audio" | "contacts"; file: File; label: string }> = [];
+    if (audioInputMethod === 'FILE' && audioFile) pending.push({ kind: "audio", file: audioFile, label: audioFile.name });
+    if (inputMethod === 'FILE' && contactsFile) pending.push({ kind: "contacts", file: contactsFile, label: contactsFile.name });
+
+    const uploads = await uploadFiles(pending, (percent, label) => {
+      setProgress(percent);
+      setProgressLabel(label ? `Uploading ${label}` : "");
+    });
+    setProgressLabel("");
+
+    if (!uploads.ok) {
+      setSubmitting(false);
+      setProgress(0);
+      return setSubmitError(uploads.error);
+    }
+
+    let index = 0;
+    const audioKey = audioInputMethod === 'FILE' && audioFile ? uploads.keys[index++] : "";
+    const contactsKey = inputMethod === 'FILE' && contactsFile ? uploads.keys[index] : "";
+
     const result = await onSubmit({
       categoryId: selectedCatId,
       categoryName: currentCategory?.name || '',
       serviceId: selectedServiceId,
       serviceName: currentService?.name || '',
       voiceType,
-      notes: String(data.get("notes") || ""), 
-      audioFile: audioInputMethod === 'FILE' ? audioFile : null,
+      notes: String(data.get("notes") || ""),
+      audioKey,
       audioInputMethod,
       ttsText: audioInputMethod === 'TTS' ? ttsText : '',
       contactsInputType: inputMethod,
-      contactsFile: inputMethod === 'FILE' ? contactsFile : null,
+      contactsKey,
       manualContacts: inputMethod === 'MANUAL' ? manualText : '',
       contactCount: contactsCount,
       charge: calculatedCost,
       schedule: finalSchedule
     });
     setSubmitting(false);
+    setProgress(0);
     if (!result.ok) setSubmitError(result.error || "The broadcast could not be created.");
   };
 
@@ -2598,9 +2641,9 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
                 {contactsFile ? (
                   <><Icon name="check"/><b>{contactsFile.name}</b><small>{isParsing ? "Scanning file…" : `${contactsCount} contacts found`}</small></>
                 ) : (
-                  <><Icon name="upload"/><b>Upload contact list file</b><small>CSV, TXT, XLSX or PDF · up to {describeLimit(UPLOAD_LIMITS.CONTACTS)}</small></>
+                  <><Icon name="upload"/><b>Upload contact list file</b><small>Any file type · up to {describeLimit(UPLOAD_LIMITS.CONTACTS)}</small></>
                 )}
-                <input type="file" onChange={handleContactsFileChange} accept=".csv,.txt,.xlsx,.xls,.pdf"/>
+                <input type="file" onChange={handleContactsFileChange}/>
               </span>
               {contactsFile && !isParsing && (
                 <div className="flash-success small-flash">✓ {contactsCount} contacts found from file</div>
@@ -2652,11 +2695,13 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
 
         {submitError && <div className="form-error">{submitError}</div>}
 
+        <UploadProgress percent={progress} label={progressLabel} active={submitting && Boolean(progressLabel)} />
+
         <div className="modal-footer">
           <button type="button" className="outline" onClick={onClose} disabled={submitting}>Cancel</button>
           <button className="primary" disabled={submitting || isParsing || !selectedServiceId || !canAfford}>
             {submitting
-              ? "Uploading & placing order…"
+              ? (progressLabel ? `Uploading… ${progress}%` : "Placing order…")
               : <>Confirm &amp; debit ₹{calculatedCost.toFixed(2)} <Icon name="arrow" size={16}/></>}
           </button>
         </div>
@@ -2787,8 +2832,8 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
     id: string, 
     s: Status, 
     payload?: { 
-      reportFile?: File; 
-      holdReason?: string; 
+      reportKey?: string;
+      holdReason?: string;
       cancelReason?: string; 
       refundReason?: string; 
       refundAmount?: number;
@@ -2797,7 +2842,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
       adminComment?: string;
     }
   ) => Promise<SubmitResult>;
-  onResubmit: (id: string, audioFile?: File, contactsFile?: File) => Promise<SubmitResult>;
+  onResubmit: (id: string, audioKey?: string, contactsKey?: string) => Promise<SubmitResult>;
 }) {
   const [status, setStatus] = useState<Status>(order.status);
   const [reportFile, setReportFile] = useState<File | null>(null);
@@ -2817,6 +2862,8 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   const [saving, setSaving] = useState(false);
   const [resubmitting, setResubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
 
   const partialRefundMismatch = (partialRefundAmount.trim() !== "" || confirmPartialRefundAmount.trim() !== "") && (partialRefundAmount !== confirmPartialRefundAmount);
 
@@ -2853,8 +2900,23 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
     setSaving(true);
     setFormError("");
 
+    // The report goes browser -> Supabase Storage first; only its key is posted to the
+    // action. Nothing is saved if the upload fails, so the order never moves without it.
+    let reportKey: string | undefined;
+    if (reportFile) {
+      setProgressLabel(`Uploading ${reportFile.name}`);
+      setProgress(0);
+      const upload = await uploadFile("report", reportFile, setProgress);
+      setProgressLabel("");
+      if (!upload.ok) {
+        setSaving(false);
+        return setFormError(upload.error);
+      }
+      reportKey = upload.key;
+    }
+
     const result = await onUpdate(order.id, status, {
-      reportFile: reportFile || undefined,
+      reportKey,
       holdReason,
       cancelReason,
       refundReason,
@@ -2865,6 +2927,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
     });
 
     setSaving(false);
+    setProgress(0);
     // On success the parent closes this modal; on failure it stays open holding the file the
     // operator already picked, so the retry does not start from scratch.
     if (!result.ok) setFormError(result.error || "The update could not be saved.");
@@ -2873,8 +2936,30 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   const handleResubmitClick = async () => {
     setResubmitting(true);
     setFormError("");
-    const result = await onResubmit(order.id, resubmitAudio || undefined, resubmitContacts || undefined);
+
+    const pending: Array<{ kind: "audio" | "contacts"; file: File; label: string }> = [];
+    if (resubmitAudio) pending.push({ kind: "audio", file: resubmitAudio, label: resubmitAudio.name });
+    if (resubmitContacts) pending.push({ kind: "contacts", file: resubmitContacts, label: resubmitContacts.name });
+
+    const uploads = await uploadFiles(pending, (percent, label) => {
+      setProgress(percent);
+      setProgressLabel(label ? `Uploading ${label}` : "");
+    });
+    setProgressLabel("");
+
+    if (!uploads.ok) {
+      setResubmitting(false);
+      setProgress(0);
+      return setFormError(uploads.error);
+    }
+
+    let index = 0;
+    const audioKey = resubmitAudio ? uploads.keys[index++] : undefined;
+    const contactsKey = resubmitContacts ? uploads.keys[index] : undefined;
+
+    const result = await onResubmit(order.id, audioKey, contactsKey);
     setResubmitting(false);
+    setProgress(0);
     if (!result.ok) setFormError(result.error || "The files could not be resubmitted.");
   };
 
@@ -2963,8 +3048,9 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               <label>Audio file <span className="dropzone">{resubmitAudio ? <><Icon name="check"/><b>{resubmitAudio.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace audio</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitAudio(e.target.files?.[0] || null)}/></span></label>
               <label>Contact list <span className="dropzone">{resubmitContacts ? <><Icon name="check"/><b>{resubmitContacts.name}</b><small>Ready</small></> : <><Icon name="upload"/><b>Replace contacts</b><small>Optional</small></>}<input type="file" onChange={e => setResubmitContacts(e.target.files?.[0] || null)}/></span></label>
             </div>
+            <UploadProgress percent={progress} label={progressLabel} active={resubmitting} />
             <button className="primary" onClick={handleResubmitClick} disabled={resubmitting || (!resubmitAudio && !resubmitContacts)}>
-              {resubmitting ? "Uploading…" : <>Resubmit files <Icon name="arrow" size={16}/></>}
+              {resubmitting ? `Uploading… ${progress}%` : <>Resubmit files <Icon name="arrow" size={16}/></>}
             </button>
           </div>
         )}
@@ -3047,11 +3133,10 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                   ) : order.reportKey ? (
                     <><Icon name="file"/><b>Replace the existing report</b><small>A report is already attached — choosing a file overwrites it</small></>
                   ) : (
-                    <><Icon name="upload"/><b>Upload the campaign report</b><small>CSV, PDF, XLSX or ZIP · up to {describeLimit(UPLOAD_LIMITS.REPORT)}</small></>
+                    <><Icon name="upload"/><b>Upload the campaign report</b><small>Any file type · up to {describeLimit(UPLOAD_LIMITS.REPORT)}</small></>
                   )}
                   <input
                     type="file"
-                    accept=".csv,.pdf,.zip,.xlsx,.xls"
                     onChange={e => { setReportFile(e.target.files?.[0] || null); setFormError(""); }}
                   />
                 </span>
@@ -3102,13 +3187,15 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
 
             {formError && <div className="form-error">{formError}</div>}
 
+            <UploadProgress percent={progress} label={progressLabel} active={saving && Boolean(reportFile)} />
+
             <button
               className="primary"
               onClick={handleAdminSubmit}
               disabled={saving || Boolean(blockingError)}
             >
               {saving
-                ? (reportFile ? "Uploading report…" : "Saving…")
+                ? (progressLabel ? `Uploading… ${progress}%` : "Saving…")
                 : "Save & process fulfilment"}
             </button>
           </div>

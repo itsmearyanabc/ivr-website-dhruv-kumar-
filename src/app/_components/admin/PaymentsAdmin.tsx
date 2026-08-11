@@ -13,6 +13,8 @@ import {
   updatePaymentMethod,
 } from "@/app/actions/topups";
 import { updatePricePerCall } from "@/app/actions/settings";
+import { uploadFile } from "@/lib/uploadClient";
+import { UPLOAD_LIMITS, describeLimit } from "@/lib/uploads";
 
 const money = (value: any) => `₹${Number(value || 0).toFixed(2)}`;
 
@@ -520,9 +522,25 @@ function PaymentMethodSettings() {
     formData.set("is_enabled", String(enabled));
     formData.set("verification_mode", mode);
     formData.set("auto_credit_on_match", String(autoCredit));
-    if (qrFile) formData.set("qr_image", qrFile);
+    // The QR image goes browser -> Supabase Storage; only its key is posted to the action.
+    formData.delete("qr_image");
 
-    const res = await updatePaymentMethod(formData);
+    if (qrFile) {
+      const upload = await uploadFile("qr", qrFile);
+      if (!upload.ok) {
+        setSaving(false);
+        return setError(upload.error);
+      }
+      formData.set("qr_image_key", upload.key);
+    }
+
+    let res;
+    try {
+      res = await updatePaymentMethod(formData);
+    } catch {
+      setSaving(false);
+      return setError("The server could not be reached. Nothing was saved.");
+    }
     setSaving(false);
 
     if (res?.error) return setError(res.error);
@@ -573,7 +591,7 @@ function PaymentMethodSettings() {
                   ) : config.qr_image_key ? (
                     <><Icon name="qr" /><b>Replace current QR</b><small>A QR is already configured</small></>
                   ) : (
-                    <><Icon name="upload" /><b>Upload QR image</b><small>PNG or JPG, up to 4 MB</small></>
+                    <><Icon name="upload" /><b>Upload QR image</b><small>PNG or JPG, up to {describeLimit(UPLOAD_LIMITS.QR_IMAGE)}</small></>
                   )}
                   <input type="file" accept="image/*" onChange={(e) => setQrFile(e.target.files?.[0] || null)} />
                 </span>

@@ -7,10 +7,11 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { getVerifier, canAutoCredit } from '@/lib/payments/utr'
 import { logActivity, describeActor } from '@/app/actions/activity'
-import { UPLOAD_LIMITS, describeLimit } from '@/lib/uploads'
+import { STORAGE_BUCKET } from '@/lib/uploads'
+import { consumeUploadedKey, discardUpload } from '@/lib/storage'
+import { guard } from '@/lib/errors'
 
 const METHOD_CODE = 'UPI_QR'
-const STORAGE_BUCKET = 'xpack_files'
 
 /** How far back a bank lookup is allowed to search for a credit. */
 const LOOKUP_WINDOW_DAYS = 7
@@ -129,6 +130,10 @@ export async function getPaymentMethodAdmin() {
 }
 
 export async function updatePaymentMethod(formData: FormData) {
+  return guard('updatePaymentMethod', () => runUpdatePaymentMethod(formData))
+}
+
+async function runUpdatePaymentMethod(formData: FormData) {
   if (!(await checkIsAdmin())) return { error: 'Admin access required' }
 
   const supabaseAuth = await createClient()
@@ -143,7 +148,8 @@ export async function updatePaymentMethod(formData: FormData) {
   const autoCredit = String(formData.get('auto_credit_on_match') || 'false') === 'true'
   const minAmount = parseFloat(String(formData.get('min_amount') || '0'))
   const maxAmount = parseFloat(String(formData.get('max_amount') || '0'))
-  const qrFile = formData.get('qr_image') as File | null
+  // Uploaded straight to storage by the browser; this is just the resulting key.
+  const qrUploadKey = String(formData.get('qr_image_key') || '')
 
   if (!['MANUAL', 'DECENTRO'].includes(verificationMode)) {
     return { error: 'Unsupported verification mode.' }
@@ -180,30 +186,14 @@ export async function updatePaymentMethod(formData: FormData) {
 
   let qrKey = existing?.qr_image_key || null
 
-  if (qrFile && qrFile.size > 0) {
-    if (!qrFile.type.startsWith('image/')) {
-      return { error: 'The QR code must be an image file (PNG or JPG).' }
-    }
-    if (qrFile.size > UPLOAD_LIMITS.QR_IMAGE) {
-      return { error: `QR image must be smaller than ${describeLimit(UPLOAD_LIMITS.QR_IMAGE)}.` }
-    }
-
-    const extension = qrFile.name.split('.').pop()?.toLowerCase() || 'png'
-    const newKey = `payment-methods/${METHOD_CODE}-${Date.now()}.${extension}`
-
-    const { error: uploadError } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(newKey, qrFile, { contentType: qrFile.type })
-
-    if (uploadError) {
-      console.error('QR upload error:', uploadError)
-      return { error: 'Failed to upload the QR image.' }
-    }
+  if (qrUploadKey) {
+    const check = await consumeUploadedKey('qr', qrUploadKey, user.id)
+    if (!check.ok) return { error: check.error }
 
     const previousKey = qrKey
-    qrKey = newKey
-    if (previousKey) {
-      await supabase.storage.from(STORAGE_BUCKET).remove([previousKey])
+    qrKey = qrUploadKey
+    if (previousKey && previousKey !== qrKey) {
+      await discardUpload(previousKey)
     }
   }
 
@@ -240,7 +230,16 @@ export async function updatePaymentMethod(formData: FormData) {
 // customer submission
 // ---------------------------------------------------------------------------------------
 
-export async function submitTopupRequest(formData: FormData) {
+/** Explicit contract so callers can narrow on `error` without fighting the union. */
+export type TopupSubmitResult =
+  | { error: string; success?: undefined; status?: undefined; reference?: undefined; message?: undefined }
+  | { success: true; status: 'PENDING' | 'APPROVED'; reference: string; message: string; error?: undefined }
+
+export async function submitTopupRequest(formData: FormData): Promise<TopupSubmitResult> {
+  return guard('submitTopupRequest', () => runSubmitTopupRequest(formData))
+}
+
+async function runSubmitTopupRequest(formData: FormData): Promise<TopupSubmitResult> {
   const supabaseAuth = await createClient()
   const { data: { user } } = await supabaseAuth.auth.getUser()
   if (!user) return { error: 'Unauthorized' }

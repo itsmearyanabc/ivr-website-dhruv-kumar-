@@ -4,7 +4,9 @@
 import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { logActivity, describeActor } from '@/app/actions/activity'
-import { UPLOAD_LIMITS, describeLimit } from '@/lib/uploads'
+import { STORAGE_BUCKET } from '@/lib/uploads'
+import { consumeUploadedKey, discardUpload } from '@/lib/storage'
+import { guard } from '@/lib/errors'
 
 export async function getBroadcasts() {
   const isAdmin = await checkIsAdmin()
@@ -56,6 +58,10 @@ export async function getBroadcasts() {
 }
 
 export async function createBroadcast(formData: FormData) {
+  return guard('createBroadcast', () => runCreateBroadcast(formData))
+}
+
+async function runCreateBroadcast(formData: FormData) {
   const supabaseAuth = await createClient()
   const { data: { user }, error: authError } = await supabaseAuth.auth.getUser()
 
@@ -83,20 +89,22 @@ export async function createBroadcast(formData: FormData) {
     if (svc) charge = Number(svc.price);
   }
 
-  const audio = formData.get("audio") as File | null
-  const contacts = formData.get("contacts") as File | null
+  // The browser uploads straight to Supabase Storage and posts the resulting keys here, so
+  // this action never handles file bytes and cannot trip the Server Action body limit.
+  const audioUploadKey = String(formData.get("audioKey") || "")
+  const contactsUploadKey = String(formData.get("contactsKey") || "")
   const audioInputMethod = String(formData.get("audioInputMethod") || "FILE")
   const ttsText = String(formData.get("ttsText") || "")
 
   // Validate audio input based on method
-  if (audioInputMethod === 'FILE' && (!audio || !audio.name || audio.size === 0)) {
+  if (audioInputMethod === 'FILE' && !audioUploadKey) {
     return { error: 'Please upload an audio file.' }
   }
   if (audioInputMethod === 'TTS' && !ttsText.trim()) {
     return { error: 'Text to convert to speech is required.' }
   }
 
-  if (contactsInputType === 'FILE' && (!contacts || !contacts.name || contacts.size === 0)) {
+  if (contactsInputType === 'FILE' && !contactsUploadKey) {
     return { error: 'Please upload a contact list file.' }
   }
 
@@ -104,15 +112,19 @@ export async function createBroadcast(formData: FormData) {
     return { error: 'Please enter target phone numbers.' }
   }
 
-  if (audio && audio.size > UPLOAD_LIMITS.AUDIO) {
-    return { error: `Audio file exceeds the ${describeLimit(UPLOAD_LIMITS.AUDIO)} limit.` }
-  }
-  if (contacts && contacts.size > UPLOAD_LIMITS.CONTACTS) {
-    return { error: `Contacts file exceeds the ${describeLimit(UPLOAD_LIMITS.CONTACTS)} limit.` }
-  }
-
   if (charge < 0 || isNaN(charge)) {
     return { error: 'Invalid charge amount.' }
+  }
+
+  // Prove the keys the browser handed back are this customer's own objects, exist, and are
+  // within the size limit, before any money moves.
+  if (audioUploadKey) {
+    const check = await consumeUploadedKey('audio', audioUploadKey, user.id)
+    if (!check.ok) return { error: check.error }
+  }
+  if (contactsUploadKey) {
+    const check = await consumeUploadedKey('contacts', contactsUploadKey, user.id)
+    if (!check.ok) return { error: check.error }
   }
 
   // FIX Bug 1 & 3: Deduct balance FIRST using atomic safe_deduct_balance RPC
@@ -157,53 +169,27 @@ export async function createBroadcast(formData: FormData) {
     }
   }
 
-  // Upload Audio to Supabase Storage or store TTS text
+  // The audio and contact files are already in storage by the time this runs. Only the TTS
+  // text still needs writing, and that is a few kilobytes of plain text.
   let audio_key: string
   if (audioInputMethod === 'TTS') {
-    // For TTS, store the text as a .txt file
     const ttsBlob = new Blob([ttsText], { type: 'text/plain' })
     const ttsFile = new File([ttsBlob], `tts-${Date.now()}.txt`, { type: 'text/plain' })
-    audio_key = `audio/tts-${crypto.randomUUID()}.txt`
-    const audioUpload = await supabase.storage.from('xpack_files').upload(audio_key, ttsFile)
+    audio_key = `audio/${user.id}/tts-${crypto.randomUUID()}.txt`
+    const audioUpload = await supabase.storage.from(STORAGE_BUCKET).upload(audio_key, ttsFile)
     if (audioUpload.error) {
       console.error('TTS Upload Error:', audioUpload.error)
+      // FIX Bug 3: Refund balance since we already deducted but the write failed
       if (charge > 0) {
         await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
       }
       return { error: 'Failed to save text for speech conversion.' }
     }
   } else {
-    // For file upload
-    if (!audio) {
-      return { error: 'Audio file is required.' }
-    }
-    audio_key = `audio/${crypto.randomUUID()}-${audio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-    const audioUpload = await supabase.storage.from('xpack_files').upload(audio_key, audio)
-    if (audioUpload.error) {
-      console.error('Audio Upload Error:', audioUpload.error)
-      // FIX Bug 3: Refund balance since we already deducted but upload failed
-      if (charge > 0) {
-        await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
-      }
-      return { error: 'Failed to upload audio file.' }
-    }
+    audio_key = audioUploadKey
   }
 
-  // Upload Contacts if file input type
-  let contacts_key: string | null = null
-  if (contactsInputType === 'FILE' && contacts && contacts.name) {
-    contacts_key = `contacts/${crypto.randomUUID()}-${contacts.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-    const contactsUpload = await supabase.storage.from('xpack_files').upload(contacts_key, contacts)
-    if (contactsUpload.error) {
-      console.error('Contacts Upload Error:', contactsUpload.error)
-      await supabase.storage.from('xpack_files').remove([audio_key])
-      // FIX Bug 3: Refund balance since we already deducted but upload failed
-      if (charge > 0) {
-        await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
-      }
-      return { error: 'Failed to upload contacts file.' }
-    }
-  }
+  const contacts_key: string | null = contactsInputType === 'FILE' ? contactsUploadKey : null
 
   const reference_no = `BR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
   const schedule = String(formData.get("schedule") || "")
@@ -238,9 +224,9 @@ export async function createBroadcast(formData: FormData) {
 
   if (error) {
     console.error('Create Broadcast Error:', error)
-    // Cleanup uploaded files
-    await supabase.storage.from('xpack_files').remove([audio_key])
-    if (contacts_key) await supabase.storage.from('xpack_files').remove([contacts_key])
+    // Cleanup uploaded files so a failed order does not leave orphans in the bucket
+    await discardUpload(audio_key)
+    await discardUpload(contacts_key)
     // FIX Bug 3: Refund balance since we already deducted but insert failed
     if (charge > 0) {
       await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
@@ -314,8 +300,18 @@ async function creditWallet(
 }
 
 export async function updateBroadcastStatus(formData: FormData) {
+  return guard('updateBroadcastStatus', () => runUpdateBroadcastStatus(formData))
+}
+
+async function runUpdateBroadcastStatus(formData: FormData) {
   const isAdmin = await checkIsAdmin()
   if (!isAdmin) return { error: 'Unauthorized' }
+
+  const supabaseAuth = await createClient()
+  const { data: { user: actor } } = await supabaseAuth.auth.getUser()
+  if (!actor) return { error: 'Your session expired. Please sign in again.' }
+  const adminUserId = actor.id
+
   const supabase = await createServiceRoleClient()
 
   const id = String(formData.get("id"))
@@ -324,7 +320,8 @@ export async function updateBroadcastStatus(formData: FormData) {
   if (!validBroadcastStatuses.includes(status)) {
     return { error: 'Invalid status value.' }
   }
-  const reportFile = formData.get("report") as File | null
+  // Already uploaded straight to storage by the browser; this is just the key.
+  const reportUploadKey = String(formData.get("reportKey") || "")
   const holdReason = String(formData.get("holdReason") || "")
   const cancelReason = String(formData.get("cancelReason") || "")
   const refundReason = String(formData.get("refundReason") || "")
@@ -400,21 +397,14 @@ export async function updateBroadcastStatus(formData: FormData) {
     }
   }
 
-  // Upload the report BEFORE the status moves. Doing it afterwards meant a failed upload left
-  // the order sitting at Completed with no report attached and no way to tell from the row.
+  // Confirm the report actually landed in storage BEFORE the status moves. Attaching it
+  // afterwards meant a failed upload left the order sitting at Completed with no report and
+  // no way to tell from the row.
   let reportKey: string | null = null
-  if (refundsPartial && reportFile && reportFile.size > 0) {
-    if (reportFile.size > UPLOAD_LIMITS.REPORT) {
-      return { error: `Report file exceeds the ${describeLimit(UPLOAD_LIMITS.REPORT)} limit.` }
-    }
-
-    const file_key = `reports/${crypto.randomUUID()}-${reportFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-    const { error: uploadError } = await supabase.storage.from('xpack_files').upload(file_key, reportFile)
-    if (uploadError) {
-      console.error('Report Upload Error:', uploadError)
-      return { error: 'Failed to upload the report file. The order status was not changed.' }
-    }
-    reportKey = file_key
+  if (refundsPartial && reportUploadKey) {
+    const check = await consumeUploadedKey('report', reportUploadKey, adminUserId)
+    if (!check.ok) return { error: `${check.error} The order status was not changed.` }
+    reportKey = reportUploadKey
   }
 
   const updatePayload: any = { status, updated_at: new Date().toISOString() }
@@ -451,7 +441,7 @@ export async function updateBroadcastStatus(formData: FormData) {
 
   if (error || !data) {
     console.error('Update Broadcast Error:', error)
-    if (reportKey) await supabase.storage.from('xpack_files').remove([reportKey])
+    if (reportKey) await supabase.storage.from(STORAGE_BUCKET).remove([reportKey])
     return { error: 'Failed to update broadcast' }
   }
 
@@ -470,12 +460,12 @@ export async function updateBroadcastStatus(formData: FormData) {
 
     if (upsertError) {
       console.error('Report Upsert Error:', upsertError)
-      await supabase.storage.from('xpack_files').remove([reportKey])
+      await supabase.storage.from(STORAGE_BUCKET).remove([reportKey])
       return { error: 'The status was updated, but the report could not be attached. Please re-upload it.' }
     }
 
     if (previousReport?.file_key && previousReport.file_key !== reportKey) {
-      await supabase.storage.from('xpack_files').remove([previousReport.file_key])
+      await supabase.storage.from(STORAGE_BUCKET).remove([previousReport.file_key])
     }
   }
 
@@ -518,10 +508,8 @@ export async function updateBroadcastStatus(formData: FormData) {
     reason: historyReason
   }])
 
-  const supabaseAuth = await createClient()
-  const { data: { user: actor } } = await supabaseAuth.auth.getUser()
   await logActivity({
-    ...(await describeActor(actor?.id)),
+    ...(await describeActor(adminUserId)),
     actionType: 'ORDER_UPDATED',
     entityType: 'BROADCAST',
     entityId: data.reference_no,
@@ -535,6 +523,10 @@ export async function updateBroadcastStatus(formData: FormData) {
 }
 
 export async function resubmitFiles(formData: FormData) {
+  return guard('resubmitFiles', () => runResubmitFiles(formData))
+}
+
+async function runResubmitFiles(formData: FormData) {
   const supabaseAuth = await createClient()
   const { data: { user } } = await supabaseAuth.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
@@ -542,20 +534,22 @@ export async function resubmitFiles(formData: FormData) {
   const supabase = await createServiceRoleClient()
 
   const referenceNo = String(formData.get("id"))
-  const newAudio = formData.get("audio") as File | null
-  const newContacts = formData.get("contacts") as File | null
+  const newAudioKey = String(formData.get("audioKey") || "")
+  const newContactsKey = String(formData.get("contactsKey") || "")
 
-  if ((!newAudio || !newAudio.name || newAudio.size === 0) && (!newContacts || !newContacts.name || newContacts.size === 0)) {
+  if (!newAudioKey && !newContactsKey) {
     return { error: 'Please select at least one file to resubmit.' }
   }
 
-  // The create path enforced these but the resubmit path did not, so a file rejected at order
-  // time could be slipped in afterwards through the on-hold flow.
-  if (newAudio && newAudio.size > UPLOAD_LIMITS.AUDIO) {
-    return { error: `Audio file exceeds the ${describeLimit(UPLOAD_LIMITS.AUDIO)} limit.` }
+  // The create path validated its uploads but the resubmit path did not, so a file rejected
+  // at order time could be slipped in afterwards through the on-hold flow.
+  if (newAudioKey) {
+    const check = await consumeUploadedKey('audio', newAudioKey, user.id)
+    if (!check.ok) return { error: check.error }
   }
-  if (newContacts && newContacts.size > UPLOAD_LIMITS.CONTACTS) {
-    return { error: `Contacts file exceeds the ${describeLimit(UPLOAD_LIMITS.CONTACTS)} limit.` }
+  if (newContactsKey) {
+    const check = await consumeUploadedKey('contacts', newContactsKey, user.id)
+    if (!check.ok) return { error: check.error }
   }
 
   // Fetch the broadcast and verify ownership + ON_HOLD status
@@ -587,35 +581,8 @@ export async function resubmitFiles(formData: FormData) {
     updated_at: new Date().toISOString()
   }
 
-  // Handle audio file replacement
-  if (newAudio && newAudio.name && newAudio.size > 0) {
-    const new_audio_key = `audio/${crypto.randomUUID()}-${newAudio.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-    const { error: audioUpErr } = await supabase.storage.from('xpack_files').upload(new_audio_key, newAudio)
-    if (audioUpErr) {
-      console.error('Audio resubmit upload error:', audioUpErr)
-      return { error: 'Failed to upload new audio file.' }
-    }
-    // Remove old audio file
-    if (broadcast.audio_key) {
-      await supabase.storage.from('xpack_files').remove([broadcast.audio_key])
-    }
-    updatePayload.audio_key = new_audio_key
-  }
-
-  // Handle contacts file replacement
-  if (newContacts && newContacts.name && newContacts.size > 0) {
-    const new_contacts_key = `contacts/${crypto.randomUUID()}-${newContacts.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
-    const { error: contactsUpErr } = await supabase.storage.from('xpack_files').upload(new_contacts_key, newContacts)
-    if (contactsUpErr) {
-      console.error('Contacts resubmit upload error:', contactsUpErr)
-      return { error: 'Failed to upload new contacts file.' }
-    }
-    // Remove old contacts file
-    if (broadcast.contacts_key) {
-      await supabase.storage.from('xpack_files').remove([broadcast.contacts_key])
-    }
-    updatePayload.contacts_key = new_contacts_key
-  }
+  if (newAudioKey) updatePayload.audio_key = newAudioKey
+  if (newContactsKey) updatePayload.contacts_key = newContactsKey
 
   // Update broadcast: reset to PLACED, clear hold reason, update file keys
   const { error: updateError } = await supabase
@@ -625,8 +592,15 @@ export async function resubmitFiles(formData: FormData) {
 
   if (updateError) {
     console.error('Resubmit update error:', updateError)
+    // The new uploads are orphans now - the order still points at the originals.
+    if (newAudioKey) await discardUpload(newAudioKey)
+    if (newContactsKey) await discardUpload(newContactsKey)
     return { error: 'Failed to update broadcast after resubmission.' }
   }
+
+  // Only once the row points at the replacements is it safe to drop the originals.
+  if (newAudioKey && broadcast.audio_key) await discardUpload(broadcast.audio_key)
+  if (newContactsKey && broadcast.contacts_key) await discardUpload(broadcast.contacts_key)
 
   // Record history
   await supabase.from('broadcast_status_history').insert([{
@@ -670,7 +644,7 @@ export async function getDownloadUrl(path: string) {
     }
   }
 
-  const { data, error } = await supabase.storage.from('xpack_files').createSignedUrl(path, 60 * 60) // 1 hour
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, 60 * 60) // 1 hour
 
   if (error || !data) {
     return { error: 'Failed to generate download link' }
