@@ -19,8 +19,11 @@ import {
   deleteService,
   updateCategory,
   updateService,
+  getCustomerPricing,
+  setCustomerPricing,
   Category,
-  Service
+  Service,
+  CustomerServiceRow
 } from "@/app/actions/categoriesServices";
 import { getTopupPendingCount } from "@/app/actions/topups";
 import { Icon, Badge, formatStatus, Heading, PanelTop, Metric, Timeline } from "@/app/_components/ui";
@@ -30,11 +33,12 @@ import StatisticsGraph from "@/app/_components/admin/StatisticsGraph";
 import ActivityLog from "@/app/_components/admin/ActivityLog";
 import AddFunds from "@/app/_components/customer/AddFunds";
 import { UPLOAD_LIMITS, formatFileSize, describeLimit } from "@/lib/uploads";
+import { calculateFailedCallRefund } from "@/lib/refunds";
 import { uploadFile, uploadFiles } from "@/lib/uploadClient";
 import * as XLSX from "xlsx";
 
 type Role = "customer" | "admin";
-type Status = "Placed" | "In progress" | "Completed" | "Cancelled" | "On hold" | "Refunded";
+type Status = "Placed" | "In progress" | "Completed" | "Partial" | "Cancelled" | "On hold" | "Refunded";
 type TicketStatus = "Open" | "In progress" | "Resolved" | "Closed";
 type Session = { role: Role; name: string; email: string; company?: string };
 type OrderHistory = { status: string; reason?: string; created_at: string };
@@ -69,8 +73,10 @@ type Order = {
   charge?: number;
   adminComment?: string;
   partialRefundAmount?: number;
+  deliveredCalls?: number;
+  failedCalls?: number;
 };
-type Ticket = { id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
+type Ticket ={ id: string; subject: string; customer: string; priority: "Normal" | "High"; status: TicketStatus; message: string; created: string; reply?: string; };
 
 const initialOrders: Order[] = [];
 const initialTickets: Ticket[] = [];
@@ -170,7 +176,9 @@ function mapBroadcast(b: any, index: number): Order {
     contactCount: b.contact_count,
     charge: b.charge ? Number(b.charge) : 0,
     adminComment: b.admin_comment,
-    partialRefundAmount: b.partial_refund_amount
+    partialRefundAmount: b.partial_refund_amount,
+    deliveredCalls: b.delivered_calls ?? undefined,
+    failedCalls: b.failed_calls ?? undefined
   };
 }
 
@@ -377,6 +385,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
       refundAmount?: number;
       partialRefundAmount?: number;
       confirmPartialRefundAmount?: number;
+      deliveredCalls?: number;
+      failedCalls?: number;
       adminComment?: string;
     }
   ): Promise<SubmitResult> => {
@@ -391,6 +401,10 @@ export default function PortalApp({ portal }: { portal: Role }) {
     if (payload?.refundAmount) formData.append("refundAmount", payload.refundAmount.toString());
     if (payload?.partialRefundAmount !== undefined) formData.append("partialRefundAmount", payload.partialRefundAmount.toString());
     if (payload?.confirmPartialRefundAmount !== undefined) formData.append("confirmPartialRefundAmount", payload.confirmPartialRefundAmount.toString());
+    // Sent as counts, not as an amount: the server derives the refund from these so the
+    // figure that moves money is computed in one place.
+    if (payload?.deliveredCalls !== undefined) formData.append("deliveredCalls", payload.deliveredCalls.toString());
+    if (payload?.failedCalls !== undefined) formData.append("failedCalls", payload.failedCalls.toString());
     if (payload?.adminComment) formData.append("adminComment", payload.adminComment);
 
     try {
@@ -622,6 +636,147 @@ function ImpersonationBanner() {
   );
 }
 
+/**
+ * Per-customer pricing and visibility for one customer.
+ *
+ * A service is global by default: everyone sees it, at one price. This panel carves out
+ * exceptions for a single customer - a different price, or hidden from their catalogue
+ * entirely. Rows with no exception are shown too, so the operator can see the whole
+ * catalogue as this customer sees it without cross-referencing anything.
+ */
+function CustomerPricingPanel({ customer }: { customer: any }) {
+  const [rows, setRows] = useState<CustomerServiceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  // Price text is held per row while it is being typed, so one edit does not re-render as
+  // the saved value mid-keystroke.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const res = await getCustomerPricing(customer.id);
+    setLoading(false);
+    if (res?.error) return setError(res.error);
+    setRows(res.data || []);
+    setError("");
+  }, [customer.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (row: CustomerServiceRow, price: number | null, isHidden: boolean) => {
+    setSavingId(row.service_id);
+    setError("");
+    const res = await setCustomerPricing(customer.id, row.service_id, price, isHidden);
+    setSavingId(null);
+
+    if (res?.error) return setError(res.error);
+
+    // Update in place rather than refetching the whole catalogue - the operator is usually
+    // editing several rows in a row and a full reload loses their scroll position.
+    setRows(current => current.map(r =>
+      r.service_id === row.service_id ? { ...r, override_price: price, is_hidden: isHidden } : r
+    ));
+    setDrafts(current => {
+      const next = { ...current };
+      delete next[row.service_id];
+      return next;
+    });
+  };
+
+  const savePrice = (row: CustomerServiceRow) => {
+    const raw = (drafts[row.service_id] ?? "").trim();
+    if (raw === "") return save(row, null, row.is_hidden);
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return setError(`"${raw}" is not a valid price. Enter a number, or clear the box to use the standard price.`);
+    }
+    return save(row, parsed, row.is_hidden);
+  };
+
+  if (loading) return <div className="pricing-panel"><p className="text-muted">Loading the service catalogue…</p></div>;
+
+  return (
+    <div className="pricing-panel">
+      <h4>Pricing for this customer</h4>
+      <p className="pricing-note">
+        Leave a price empty to charge the standard rate. Hiding a service removes it from this
+        customer&apos;s order screen entirely. Changes apply to their next order — orders already
+        placed keep the price they were charged.
+      </p>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {rows.length === 0 ? (
+        <p className="text-muted">No services have been created yet.</p>
+      ) : (
+        <div className="table-wrap pricing-table">
+          <table>
+            <thead>
+              <tr><th>Service</th><th>Standard</th><th>This customer pays</th><th>Visible</th></tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const busy = savingId === row.service_id;
+                const draft = drafts[row.service_id] ?? (row.override_price !== null ? String(row.override_price) : "");
+                const effective = row.override_price !== null ? row.override_price : row.base_price;
+
+                return (
+                  <tr key={row.service_id} className={row.is_hidden ? "row-hidden" : ""}>
+                    <td>
+                      <strong>{row.service_name}</strong>
+                      <small>{row.category_name}{row.service_active ? "" : " · inactive globally"}</small>
+                    </td>
+                    <td><span className="text-muted">₹{row.base_price.toFixed(2)}</span></td>
+                    <td>
+                      <div className="pricing-cell">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder={row.base_price.toFixed(2)}
+                          value={draft}
+                          disabled={busy}
+                          onChange={e => setDrafts(d => ({ ...d, [row.service_id]: e.target.value }))}
+                          onKeyDown={e => { if (e.key === "Enter") savePrice(row); }}
+                        />
+                        <button
+                          className="text-button"
+                          disabled={busy}
+                          onClick={() => savePrice(row)}
+                        >
+                          {busy ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                      {row.override_price !== null && (
+                        <small className="pricing-effective">Custom · was ₹{row.base_price.toFixed(2)}</small>
+                      )}
+                      {row.override_price === null && effective !== row.base_price && (
+                        <small className="pricing-effective">Standard</small>
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        className={`text-button ${row.is_hidden ? "row-text-muted" : ""}`}
+                        disabled={busy}
+                        onClick={() => save(row, row.override_price, !row.is_hidden)}
+                      >
+                        <Icon name={row.is_hidden ? "close" : "check"} size={14}/>
+                        {row.is_hidden ? "Hidden" : "Visible"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CustomerProfileModal({ customer, orders, onClose, refreshData }: { customer: any, orders: Order[], onClose: () => void, refreshData?: () => void }) {
   const [addingFunds, setAddingFunds] = useState(false);
   const [amount, setAmount] = useState("");
@@ -712,6 +867,8 @@ function CustomerProfileModal({ customer, orders, onClose, refreshData }: { cust
         ) : (
           <button className="primary" onClick={() => setAddingFunds(true)}><Icon name="indian-rupee" size={16}/> Add funds</button>
         )}
+
+        <CustomerPricingPanel customer={customer} />
 
         <div className="detail-note">
           <strong>Contact details</strong>
@@ -2285,6 +2442,7 @@ const BROADCAST_TABS: Array<[string, (o: Order) => boolean]> = [
   ["In progress", o => o.status === "In progress"],
   ["On hold", o => o.status === "On hold"],
   ["Completed", o => o.status === "Completed"],
+  ["Partial", o => o.status === "Partial"],
   ["Cancelled", o => o.status === "Cancelled"],
   ["Refunded", o => o.status === "Refunded"],
 ];
@@ -2754,6 +2912,9 @@ function StatusTimeline({ currentStatus }: { currentStatus: Status }) {
   
   if (currentStatus === "Cancelled") steps[2] = { label: "Cancelled", key: "Cancelled" };
   if (currentStatus === "Refunded") steps[2] = { label: "Refunded", key: "Refunded" };
+  // Partial is still an end state for the run, so it takes the final step rather than
+  // leaving the timeline showing an order that never finished.
+  if (currentStatus === "Partial") steps[2] = { label: "Partial", key: "Partial" };
   if (currentStatus === "On hold") steps[1] = { label: "On hold", key: "On hold" };
 
   const getStatusClass = (stepKey: string, current: string) => {
@@ -2839,6 +3000,8 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
       refundAmount?: number;
       partialRefundAmount?: number;
       confirmPartialRefundAmount?: number;
+      deliveredCalls?: number;
+      failedCalls?: number;
       adminComment?: string;
     }
   ) => Promise<SubmitResult>;
@@ -2852,8 +3015,9 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   const [refundAmount] = useState(order.refundAmount || "");
 
   // Double entry partial refund
-  const [partialRefundAmount, setPartialRefundAmount] = useState<string>("");
-  const [confirmPartialRefundAmount, setConfirmPartialRefundAmount] = useState<string>("");
+  // The refund is driven by these two counts, taken off the fulfilment report.
+  const [deliveredCalls, setDeliveredCalls] = useState<string>(order.deliveredCalls != null ? String(order.deliveredCalls) : "");
+  const [failedCalls, setFailedCalls] = useState<string>(order.failedCalls != null ? String(order.failedCalls) : "");
   const [adminComment, setAdminComment] = useState<string>(order.adminComment || "");
 
   const [resubmitAudio, setResubmitAudio] = useState<File | null>(null);
@@ -2865,20 +3029,33 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
 
-  const partialRefundMismatch = (partialRefundAmount.trim() !== "" || confirmPartialRefundAmount.trim() !== "") && (partialRefundAmount !== confirmPartialRefundAmount);
-
-  // A partial refund is only meaningful on a completed run. Cancelled and Refunded already
-  // return the whole charge on the server, so leaving a stale amount in these fields would
-  // pay the customer twice.
-  const refundApplies = status === "Completed";
-  const partialRefundValue = refundApplies && partialRefundAmount ? parseFloat(partialRefundAmount) : 0;
-  const partialRefundOverCharge = partialRefundValue > (order.charge || 0);
+  // A report is attached whenever the run is closed out - a fully delivered campaign still
+  // gets one. A refund only belongs on Partial: Completed means every call landed, and
+  // Cancelled/Refunded already return the whole remaining charge on the server.
+  const reportApplies = status === "Completed" || status === "Partial";
+  const refundApplies = status === "Partial";
   const alreadyPartiallyRefunded = Boolean(order.partialRefundAmount && order.partialRefundAmount > 0);
+
+  // What is still owed on this order, mirroring the server's own cap so the preview cannot
+  // promise a figure the server will then reduce.
+  const refundableRemaining = Math.max(0, Number(((order.charge || 0) - Number(order.partialRefundAmount || 0)).toFixed(2)));
+
+  const deliveredNum = deliveredCalls.trim() === "" ? null : Number.parseInt(deliveredCalls, 10);
+  const failedNum = failedCalls.trim() === "" ? null : Number.parseInt(failedCalls, 10);
+  const hasCallCounts = deliveredCalls.trim() !== "" || failedCalls.trim() !== "";
+
+  // The same function the server runs, so the number previewed here is the number credited.
+  const refundBreakdown = refundApplies && hasCallCounts
+    ? calculateFailedCallRefund(order.charge || 0, deliveredNum ?? 0, failedNum ?? 0, refundableRemaining)
+    : null;
+
+  const partialRefundValue = refundBreakdown?.ok ? refundBreakdown.refund : 0;
+  const partialRefundOverCharge = partialRefundValue > (order.charge || 0);
 
   const reportTooLarge = Boolean(reportFile && reportFile.size > UPLOAD_LIMITS.REPORT);
 
-  const blockingError = partialRefundMismatch
-    ? "Both partial refund amounts must match exactly."
+  const blockingError = (refundBreakdown && !refundBreakdown.ok)
+    ? refundBreakdown.error
     : partialRefundOverCharge
       ? `A partial refund cannot exceed the ₹${(order.charge || 0).toFixed(2)} charged for this order.`
       : reportTooLarge
@@ -2921,8 +3098,9 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
       cancelReason,
       refundReason,
       refundAmount: Number(refundAmount),
-      partialRefundAmount: partialRefundValue,
-      confirmPartialRefundAmount: refundApplies && confirmPartialRefundAmount ? parseFloat(confirmPartialRefundAmount) : 0,
+      // Counts go up, not an amount. The server recomputes the refund from them.
+      deliveredCalls: hasCallCounts ? (deliveredNum ?? 0) : undefined,
+      failedCalls: hasCallCounts ? (failedNum ?? 0) : undefined,
       adminComment
     });
 
@@ -3067,6 +3245,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                 <option>Placed</option>
                 <option>In progress</option>
                 <option>Completed</option>
+                <option>Partial</option>
                 <option>On hold</option>
                 <option>Cancelled</option>
                 <option>Refunded</option>
@@ -3075,56 +3254,77 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
 
             {refundApplies && (
               <div className="refund-panel">
-                <h4>Partial refund (optional)</h4>
-                <p>If some calls were undelivered or unanswered, enter the refund amount. You must type the amount twice for double verification.</p>
+                <h4>Refund calculator</h4>
+                <p>
+                  Enter the delivery figures from the report. The refund is worked out from what this
+                  customer was charged for this order — ₹{(order.charge || 0).toFixed(2)} — split across
+                  the calls that were actually attempted.
+                </p>
 
                 {alreadyPartiallyRefunded && (
                   <div className="form-warning">
-                    ⚠️ ₹{order.partialRefundAmount!.toFixed(2)} has already been refunded on this order. Anything entered
-                    below is credited <strong>on top of</strong> that. Leave both fields empty to refund nothing further.
+                    ⚠️ ₹{order.partialRefundAmount!.toFixed(2)} has already been refunded on this order, leaving
+                    ₹{refundableRemaining.toFixed(2)} refundable. Anything calculated below is credited{" "}
+                    <strong>on top of</strong> what was already returned.
                   </div>
                 )}
 
                 <div className="form-grid">
-                  <label>Partial refund amount (₹)
+                  <label>Calls delivered
                     <input
                       type="number"
-                      step="0.01"
+                      step="1"
                       min="0"
-                      max={order.charge || undefined}
-                      placeholder="0.00"
-                      value={partialRefundAmount}
-                      onChange={e => setPartialRefundAmount(e.target.value)}
+                      placeholder="0"
+                      value={deliveredCalls}
+                      onChange={e => setDeliveredCalls(e.target.value)}
                     />
                   </label>
-                  <label>Confirm refund amount (₹)
+                  <label>Calls failed
                     <input
                       type="number"
-                      step="0.01"
+                      step="1"
                       min="0"
-                      placeholder="0.00"
-                      value={confirmPartialRefundAmount}
-                      onChange={e => setConfirmPartialRefundAmount(e.target.value)}
-                      className={partialRefundMismatch ? "invalid" : ""}
+                      placeholder="0"
+                      value={failedCalls}
+                      onChange={e => setFailedCalls(e.target.value)}
+                      className={refundBreakdown && !refundBreakdown.ok ? "invalid" : ""}
                     />
                   </label>
                 </div>
 
-                {partialRefundMismatch && (
-                  <div className="form-error">⚠️ Mismatch warning: both partial refund amounts must match exactly.</div>
+                {refundBreakdown && !refundBreakdown.ok && (
+                  <div className="form-error">⚠️ {refundBreakdown.error}</div>
                 )}
 
-                {partialRefundOverCharge && (
-                  <div className="form-error">⚠️ A refund of ₹{partialRefundValue.toFixed(2)} exceeds the ₹{(order.charge || 0).toFixed(2)} charged for this order.</div>
+                {refundBreakdown?.ok && (
+                  <div className="refund-breakdown">
+                    <div className="summary-row"><span>Total calls attempted</span><strong>{refundBreakdown.totalCalls}</strong></div>
+                    <div className="summary-row"><span>Rate per call</span><strong>₹{refundBreakdown.perCallRate.toFixed(2)}</strong></div>
+                    <div className="summary-row"><span>Failed calls</span><strong>{failedNum ?? 0}</strong></div>
+                    <div className="summary-row total"><span>Refund to wallet</span><strong>₹{refundBreakdown.refund.toFixed(2)}</strong></div>
+                  </div>
                 )}
 
-                {partialRefundValue > 0 && !partialRefundMismatch && !partialRefundOverCharge && (
-                  <div className="form-success">✓ Valid: ₹{partialRefundValue.toFixed(2)} will be credited back to the customer&apos;s wallet balance.</div>
+                {refundBreakdown?.ok && refundBreakdown.capped && (
+                  <div className="form-warning">
+                    ⚠️ These figures work out to ₹{refundBreakdown.uncapped!.toFixed(2)}, but only
+                    ₹{refundableRemaining.toFixed(2)} is still refundable on this order. The refund has been
+                    capped at that.
+                  </div>
+                )}
+
+                {refundBreakdown?.ok && refundBreakdown.refund > 0 && (
+                  <div className="form-success">✓ ₹{refundBreakdown.refund.toFixed(2)} will be credited back to the customer&apos;s wallet balance.</div>
+                )}
+
+                {refundBreakdown?.ok && refundBreakdown.refund === 0 && (
+                  <div className="form-success">✓ No calls failed — nothing will be refunded.</div>
                 )}
               </div>
             )}
 
-            {refundApplies && (
+            {reportApplies && (
               <div className="field-block">
                 <label className="field-label">Campaign report file</label>
                 <span className={`dropzone ${reportTooLarge ? "invalid" : reportFile ? "filled" : ""}`}>
@@ -3196,7 +3396,11 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
             >
               {saving
                 ? (progressLabel ? `Uploading… ${progress}%` : "Saving…")
-                : "Save & process fulfilment"}
+                : partialRefundValue > 0
+                  // Name the amount on the button itself - this click is what moves the money,
+                  // so the figure being approved should be visible at the moment of approving it.
+                  ? `Save & refund ₹${partialRefundValue.toFixed(2)}`
+                  : "Save & process fulfilment"}
             </button>
           </div>
         )}

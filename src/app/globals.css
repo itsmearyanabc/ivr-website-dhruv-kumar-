@@ -390,6 +390,8 @@ td.empty { display: table-cell; }
 .badge.placed, .badge.active, .badge.open { color: var(--red-dark); background: var(--red-soft); }
 .badge.in-progress, .badge.processing { color: var(--amber); background: var(--amber-soft); }
 .badge.completed, .badge.resolved, .badge.closed { color: var(--green); background: var(--green-soft); }
+/* Partial: delivered, but not in full - reads as a caution, not a success or a failure. */
+.badge.partial { color: var(--amber); background: var(--amber-soft); }
 .badge.cancelled, .badge.canceled, .badge.failed, .badge.disabled { color: #4a4a55; background: #eeeef2; }
 .badge.on-hold, .badge.pending { color: var(--amber); background: var(--amber-soft); }
 .badge.refunded { color: var(--violet); background: var(--violet-soft); }
@@ -737,8 +739,30 @@ td.empty { display: table-cell; }
 .refund-panel { background: #fff; padding: 15px; border-radius: var(--radius-sm); border: 1px solid var(--line); }
 .refund-panel h4 { margin: 0 0 6px; font-size: 13.5px; color: var(--ink); }
 .refund-panel > p { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+/* Worked-out refund. Shows the arithmetic, not just the answer, so the operator can check
+   the figure against the report by hand before crediting it. */
+.refund-breakdown {
+  margin-top: 14px; padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--wash, #f7f7fa); border: 1px solid var(--line);
+}
+.refund-breakdown .summary-row:last-child { margin-bottom: 0; }
 .form-error { color: var(--red); font-size: 12px; font-weight: 700; margin: 8px 0 0; }
 .form-success { color: var(--green); font-size: 12px; font-weight: 700; margin: 8px 0 0; }
+
+/* Per-customer pricing, inside the customer profile modal. */
+.pricing-panel { margin-top: 20px; }
+.pricing-panel h4 { margin: 0 0 6px; font-size: 13.5px; color: var(--ink); }
+.pricing-note { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+.pricing-table { max-height: 320px; overflow-y: auto; }
+.pricing-table table { font-size: 12.5px; }
+.pricing-table td small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.pricing-cell { display: flex; gap: 8px; align-items: center; }
+.pricing-cell input { width: 92px; padding: 6px 8px; font-size: 12.5px; }
+.pricing-effective { color: var(--muted); }
+/* A hidden service stays listed but reads as switched off. */
+.pricing-table tr.row-hidden td { opacity: .55; }
+.pricing-table tr.row-hidden strong { text-decoration: line-through; }
+.row-text-muted { color: var(--muted) !important; }
 
 .profile-head { display: flex; gap: 15px; align-items: center; margin-bottom: 18px; }
 .profile-avatar {

@@ -1,8 +1,10 @@
 "use server";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { checkIsAdmin } from "@/app/actions/auth";
+import { loadCustomerOverrides, priceFor, isVisibleTo } from "@/lib/pricing";
+import { logActivity, describeActor } from "@/app/actions/activity";
 
 export interface Category {
   id: string;
@@ -26,11 +28,30 @@ export interface Service {
 }
 
 /**
- * Fetch all active categories and their nested services for customer broadcast creation
+ * Fetch all active categories and their nested services for customer broadcast creation.
+ *
+ * The catalogue is rendered per customer: a service hidden for them is dropped, and a
+ * service priced for them carries that price instead of the global one. A category left with
+ * no visible services disappears too, rather than showing as an empty group.
+ *
+ * The price returned here is for display. The charge is resolved again server-side when the
+ * order is placed (see `resolveServicePrice`), so a stale or edited client cannot buy at a
+ * price it made up.
  */
 export async function getCategoriesWithServices() {
   try {
     const supabase = await createServiceRoleClient();
+
+    // Signed out (or a failure to resolve the session) simply means no overrides apply, and
+    // the standard catalogue is returned. This read stays available either way.
+    let userId: string | null = null;
+    try {
+      const supabaseAuth = await createClient();
+      const { data: { user } } = await supabaseAuth.auth.getUser();
+      userId = user?.id || null;
+    } catch {
+      userId = null;
+    }
 
     const { data: categories, error: catError } = await supabase
       .from('categories')
@@ -46,13 +67,18 @@ export async function getCategoriesWithServices() {
       return { error: "Failed to load categories" };
     }
 
+    const overrides = await loadCustomerOverrides(supabase, userId);
+
     // Filter active services and sort
-    const formatted = categories?.map((cat: any) => ({
-      ...cat,
-      services: (cat.services || [])
-        .filter((s: any) => s.is_active !== false)
-        .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-    }));
+    const formatted = (categories || [])
+      .map((cat: any) => ({
+        ...cat,
+        services: (cat.services || [])
+          .filter((s: any) => isVisibleTo(s, overrides))
+          .map((s: any) => ({ ...s, price: priceFor(s, overrides) }))
+          .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      }))
+      .filter((cat: any) => cat.services.length > 0);
 
     return { data: formatted as Category[] };
   } catch (err: any) {
@@ -287,5 +313,184 @@ export async function deleteService(id: string) {
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "Failed to delete service" };
+  }
+}
+
+// =========================================================================================
+// Per-customer pricing and visibility (admin)
+// =========================================================================================
+
+export interface CustomerServiceRow {
+  service_id: string;
+  service_name: string;
+  category_id: string;
+  category_name: string;
+  /** The global price everyone else pays. */
+  base_price: number;
+  /** Custom price for this customer, or null when they pay the base price. */
+  override_price: number | null;
+  /** True when this service is hidden from this customer's catalogue. */
+  is_hidden: boolean;
+  /** False when the service is switched off globally - hidden from everyone regardless. */
+  service_active: boolean;
+}
+
+/**
+ * The full catalogue as it applies to one customer, for the admin pricing screen.
+ *
+ * Returns every service - including ones with no override - so the screen can show what the
+ * customer currently sees and what they would see, side by side, without the admin having to
+ * cross-reference the global catalogue.
+ */
+export async function getCustomerPricing(userId: string) {
+  try {
+    if (!(await checkIsAdmin())) return { error: "Unauthorized" };
+    if (!userId) return { error: "No customer selected." };
+
+    const supabase = await createServiceRoleClient();
+
+    const { data: categories, error } = await supabase
+      .from('categories')
+      .select(`
+        id,
+        name,
+        is_active,
+        services ( id, name, price, is_active, created_at )
+      `)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error("getCustomerPricing error:", error);
+      return { error: "Failed to load the service catalogue." };
+    }
+
+    const overrides = await loadCustomerOverrides(supabase, userId);
+
+    const rows: CustomerServiceRow[] = [];
+    for (const category of (categories || []) as any[]) {
+      const services = [...(category.services || [])].sort(
+        (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+      for (const service of services) {
+        const override = overrides.get(service.id);
+        rows.push({
+          service_id: service.id,
+          service_name: service.name,
+          category_id: category.id,
+          category_name: category.name,
+          base_price: Number(service.price || 0),
+          override_price: override?.price ?? null,
+          is_hidden: Boolean(override?.isHidden),
+          service_active: service.is_active !== false && category.is_active !== false,
+        });
+      }
+    }
+
+    return { data: rows };
+  } catch (err: any) {
+    console.error("getCustomerPricing exception:", err);
+    return { error: err.message || "An error occurred" };
+  }
+}
+
+/**
+ * Sets - or clears - one customer's exception for one service.
+ *
+ * `price: null` means "charge them the base price"; `isHidden: false` means "show it". When
+ * both land on the default the row is deleted rather than stored, so the override table only
+ * ever holds real exceptions and a customer with no special treatment has no rows at all.
+ */
+export async function setCustomerPricing(
+  userId: string,
+  serviceId: string,
+  price: number | null,
+  isHidden: boolean
+) {
+  try {
+    if (!(await checkIsAdmin())) return { error: "Unauthorized" };
+    if (!userId || !serviceId) return { error: "Pick a customer and a service first." };
+
+    if (price !== null) {
+      if (!Number.isFinite(price) || price < 0) {
+        return { error: "A custom price must be zero or more." };
+      }
+      // Two decimal places is what the column stores; rounding here keeps what the admin
+      // sees after saving identical to what they typed.
+      price = Math.round((price + Number.EPSILON) * 100) / 100;
+    }
+
+    const supabase = await createServiceRoleClient();
+
+    const { data: service } = await supabase
+      .from('services')
+      .select('id')
+      .eq('id', serviceId)
+      .single();
+    if (!service) return { error: "That service no longer exists." };
+
+    const { data: customer } = await supabase
+      .from('users')
+      .select('id, email')
+      .eq('id', userId)
+      .single();
+    if (!customer) return { error: "That customer no longer exists." };
+
+    // Nothing special about this customer any more - drop the row instead of keeping a
+    // no-op one around.
+    if (price === null && !isHidden) {
+      const { error } = await supabase
+        .from('customer_service_overrides')
+        .delete()
+        .eq('user_id', userId)
+        .eq('service_id', serviceId);
+
+      if (error) {
+        console.error("setCustomerPricing delete error:", error);
+        return { error: "Failed to clear the custom pricing." };
+      }
+      return { success: true, cleared: true };
+    }
+
+    const supabaseAuth = await createClient();
+    const { data: { user: actor } } = await supabaseAuth.auth.getUser();
+
+    const { error } = await supabase
+      .from('customer_service_overrides')
+      .upsert(
+        {
+          user_id: userId,
+          service_id: serviceId,
+          price,
+          is_hidden: isHidden,
+          updated_at: new Date().toISOString(),
+          updated_by: actor?.id || null,
+        },
+        { onConflict: 'user_id,service_id' }
+      );
+
+    if (error) {
+      console.error("setCustomerPricing upsert error:", error);
+      if (/relation .* does not exist|schema cache/i.test(error.message)) {
+        return { error: 'Per-customer pricing is not set up on this database yet. Run the latest migration in Supabase.' };
+      }
+      return { error: "Failed to save the custom pricing." };
+    }
+
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'CUSTOMER_PRICING_UPDATED',
+      entityType: 'USER',
+      entityId: userId,
+      description: isHidden
+        ? `Hid a service from ${customer.email}'s catalogue.`
+        : `Set a custom price of Rs ${Number(price).toFixed(2)} for ${customer.email}.`,
+      metadata: { serviceId, price, isHidden },
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("setCustomerPricing exception:", err);
+    return { error: err.message || "An error occurred" };
   }
 }

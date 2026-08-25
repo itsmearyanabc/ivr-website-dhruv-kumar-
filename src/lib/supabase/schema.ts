@@ -46,6 +46,18 @@ export function hasPasswordColumn() {
   return probeColumn('users', 'password_plain')
 }
 
+/**
+ * True once broadcasts carries the delivery counts a failed-call refund is derived from.
+ *
+ * Without this the refund still calculates and still credits correctly - the counts simply
+ * are not recorded on the order. Writing a column that does not exist would fail the whole
+ * update and block fulfilment entirely, which is a far worse outcome than a missing audit
+ * field on a database where the migration has not run yet.
+ */
+export function hasDeliveryCountColumns() {
+  return probeColumn('broadcasts', 'delivered_calls')
+}
+
 async function probeTable(table: string): Promise<boolean> {
   const key = `table:${table}`
   const cached = cache.get(key)

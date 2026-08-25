@@ -61,7 +61,7 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
 
 export function formatStatus(raw: string): string {
   const map: Record<string, string> = {
-    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'PARTIAL': 'Completed', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold', 'REFUNDED': 'Refunded',
+    'PLACED': 'Placed', 'IN_PROGRESS': 'In progress', 'COMPLETED': 'Completed', 'PARTIAL': 'Partial', 'CANCELLED': 'Cancelled', 'ON_HOLD': 'On hold', 'REFUNDED': 'Refunded',
     'OPEN': 'Open', 'RESOLVED': 'Resolved', 'CLOSED': 'Closed',
     'PENDING': 'Pending', 'APPROVED': 'Approved', 'REJECTED': 'Rejected',
   };

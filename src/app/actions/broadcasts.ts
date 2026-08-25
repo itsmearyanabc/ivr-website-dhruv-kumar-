@@ -6,6 +6,9 @@ import { checkIsAdmin } from '@/app/actions/auth'
 import { logActivity, describeActor } from '@/app/actions/activity'
 import { STORAGE_BUCKET } from '@/lib/uploads'
 import { consumeUploadedKey, discardUpload } from '@/lib/storage'
+import { resolveServicePrice } from '@/lib/pricing'
+import { calculateFailedCallRefund } from '@/lib/refunds'
+import { hasDeliveryCountColumns } from '@/lib/supabase/schema'
 import { guard } from '@/lib/errors'
 
 export async function getBroadcasts() {
@@ -82,11 +85,15 @@ async function runCreateBroadcast(formData: FormData) {
   const contactsInputType = String(formData.get("contactsInputType") || "FILE").toUpperCase()
   const manualContacts = String(formData.get("manualContacts") || "")
   const contactCount = formData.get("contactCount") ? parseInt(String(formData.get("contactCount")), 10) : 0
-  // FIX: Securely recalculate charge based on service price in DB instead of trusting frontend
+  // FIX: Securely recalculate charge based on service price in DB instead of trusting frontend.
+  // resolveServicePrice also applies this customer's own price where one is set, and refuses
+  // a service that is hidden from them - so the catalogue they were shown is the catalogue
+  // they can actually buy from.
   let charge = 0;
   if (serviceId) {
-    const { data: svc } = await supabase.from('services').select('price').eq('id', serviceId).single();
-    if (svc) charge = Number(svc.price);
+    const resolved = await resolveServicePrice(supabase, user.id, serviceId)
+    if (!resolved.ok) return { error: resolved.error }
+    charge = resolved.price
   }
 
   // The browser uploads straight to Supabase Storage and posts the resulting keys here, so
@@ -327,11 +334,28 @@ async function runUpdateBroadcastStatus(formData: FormData) {
   const refundReason = String(formData.get("refundReason") || "")
   const adminComment = String(formData.get("adminComment") || "")
 
+  // Delivery counts read off the fulfilment report. When these are present the refund is
+  // derived from them and the typed amount below is ignored entirely - the operator enters
+  // how many calls failed, not how many rupees to hand back.
+  const deliveredCallsStr = String(formData.get("deliveredCalls") || "")
+  const failedCallsStr = String(formData.get("failedCalls") || "")
+  const hasCallCounts = deliveredCallsStr !== "" || failedCallsStr !== ""
+
+  let deliveredCalls: number | null = null
+  let failedCalls: number | null = null
+  if (hasCallCounts) {
+    deliveredCalls = Number.parseInt(deliveredCallsStr || "0", 10)
+    failedCalls = Number.parseInt(failedCallsStr || "0", 10)
+    if (!Number.isInteger(deliveredCalls) || !Number.isInteger(failedCalls) || deliveredCalls < 0 || failedCalls < 0) {
+      return { error: 'Delivered and failed call counts must be whole numbers, zero or more.' }
+    }
+  }
+
   const partialRefundStr = String(formData.get("partialRefundAmount") || "")
   const confirmPartialRefundStr = String(formData.get("confirmPartialRefundAmount") || "")
 
   let partialRefundAmount: number | null = null
-  if (partialRefundStr || confirmPartialRefundStr) {
+  if (!hasCallCounts && (partialRefundStr || confirmPartialRefundStr)) {
     const val1 = parseFloat(partialRefundStr)
     const val2 = parseFloat(confirmPartialRefundStr)
     if (isNaN(val1) || isNaN(val2) || val1 !== val2 || val1 < 0) {
@@ -364,11 +388,17 @@ async function runUpdateBroadcastStatus(formData: FormData) {
     return { error: `Broadcast is already ${currentStatus}. Cannot change to ${status}.` }
   }
 
-  // A partial refund is only meaningful against work that was actually delivered. Carrying it
-  // into a CANCELLED or REFUNDED save paid the customer the partial amount *and* the full
-  // charge, so it is dropped for every other target status.
-  const refundsPartial = status === 'COMPLETED' || status === 'PARTIAL'
-  if (!refundsPartial) partialRefundAmount = null
+  // Two separate questions that used to share one flag.
+  //
+  // A report can be attached whenever the run is being closed out, COMPLETED or PARTIAL - a
+  // fully delivered campaign still gets its report.
+  //
+  // A partial refund only belongs on PARTIAL. COMPLETED means every call landed, so there is
+  // nothing to give back; and carrying an amount into a CANCELLED or REFUNDED save paid the
+  // customer the partial amount *and* the full charge.
+  const allowsReport = status === 'COMPLETED' || status === 'PARTIAL'
+  const allowsPartialRefund = status === 'PARTIAL'
+  if (!allowsPartialRefund) partialRefundAmount = null
 
   // The transaction ledger - not the order row - is the authority on what has already been
   // paid back. Every refund path below writes a CREDIT against the order reference, so this
@@ -389,6 +419,24 @@ async function runUpdateBroadcastStatus(formData: FormData) {
   const alreadyRefunded = (priorCredits || []).reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0)
   const refundableRemaining = Math.max(0, Number((originalCharge - alreadyRefunded).toFixed(2)))
 
+  // The refund is recomputed here from the call counts, never taken from the browser. The
+  // admin screen runs the same function to preview the figure, so what they approved and
+  // what gets credited are the same number - but this is the one that moves money.
+  if (hasCallCounts && allowsPartialRefund) {
+    const breakdown = calculateFailedCallRefund(
+      originalCharge,
+      deliveredCalls as number,
+      failedCalls as number,
+      refundableRemaining,
+    )
+    if (!breakdown.ok) return { error: breakdown.error }
+    partialRefundAmount = breakdown.refund > 0 ? breakdown.refund : null
+  } else if (hasCallCounts && !allowsPartialRefund) {
+    // Counts recorded against a status that does not refund - keep the numbers on the row
+    // for the record, but move no money.
+    partialRefundAmount = null
+  }
+
   if (partialRefundAmount !== null && partialRefundAmount > refundableRemaining) {
     return {
       error: alreadyRefunded > 0
@@ -401,10 +449,15 @@ async function runUpdateBroadcastStatus(formData: FormData) {
   // afterwards meant a failed upload left the order sitting at Completed with no report and
   // no way to tell from the row.
   let reportKey: string | null = null
-  if (refundsPartial && reportUploadKey) {
+  if (allowsReport && reportUploadKey) {
     const check = await consumeUploadedKey('report', reportUploadKey, adminUserId)
     if (!check.ok) return { error: `${check.error} The order status was not changed.` }
     reportKey = reportUploadKey
+  } else if (reportUploadKey) {
+    // The browser uploads before submitting, so a report picked against a status that cannot
+    // carry one is already sitting in the bucket. Drop it rather than leaving it to count
+    // against the storage quota forever with nothing pointing at it.
+    await discardUpload(reportUploadKey)
   }
 
   const updatePayload: any = { status, updated_at: new Date().toISOString() }
@@ -423,6 +476,14 @@ async function runUpdateBroadcastStatus(formData: FormData) {
     updatePayload.partial_refund_amount = Number(
       (Number(existingBroadcast.partial_refund_amount || 0) + partialRefundAmount).toFixed(2)
     )
+  }
+
+  // Keep the numbers the refund was derived from on the order, so the credit can be checked
+  // against the report later without re-reading the attachment. Skipped on a database where
+  // the migration has not run - the refund itself does not depend on these being stored.
+  if (hasCallCounts && await hasDeliveryCountColumns()) {
+    updatePayload.delivered_calls = deliveredCalls
+    updatePayload.failed_calls = failedCalls
   }
 
   let query = supabase
@@ -499,7 +560,12 @@ async function runUpdateBroadcastStatus(formData: FormData) {
     historyReason = `${historyReason ? `${historyReason}. ` : ''}Refunded ₹${fullRefundAmount.toFixed(2)} to the customer wallet.`
   }
   if (partialRefundAmount && partialRefundAmount > 0) {
-    historyReason = `Partial refund processed: ₹${partialRefundAmount.toFixed(2)}.${adminComment ? ` ${adminComment}` : ''}`
+    // Say what the customer is owed for and why, not just the figure - the call counts are
+    // the whole justification for the amount.
+    const basis = hasCallCounts
+      ? ` ${failedCalls} of ${(deliveredCalls as number) + (failedCalls as number)} calls failed.`
+      : ''
+    historyReason = `Partial refund processed: ₹${partialRefundAmount.toFixed(2)}.${basis}${adminComment ? ` ${adminComment}` : ''}`
   }
 
   await supabase.from('broadcast_status_history').insert([{
