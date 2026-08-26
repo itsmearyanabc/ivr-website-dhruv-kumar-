@@ -40,9 +40,9 @@ log, analytics, transactions.
 ## Core flows
 
 **Order.** Customer picks category → service, attaches audio (file or TTS text) and a contact
-list (file or pasted numbers). `createBroadcast` re-resolves the price server-side, debits the
-wallet atomically via `safe_deduct_balance`, and writes a `broadcasts` row plus a
-`broadcast_status_history` entry. Status moves PLACED → IN_PROGRESS → COMPLETED / PARTIAL /
+list (file or pasted numbers). `createBroadcast` counts the numbers **itself** (never from the
+form), re-resolves the price server-side, debits the wallet atomically via
+`safe_deduct_balance`, and writes a `broadcasts` row plus a `broadcast_status_history` entry. Status moves PLACED → IN_PROGRESS → COMPLETED / PARTIAL /
 CANCELLED, each transition logged. The admin closes an order out by uploading a fulfilment
 report and entering delivered/failed call counts.
 
@@ -75,7 +75,16 @@ Keep that split.
 
 **Money and catalogue are resolved server-side.** The browser is shown a price so it can
 render a total; the figure that moves is always `resolveServicePrice`, which also refuses a
-service hidden from that customer.
+service hidden from that customer and enforces its min/max order quantity.
+
+**Quantity pricing.** A service's `price` covers `unit_quantity` units - "100 SMS at Rs 11" is
+price 11, unit 100, so 250 numbers cost Rs 27.50. `unit_quantity` NULL means flat per-order
+pricing, which is what every service did before the feature existed; an operator opts each
+service in from Admin -> Services. The math lives in [quantity.ts](src/lib/quantity.ts), pure
+and dependency-free so the browser's live quote and the server's charge come from the same
+function - the same reason [refunds.ts](src/lib/refunds.ts) is written that way. `countNumbers`
+is shared for the same reason: the count shown is the count billed. Never import server code
+into that module; it is bundled into the browser.
 
 **Uploads bypass the server.** `createUploadTicket` issues a signed Supabase Storage URL for
 one exact path; the browser PUTs directly, then posts the key back. `consumeUploadedKey`
@@ -94,6 +103,15 @@ user session — use for `auth.getUser()`), `createAdminClient` (service role + 
 must not depend on RLS). Admin-facing reads go through service-role server actions, not the
 browser client: RLS `is_admin()` resolution silently returned empty rows and produced blank
 screens.
+
+**Keep `xlsx` out of the client entry bundle.** Statically imported into a client component it
+is ~425 KB of the first load. [PortalApp.tsx](src/app/_components/PortalApp.tsx) reaches it
+through `loadXLSX()` on demand instead.
+
+**`getBroadcasts` names its columns.** Not `*` - `manual_contacts` holds the whole pasted
+number list and dominated the payload of every screen that lists orders. It is fetched on
+demand by `getBroadcastContacts`. Anything added to that list must exist on every reachable
+database, or the whole query fails; migration-dependent columns go behind a probe.
 
 **Dates.** Never build a date key with `toISOString()` — it shifts to the previous day in IST
 and mis-plotted the whole analytics chart once already.

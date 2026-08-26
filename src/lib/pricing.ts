@@ -13,6 +13,12 @@
  */
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
+import {
+  isQuantityPriced,
+  quoteTotal,
+  validateQuantity,
+  type QuantityPricing,
+} from '@/lib/quantity'
 
 type ServiceClient = Awaited<ReturnType<typeof createServiceRoleClient>>
 
@@ -81,21 +87,32 @@ export function isVisibleTo(
 }
 
 /**
- * Authoritative price for one customer ordering one service, read fresh from the database.
+ * Authoritative charge for one customer ordering one service, read fresh from the database.
  *
- * This is what an order is charged. It is never taken from the browser: the client is shown
- * a price so it can render a total, but the figure that moves money is resolved here, from
- * the service row and that customer's override. A hidden service is refused outright - it is
- * not in their catalogue, so an order naming it was either stale or forged.
+ * This is what an order is billed. It is never taken from the browser: the client is shown a
+ * running total so it can render one, but the figure that moves money is resolved here, from
+ * the service row, that customer's override, and a quantity the *server* counted. A hidden
+ * service is refused outright - it is not in their catalogue, so an order naming it was
+ * either stale or forged.
+ *
+ * `quantity` is how many numbers the campaign targets. It is ignored for a service that is
+ * not quantity priced, which still bills its flat price per order exactly as before.
  */
 export async function resolveServicePrice(
   supabase: ServiceClient,
   userId: string,
   serviceId: string,
-): Promise<{ ok: true; price: number } | { ok: false; error: string }> {
+  quantity: number = 0,
+): Promise<
+  | { ok: true; price: number; quantity: number; quantityPriced: boolean }
+  | { ok: false; error: string }
+> {
+  // `select('*')` rather than a column list: the quantity fields are added by a migration
+  // that may not have run on this database yet, and naming a missing column fails the whole
+  // query instead of leaving the service unpriced.
   const { data: service, error } = await supabase
     .from('services')
-    .select('id, price, is_active')
+    .select('*')
     .eq('id', serviceId)
     .single()
 
@@ -112,10 +129,53 @@ export async function resolveServicePrice(
     return { ok: false, error: 'That service is not available on your account. Please pick another one.' }
   }
 
-  const price = priceFor(service, overrides)
+  // A per-customer price replaces what the price *covers a given quantity for*, not the
+  // quantity itself: an override of Rs 9 on a service selling 100 for Rs 11 means that
+  // customer pays Rs 9 per 100, not Rs 9 per number.
+  const priced: QuantityPricing = {
+    price: priceFor(service, overrides),
+    unit_quantity: service.unit_quantity,
+    min_quantity: service.min_quantity,
+    max_quantity: service.max_quantity,
+  }
+
+  const quantityPriced = isQuantityPriced(priced)
+
+  if (quantityPriced) {
+    const problem = validateQuantity(priced, quantity)
+    if (problem) return { ok: false, error: problem }
+  }
+
+  const price = quoteTotal(priced, quantity)
+
   if (!Number.isFinite(price) || price < 0) {
     return { ok: false, error: 'That service is not priced correctly. Please contact support.' }
   }
+  if (quantityPriced && price <= 0) {
+    return { ok: false, error: 'That order works out to no charge. Please check the quantity and try again.' }
+  }
 
-  return { ok: true, price }
+  return { ok: true, price, quantity, quantityPriced }
+}
+
+/**
+ * Whether a service bills per unit, without resolving a price for it.
+ *
+ * Used to decide how hard a failure to count an uploaded contact list should be. A service
+ * that charges a flat price per order does not care how many numbers the file held, so an
+ * unreadable format is not a reason to refuse the order; one that bills on the count cannot
+ * be sold at all without it.
+ */
+export async function serviceIsQuantityPriced(
+  supabase: ServiceClient,
+  serviceId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('services')
+    .select('*')
+    .eq('id', serviceId)
+    .single()
+
+  if (error || !data) return false
+  return isQuantityPriced(data as QuantityPricing)
 }

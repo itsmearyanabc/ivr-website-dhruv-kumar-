@@ -5,6 +5,7 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { checkIsAdmin } from "@/app/actions/auth";
 import { loadCustomerOverrides, priceFor, isVisibleTo } from "@/lib/pricing";
 import { logActivity, describeActor } from "@/app/actions/activity";
+import { hasServiceQuantityColumns } from "@/lib/supabase/schema";
 
 export interface Category {
   id: string;
@@ -19,12 +20,73 @@ export interface Service {
   id: string;
   category_id: string;
   name: string;
+  /** What `unit_quantity` units cost. For a flat-priced service, the whole order. */
   price: number;
-  min_quantity?: number;
-  max_quantity?: number;
+  /**
+   * Units the price covers - 100 for "100 SMS at Rs 11". Null means the service is not
+   * quantity priced and bills `price` per order however many numbers it carries, which is how
+   * every service behaved before quantity pricing existed.
+   */
+  unit_quantity?: number | null;
+  /** Smallest order accepted, once quantity priced. */
+  min_quantity?: number | null;
+  /** Largest order accepted, once quantity priced. Null = unbounded. */
+  max_quantity?: number | null;
   description?: string;
   is_active: boolean;
   created_at: string;
+}
+
+/** The quantity fields as they arrive from the admin form, before validation. */
+export interface ServiceQuantityInput {
+  unit_quantity?: number | null;
+  min_quantity?: number | null;
+  max_quantity?: number | null;
+}
+
+/** null for "not set", 'invalid' for something that was set but is not a usable quantity. */
+function toPositiveInt(value: number | null | undefined): number | null | 'invalid' {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) return 'invalid';
+  return n;
+}
+
+/**
+ * Validates the quantity fields and reduces them to what should be written.
+ *
+ * Leaving `unit_quantity` empty is how an operator says "bill a flat price per order", so it
+ * is not an error - it clears the bounds too, because a minimum order size means nothing for
+ * a service that charges the same either way and would only mislead whoever reads the row
+ * next.
+ */
+function normaliseQuantity(
+  input: ServiceQuantityInput | undefined,
+): { ok: true; values: Required<ServiceQuantityInput> } | { ok: false; error: string } {
+  const unit = toPositiveInt(input?.unit_quantity);
+  if (unit === 'invalid') {
+    return { ok: false, error: "Units included must be a whole number greater than zero." };
+  }
+  if (unit === null) {
+    return { ok: true, values: { unit_quantity: null, min_quantity: null, max_quantity: null } };
+  }
+
+  const min = toPositiveInt(input?.min_quantity);
+  if (min === 'invalid') {
+    return { ok: false, error: "Minimum order quantity must be a whole number greater than zero." };
+  }
+  const max = toPositiveInt(input?.max_quantity);
+  if (max === 'invalid') {
+    return { ok: false, error: "Maximum order quantity must be a whole number greater than zero." };
+  }
+  if (min !== null && max !== null && max < min) {
+    return {
+      ok: false,
+      error: "Maximum order quantity (" + max + ") cannot be below the minimum (" + min + ").",
+    };
+  }
+
+  return { ok: true, values: { unit_quantity: unit, min_quantity: min, max_quantity: max } };
 }
 
 /**
@@ -219,7 +281,13 @@ export async function deleteCategory(id: string) {
 /**
  * Admin action: Create Service under a Category with custom name & price
  */
-export async function createService(categoryId: string, name: string, price: number, description?: string) {
+export async function createService(
+  categoryId: string,
+  name: string,
+  price: number,
+  description?: string,
+  quantity?: ServiceQuantityInput,
+) {
   try {
     const isAdmin = await checkIsAdmin();
     if (!isAdmin) return { error: "Unauthorized" };
@@ -228,7 +296,16 @@ export async function createService(categoryId: string, name: string, price: num
       return { error: "Category, service name, and valid price are required" };
     }
 
+    const normalised = normaliseQuantity(quantity);
+    if (!normalised.ok) return { error: normalised.error };
+
     const supabase = await createServiceRoleClient();
+
+    // The quantity columns arrive with a migration that may not have run on this database
+    // yet. Writing one that does not exist fails the whole insert, which would leave the
+    // operator unable to create any service at all - so on an un-migrated database the
+    // service is still created, just without quantity pricing.
+    const quantityFields = (await hasServiceQuantityColumns()) ? normalised.values : {};
 
     const { data, error } = await supabase
       .from('services')
@@ -237,7 +314,8 @@ export async function createService(categoryId: string, name: string, price: num
         name: name.trim(),
         price: Number(price),
         description: description?.trim() || null,
-        is_active: true
+        is_active: true,
+        ...quantityFields,
       }])
       .select()
       .single();
@@ -256,7 +334,14 @@ export async function createService(categoryId: string, name: string, price: num
 /**
  * Admin action: Update Service
  */
-export async function updateService(id: string, name: string, price: number, description?: string, is_active: boolean = true) {
+export async function updateService(
+  id: string,
+  name: string,
+  price: number,
+  description?: string,
+  is_active: boolean = true,
+  quantity?: ServiceQuantityInput,
+) {
   try {
     const isAdmin = await checkIsAdmin();
     if (!isAdmin) return { error: "Unauthorized" };
@@ -265,7 +350,16 @@ export async function updateService(id: string, name: string, price: number, des
       return { error: "Service name and valid price are required" };
     }
 
+    const normalised = normaliseQuantity(quantity);
+    if (!normalised.ok) return { error: normalised.error };
+
     const supabase = await createServiceRoleClient();
+
+    // Only written where the column exists - see the note in createService. `quantity` being
+    // undefined means the caller is not managing these fields at all (the enable/disable
+    // toggle, for one), so they are left untouched rather than cleared.
+    const quantityFields =
+      quantity !== undefined && (await hasServiceQuantityColumns()) ? normalised.values : {};
 
     const { data, error } = await supabase
       .from('services')
@@ -273,7 +367,8 @@ export async function updateService(id: string, name: string, price: number, des
         name: name.trim(),
         price: Number(price),
         description: description?.trim() || null,
-        is_active
+        is_active,
+        ...quantityFields,
       })
       .eq('id', id)
       .select()
@@ -325,8 +420,14 @@ export interface CustomerServiceRow {
   service_name: string;
   category_id: string;
   category_name: string;
-  /** The global price everyone else pays. */
+  /** The global price everyone else pays - for `unit_quantity` units, not per order. */
   base_price: number;
+  /**
+   * Units the price covers, so the admin panel can say "per 100" rather than leaving an
+   * operator to guess whether Rs 11 buys one number or a hundred. Null for a flat-priced
+   * service, where the price is simply the price of an order.
+   */
+  unit_quantity: number | null;
   /** Custom price for this customer, or null when they pay the base price. */
   override_price: number | null;
   /** True when this service is hidden from this customer's catalogue. */
@@ -355,7 +456,7 @@ export async function getCustomerPricing(userId: string) {
         id,
         name,
         is_active,
-        services ( id, name, price, is_active, created_at )
+        services ( * )
       `)
       .order('created_at', { ascending: true });
 
@@ -380,6 +481,7 @@ export async function getCustomerPricing(userId: string) {
           category_id: category.id,
           category_name: category.name,
           base_price: Number(service.price || 0),
+          unit_quantity: service.unit_quantity ? Number(service.unit_quantity) : null,
           override_price: override?.price ?? null,
           is_hidden: Boolean(override?.isHidden),
           service_active: service.is_active !== false && category.is_active !== false,

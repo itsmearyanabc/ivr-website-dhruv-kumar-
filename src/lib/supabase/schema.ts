@@ -58,6 +58,17 @@ export function hasDeliveryCountColumns() {
   return probeColumn('broadcasts', 'delivered_calls')
 }
 
+/**
+ * True once services carry the quantity-pricing fields.
+ *
+ * Without it a service still saves and still sells - it just cannot be opted into per-unit
+ * pricing, because writing `unit_quantity` to a table that has no such column fails the whole
+ * insert and would block the operator from creating any service at all.
+ */
+export function hasServiceQuantityColumns() {
+  return probeColumn('services', 'unit_quantity')
+}
+
 async function probeTable(table: string): Promise<boolean> {
   const key = `table:${table}`
   const cached = cache.get(key)

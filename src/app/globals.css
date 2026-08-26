@@ -643,6 +643,56 @@ td.empty { display: table-cell; }
 .dropzone-actions .text-button { font-size: 11.5px; color: var(--muted); gap: 4px; }
 .dropzone-actions .text-button:hover { color: var(--red); }
 .field-hint { margin: 6px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.field-hint.error { color: var(--red); }
+.field-hint strong { color: var(--text); font-weight: 700; }
+
+/* Min and max sit side by side: they are one range, and reading them apart invites setting
+   a maximum below the minimum. Collapses on narrow screens rather than squeezing. */
+.field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .field-pair { grid-template-columns: 1fr; } }
+
+/* ------------------------------------------------------------------
+   Quantity pricing: the terms of a service, and the live quote
+   ------------------------------------------------------------------ */
+
+/* Shown the moment a service is picked, so its minimum is read before the numbers are typed
+   rather than discovered by being rejected afterwards. */
+.service-terms {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  margin: -4px 0 14px; padding: 9px 12px;
+  background: var(--canvas); border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 12px; color: var(--muted);
+}
+.service-terms .terms-rate { font-size: 13.5px; font-weight: 700; color: var(--text); }
+.service-terms .terms-rate small { font-weight: 500; color: var(--muted); font-size: 11.5px; }
+.service-terms .terms-sep { color: var(--line); }
+
+/* The running total, updated on every keystroke. Deliberately loud about which state it is
+   in: a customer who cannot see that 80 numbers is under the minimum will keep pressing a
+   disabled button and not know why. */
+.quantity-quote {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+  margin-top: 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--canvas);
+  font-size: 12.5px; color: var(--muted);
+  transition: background .15s ease, border-color .15s ease;
+}
+.quantity-quote .quote-count { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.quantity-quote .quote-total { color: var(--text); font-variant-numeric: tabular-nums; }
+.quantity-quote .quote-total strong { font-size: 14px; }
+.quantity-quote .quote-hint { flex-basis: 100%; font-size: 11.5px; }
+
+.quantity-quote.valid { background: var(--green-soft); border-color: rgba(16, 136, 77, .25); }
+.quantity-quote.valid .quote-count,
+.quantity-quote.valid .quote-total strong { color: var(--green); }
+
+.quantity-quote.invalid { background: var(--amber-soft); border-color: rgba(180, 83, 9, .28); }
+.quantity-quote.invalid .quote-count { color: var(--amber); }
+.quantity-quote.invalid .quote-hint { color: var(--amber); font-weight: 600; }
+
+.quantity-quote.busy { color: var(--muted); font-style: italic; }
 
 /* Files stream straight to storage, so a large upload needs to show it is still moving. */
 .upload-progress { margin: 12px 0 0; }
@@ -1934,4 +1984,45 @@ body:has(.impersonation-banner) .content > header { top: 44px; }
   font-size: 12.5px;
   color: var(--muted);
   line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------
+   Top progress bar
+   ------------------------------------------------------------------ */
+
+/* Every screen in this panel is filled by a server action after the page has already
+   rendered, so without this the panel looks finished while it is still empty. Fixed to the
+   viewport rather than the layout so it is visible from any scroll position, and above the
+   modal backdrop so a refresh triggered from inside a dialog still reports itself. */
+.top-progress {
+  position: fixed; inset: 0 0 auto 0; height: 3px; z-index: 2000;
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  overflow: hidden; pointer-events: none;
+  opacity: 0; transition: opacity .28s ease;
+}
+.top-progress.on { opacity: 1; }
+.top-progress::before {
+  content: ""; position: absolute; inset: 0; width: 40%;
+  background: linear-gradient(90deg, transparent, var(--red), transparent);
+  animation: top-progress-sweep 1.1s ease-in-out infinite;
+}
+/* Idle: stop animating rather than sweeping invisibly behind an opacity of zero. */
+.top-progress.off::before { animation: none; }
+@keyframes top-progress-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* No admin-specific rule is needed: `.admin-app` rebinds --red to the console's blue, and the
+   bar inherits it like everything else in that subtree. */
+
+/* Respect a reduced-motion preference: keep the bar, drop the sweep. */
+@media (prefers-reduced-motion: reduce) {
+  .top-progress::before { animation: none; width: 100%; opacity: .55; }
+}
+
+/* Visually hidden, still announced. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }

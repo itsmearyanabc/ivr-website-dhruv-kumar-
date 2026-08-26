@@ -4,7 +4,7 @@
 
 import React, { FormEvent, useCallback, useEffect, useState } from "react";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
-import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles } from "@/app/actions/broadcasts";
+import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
 import { getUserBalance, getUserTransactions, getAllTransactions } from "@/app/actions/transactions";
@@ -34,8 +34,29 @@ import ActivityLog from "@/app/_components/admin/ActivityLog";
 import AddFunds from "@/app/_components/customer/AddFunds";
 import { UPLOAD_LIMITS, formatFileSize, describeLimit } from "@/lib/uploads";
 import { calculateFailedCallRefund } from "@/lib/refunds";
+import {
+  countNumbers,
+  describePricing,
+  isQuantityPriced,
+  maxQuantityOf,
+  minQuantityOf,
+  quoteTotal,
+  unitRate,
+  validateQuantity,
+} from "@/lib/quantity";
 import { uploadFile, uploadFiles } from "@/lib/uploadClient";
-import * as XLSX from "xlsx";
+
+/**
+ * `xlsx` is loaded on demand, not imported at the top of the module.
+ *
+ * It is close to a megabyte of parser, and a static import puts all of it in the first
+ * JavaScript every visitor downloads - to sign in, to look at their orders, to add funds -
+ * when it is only ever needed by the one customer who attaches a spreadsheet. Deferring it
+ * moves that cost to the moment a workbook is actually opened.
+ */
+async function loadXLSX() {
+  return import("xlsx");
+}
 
 type Role = "customer" | "admin";
 type Status = "Placed" | "In progress" | "Completed" | "Partial" | "Cancelled" | "On hold" | "Refunded";
@@ -172,7 +193,9 @@ function mapBroadcast(b: any, index: number): Order {
     serviceName: b.service_name,
     voiceType: b.voice_type,
     contactsInputType: b.contacts_input_type,
-    manualContacts: b.manual_contacts,
+    // Not in the list payload any more - see BROADCAST_LIST_COLUMNS. The order modal fetches
+    // it when it opens.
+    manualContacts: undefined,
     contactCount: b.contact_count,
     charge: b.charge ? Number(b.charge) : 0,
     adminComment: b.admin_comment,
@@ -180,6 +203,28 @@ function mapBroadcast(b: any, index: number): Order {
     deliveredCalls: b.delivered_calls ?? undefined,
     failedCalls: b.failed_calls ?? undefined
   };
+}
+
+/**
+ * The thin bar across the top of the panel while something is loading.
+ *
+ * Every screen here is filled by a server action after the page has already rendered, so
+ * without this the panel sits looking finished but empty and the only signal that work is in
+ * flight is that the numbers are wrong. Indeterminate on purpose: these are round trips to
+ * Supabase, and there is no honest percentage to report.
+ *
+ * It lingers briefly after the last request finishes so a fast reply still registers as
+ * having happened rather than flickering.
+ */
+function TopProgressBar({ active }: { active: boolean }) {
+  // Always mounted, shown by a class. Fading a permanent element out in CSS avoids holding a
+  // second copy of `active` in state and setting it from an effect, which would re-render the
+  // whole panel twice for every request it is only trying to report on.
+  return (
+    <div className={`top-progress ${active ? "on" : "off"}`} role="status" aria-live="polite">
+      <span className="sr-only">{active ? "Loading" : ""}</span>
+    </div>
+  );
 }
 
 export default function PortalApp({ portal }: { portal: Role }) {
@@ -224,13 +269,31 @@ export default function PortalApp({ portal }: { portal: Role }) {
   const [price, setPrice] = useState("0.25");
   const [pendingTopups, setPendingTopups] = useState(0);
 
+  /**
+   * How many server round trips are in flight, so the progress bar can reflect all of them.
+   *
+   * A counter rather than a boolean: several refreshes overlap routinely - approving a top-up
+   * reloads the queue, the customer list and the ledger at once - and a boolean would be
+   * switched off by whichever finished first, hiding the bar while the rest were still
+   * running.
+   */
+  const [pending, setPending] = useState(0);
+  const track = useCallback(async function <T>(work: Promise<T>): Promise<T> {
+    setPending(n => n + 1);
+    try {
+      return await work;
+    } finally {
+      setPending(n => n - 1);
+    }
+  }, []);
+
   const refreshUsers = async () => {
-    const data = await getAllUsers();
+    const data = await track(getAllUsers());
     if (data) setUsersList(data);
   };
 
   const refreshBroadcasts = async () => {
-    const { data: bData } = await getBroadcasts();
+    const { data: bData } = await track(getBroadcasts());
     if (bData && bData.length > 0) {
       setOrders(bData.map((b: any, i: number) => mapBroadcast(b, i)));
     } else {
@@ -239,17 +302,17 @@ export default function PortalApp({ portal }: { portal: Role }) {
   };
 
   const refreshBalance = async () => {
-    const bal = await getUserBalance();
+    const bal = await track(getUserBalance());
     setBalance(bal);
   };
 
   const refreshPendingTopups = async () => {
-    setPendingTopups(await getTopupPendingCount());
+    setPendingTopups(await track(getTopupPendingCount()));
   };
 
   const fetchData = async (currentSession: Session) => {
     setIsDataLoading(true);
-    const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData, topupCount] = await Promise.all([
+    const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData, topupCount] = await track(Promise.all([
       getSystemSettings(),
       getBroadcasts(),
       getTickets(),
@@ -258,7 +321,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
       currentSession.role !== "admin" ? getUserBalance() : Promise.resolve(null),
       currentSession.role !== "admin" ? getUserTransactions() : Promise.resolve(null),
       currentSession.role === "admin" ? getTopupPendingCount() : Promise.resolve(0)
-    ]);
+    ]));
 
         if (settings) setPrice(settings.price_per_call);
 
@@ -289,7 +352,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
     let mounted = true;
     
     async function initSession() {
-      const { session: serverSession } = await getUserSession();
+      const { session: serverSession } = await track(getUserSession());
       if (mounted) {
         if (serverSession) {
           setSession(serverSession as Session);
@@ -464,8 +527,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
     return { ok: true };
   };
 
-  if (isSessionLoading) return <div className="boot-screen"><div className="loader"/><p>Loading your panel…</p></div>;
-  if (!session) return <Auth portal={portal} onLogin={login} />;
+  if (isSessionLoading) return <div className="boot-screen"><TopProgressBar active /><div className="loader"/><p>Loading your panel…</p></div>;
+  if (!session) return <><TopProgressBar active={pending > 0} /><Auth portal={portal} onLogin={login} /></>;
   if (session.role !== portal) return <WrongPortal role={session.role} portal={portal} onSignOut={logout} />;
 
   const nav: Array<[string, string]> = [["Dashboard", "grid"], ["New broadcast", "plus"], ["My broadcasts", "radio"], ["Add funds", "indian-rupee"], ["Support", "help"], ["Settings", "settings"]];
@@ -481,6 +544,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
 
   const overlays = (
     <>
+      <TopProgressBar active={pending > 0} />
       {showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />}
       {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>}
       {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>}
@@ -701,7 +765,8 @@ function CustomerPricingPanel({ customer }: { customer: any }) {
     <div className="pricing-panel">
       <h4>Pricing for this customer</h4>
       <p className="pricing-note">
-        Leave a price empty to charge the standard rate. Hiding a service removes it from this
+        Prices are for the quantity shown beside them, not per order. Leave a price empty to
+        charge the standard rate. Hiding a service removes it from this
         customer&apos;s order screen entirely. Changes apply to their next order — orders already
         placed keep the price they were charged.
       </p>
@@ -728,7 +793,15 @@ function CustomerPricingPanel({ customer }: { customer: any }) {
                       <strong>{row.service_name}</strong>
                       <small>{row.category_name}{row.service_active ? "" : " · inactive globally"}</small>
                     </td>
-                    <td><span className="text-muted">₹{row.base_price.toFixed(2)}</span></td>
+                    <td>
+                      <span className="text-muted">₹{row.base_price.toFixed(2)}</span>
+                      {/* Without the unit an operator cannot tell whether Rs 11 buys one
+                          number or a hundred, and would set the custom price on the wrong
+                          basis. */}
+                      {row.unit_quantity ? (
+                        <small className="pricing-effective">per {row.unit_quantity.toLocaleString("en-IN")}</small>
+                      ) : null}
+                    </td>
                     <td>
                       <div className="pricing-cell">
                         <input
@@ -750,7 +823,9 @@ function CustomerPricingPanel({ customer }: { customer: any }) {
                         </button>
                       </div>
                       {row.override_price !== null && (
-                        <small className="pricing-effective">Custom · was ₹{row.base_price.toFixed(2)}</small>
+                        <small className="pricing-effective">
+                          Custom{row.unit_quantity ? ` per ${row.unit_quantity.toLocaleString("en-IN")}` : ""} · was ₹{row.base_price.toFixed(2)}
+                        </small>
                       )}
                       {row.override_price === null && effective !== row.base_price && (
                         <small className="pricing-effective">Standard</small>
@@ -1957,6 +2032,84 @@ function AdminTransactionsView({ transactions, users }: { transactions: any[]; u
   );
 }
 
+/**
+ * The quantity-pricing block shared by the add- and edit-service forms.
+ *
+ * Leaving "units included" empty is a supported answer, not an omission: it keeps the service
+ * on the flat per-order price it has always had. The derived per-unit rate is shown live
+ * because "11 for 100" and "0.11 each" are the same deal stated two ways, and the operator is
+ * about to sell at whichever one they actually meant.
+ */
+function ServiceQuantityFields({ price, units, setUnits, min, setMin, max, setMax }: {
+  price: string;
+  units: string; setUnits: (v: string) => void;
+  min: string; setMin: (v: string) => void;
+  max: string; setMax: (v: string) => void;
+}) {
+  const priced = units.trim() !== "" && Number(units) > 0;
+  const rate = priced ? Number(price || 0) / Number(units) : 0;
+  const minNum = min.trim() === "" ? null : Number(min);
+  const maxNum = max.trim() === "" ? null : Number(max);
+  const boundsWrong = minNum !== null && maxNum !== null && maxNum < minNum;
+
+  return (
+    <>
+      <label>Units included in that price
+        <input
+          type="number"
+          min="1"
+          step="1"
+          placeholder="e.g. 100 — leave empty for a flat price per order"
+          value={units}
+          onChange={e => setUnits(e.target.value)}
+        />
+      </label>
+
+      {priced ? (
+        <>
+          <p className="field-hint">
+            Charged at <strong>₹{rate.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}</strong> per number
+            {" — "}₹{Number(price || 0).toFixed(2)} per {Number(units).toLocaleString("en-IN")}.
+            An order for {(minNum || 1).toLocaleString("en-IN")} numbers costs ₹{(rate * (minNum || 1)).toFixed(2)}.
+          </p>
+          <div className="field-pair">
+            <label>Minimum order quantity
+              <input
+                type="number"
+                min="1"
+                step="1"
+                placeholder="e.g. 100"
+                value={min}
+                onChange={e => setMin(e.target.value)}
+              />
+            </label>
+            <label>Maximum order quantity
+              <input
+                type="number"
+                min="1"
+                step="1"
+                placeholder="Leave empty for no limit"
+                value={max}
+                onChange={e => setMax(e.target.value)}
+              />
+            </label>
+          </div>
+          {boundsWrong && (
+            <p className="field-hint error">
+              The maximum cannot be below the minimum. Customers would be unable to order this service at any quantity.
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="field-hint">
+          No units set, so this service charges ₹{Number(price || 0).toFixed(2)} per order however many
+          numbers the campaign carries. Enter a quantity above to bill per number instead.
+        </p>
+      )}
+    </>
+  );
+}
+
 function CategoryServiceManager() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [catName, setCatName] = useState("");
@@ -1966,6 +2119,27 @@ function CategoryServiceManager() {
   const [servName, setServName] = useState("");
   const [servPrice, setServPrice] = useState("");
   const [servDesc, setServDesc] = useState("");
+  // Quantity pricing. Held as strings because "" is a meaningful value here - it is how the
+  // operator says "no quantity pricing on this service", which is not the same as zero.
+  const [servUnits, setServUnits] = useState("");
+  const [servMin, setServMin] = useState("");
+  const [servMax, setServMax] = useState("");
+
+  /** Everything the quantity fields need to become a `ServiceQuantityInput`. */
+  const quantityInput = () => ({
+    unit_quantity: servUnits.trim() === "" ? null : Number(servUnits),
+    min_quantity: servMin.trim() === "" ? null : Number(servMin),
+    max_quantity: servMax.trim() === "" ? null : Number(servMax),
+  });
+
+  const clearServiceForm = () => {
+    setServName("");
+    setServPrice("");
+    setServDesc("");
+    setServUnits("");
+    setServMin("");
+    setServMax("");
+  };
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
@@ -2017,14 +2191,12 @@ function CategoryServiceManager() {
     if (isNaN(priceNum) || priceNum < 0) return alert("Please enter a valid price.");
 
     setLoading(true);
-    const res = await createService(selectedCatId, servName, priceNum, servDesc);
+    const res = await createService(selectedCatId, servName, priceNum, servDesc, quantityInput());
     setLoading(false);
     if (res.error) {
       alert(res.error);
     } else {
-      setServName("");
-      setServPrice("");
-      setServDesc("");
+      clearServiceForm();
       setShowNewService(false);
       setMsg("Service added successfully!");
       setTimeout(() => setMsg(""), 3000);
@@ -2059,6 +2231,9 @@ function CategoryServiceManager() {
     setServName(service.name);
     setServPrice(String(service.price));
     setServDesc(service.description || "");
+    setServUnits(service.unit_quantity ? String(service.unit_quantity) : "");
+    setServMin(service.min_quantity ? String(service.min_quantity) : "");
+    setServMax(service.max_quantity ? String(service.max_quantity) : "");
     setShowEditService(true);
   };
 
@@ -2088,16 +2263,21 @@ function CategoryServiceManager() {
     if (isNaN(priceNum) || priceNum < 0) return alert("Please enter a valid price.");
 
     setLoading(true);
-    const res = await updateService(editingService.id, servName, priceNum, servDesc, editingService.is_active);
+    const res = await updateService(
+      editingService.id,
+      servName,
+      priceNum,
+      servDesc,
+      editingService.is_active,
+      quantityInput(),
+    );
     setLoading(false);
 
     if (res.error) return alert(res.error);
 
     setShowEditService(false);
     setEditingService(null);
-    setServName("");
-    setServPrice("");
-    setServDesc("");
+    clearServiceForm();
     setMsg("Service updated successfully!");
     setTimeout(() => setMsg(""), 3000);
     loadData();
@@ -2224,6 +2404,12 @@ function CategoryServiceManager() {
                   onChange={e => setServPrice(e.target.value)}
                 />
               </label>
+              <ServiceQuantityFields
+                price={servPrice}
+                units={servUnits} setUnits={setServUnits}
+                min={servMin} setMin={setServMin}
+                max={servMax} setMax={setServMax}
+              />
               <label>Description (optional)
                 <input 
                   placeholder="Service details" 
@@ -2415,6 +2601,12 @@ function CategoryServiceManager() {
                   onChange={e => setServPrice(e.target.value)}
                 />
               </label>
+              <ServiceQuantityFields
+                price={servPrice}
+                units={servUnits} setUnits={setServUnits}
+                min={servMin} setMin={setServMin}
+                max={servMax} setMax={setServMax}
+              />
               <label>Description (optional)
                 <input 
                   placeholder="Service details" 
@@ -2517,6 +2709,92 @@ function BroadcastTable({ orders, onSelect, admin = false, onViewCustomer }: { o
 
 function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
 
+/** A rate trimmed to the decimals it actually needs: 0.11, not 0.1100. */
+function formatRate(rate: number): string {
+  return rate.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+/**
+ * The terms a quantity-priced service sells on, shown the moment it is selected.
+ *
+ * A customer who reads "minimum 100" before typing does not have to discover it by being
+ * rejected after pasting 50 numbers and an audio file.
+ */
+function ServiceTerms({ service }: { service: Service }) {
+  if (!isQuantityPriced(service)) return null;
+
+  const min = minQuantityOf(service);
+  const max = maxQuantityOf(service);
+
+  return (
+    <div className="service-terms">
+      <span className="terms-rate">₹{formatRate(unitRate(service))} <small>per number</small></span>
+      <span className="terms-sep" aria-hidden="true">·</span>
+      <span>
+        {describePricing(service)}
+      </span>
+      <span className="terms-sep" aria-hidden="true">·</span>
+      <span>
+        Order {min.toLocaleString("en-IN")}
+        {max !== null ? `–${max.toLocaleString("en-IN")}` : "+"} numbers
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Live count and running total for the numbers currently in the box.
+ *
+ * Both are recomputed as the customer types, from the same parser and the same pricing
+ * function the server bills with, so the total here is the total charged - not an estimate
+ * the order might contradict.
+ */
+function QuantityQuote({ service, count, busy }: { service: Service | undefined; count: number; busy?: boolean }) {
+  if (!service || !isQuantityPriced(service)) {
+    return count > 0 ? (
+      <div className="flash-success small-flash">✓ {count.toLocaleString("en-IN")} contacts ready</div>
+    ) : null;
+  }
+
+  const min = minQuantityOf(service);
+  const max = maxQuantityOf(service);
+  const problem = count > 0 ? validateQuantity(service, count) : null;
+  const total = quoteTotal(service, count);
+
+  if (busy) return <div className="quantity-quote busy">Counting numbers…</div>;
+
+  if (count === 0) {
+    return (
+      <div className="quantity-quote">
+        <span className="quote-count">0 numbers</span>
+        <span className="quote-hint">Minimum order is {min.toLocaleString("en-IN")}.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`quantity-quote ${problem ? "invalid" : "valid"}`}>
+      <span className="quote-count">
+        {problem ? "" : "✓ "}{count.toLocaleString("en-IN")} number{count === 1 ? "" : "s"}
+      </span>
+      <span className="quote-total">
+        × ₹{formatRate(unitRate(service))} = <strong>₹{total.toFixed(2)}</strong>
+      </span>
+      {problem ? (
+        <span className="quote-hint">{problem}</span>
+      ) : (
+        <span className="quote-hint">
+          {count < min
+            ? `${(min - count).toLocaleString("en-IN")} more needed`
+            : max !== null
+              ? `${(max - count).toLocaleString("en-IN")} more allowed`
+              : "Within this service's limits"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClose: () => void; onSubmit: (o: any) => Promise<SubmitResult>; session: Session; balance: number; price: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -2538,6 +2816,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
 
   const [contactsCount, setContactsCount] = useState<number>(0);
   const [isParsing, setIsParsing] = useState(false);
+  const [parseError, setParseError] = useState("");
   const [scheduleType, setScheduleType] = useState("Start on processing");
 
   useEffect(() => {
@@ -2554,36 +2833,58 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   const availableServices = currentCategory?.services || [];
   const currentService = availableServices.find(s => s.id === selectedServiceId);
 
-  const calculatedCost = currentService ? Number(currentService.price) : 0;
+  // The running total. A quantity-priced service multiplies its rate by however many numbers
+  // are in the box right now, so this recomputes on every keystroke; a flat-priced service
+  // ignores the count entirely and quotes its price, exactly as it always did.
+  const quantityPriced = currentService ? isQuantityPriced(currentService) : false;
+  const calculatedCost = currentService ? quoteTotal(currentService, contactsCount) : 0;
   const canAfford = balance >= calculatedCost;
 
-  // File parsing logic
+  // Shown, never trusted: the same check runs on the server against a count the server did
+  // itself, and that is the one that decides whether the order is accepted.
+  const quantityProblem =
+    currentService && quantityPriced && contactsCount > 0
+      ? validateQuantity(currentService, contactsCount)
+      : null;
+
+  /**
+   * Counts the numbers in an uploaded list so the order can be quoted before it is placed.
+   *
+   * Uses the same parser the server bills with (`countNumbers`), across every sheet of a
+   * workbook rather than only the first, so the total shown here is the total charged. An
+   * unreadable file counts zero rather than guessing at one number per 15 bytes, as this used
+   * to: under quantity pricing a guess is a quote the server will not honour.
+   */
   const parseContactsFile = async (file: File) => {
     setIsParsing(true);
+    setParseError("");
     try {
       const ext = file.name.split('.').pop()?.toLowerCase();
       let count = 0;
-      
-      if (ext === 'csv' || ext === 'txt') {
-        const text = await file.text();
-        const matches = text.match(/[\+]?[0-9]{10,15}/g);
-        count = matches ? matches.length : 0;
-      } else if (ext === 'xlsx' || ext === 'xls') {
+
+      if (ext === 'xlsx' || ext === 'xls' || ext === 'xlsm' || ext === 'ods') {
+        const XLSX = await loadXLSX();
         const data = await file.arrayBuffer();
         const workbook = XLSX.read(data);
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const csv = XLSX.utils.sheet_to_csv(sheet);
-        const matches = csv.match(/[\+]?[0-9]{10,15}/g);
-        count = matches ? matches.length : 0;
+        for (const sheetName of workbook.SheetNames) {
+          const sheet = workbook.Sheets[sheetName];
+          if (sheet) count += countNumbers(XLSX.utils.sheet_to_csv(sheet));
+        }
       } else {
-        const text = await file.text();
-        const matches = text.match(/[\+]?[0-9]{10,15}/g);
-        count = matches ? matches.length : Math.max(1, Math.floor(file.size / 15));
+        count = countNumbers(await file.text());
       }
-      setContactsCount(count > 0 ? count : 1);
+
+      setContactsCount(count);
+      if (count === 0) {
+        setParseError(
+          "No phone numbers were found in that file. They should be one per line or one per cell, " +
+          "10 to 15 digits each. You can also paste them in using \u201cType / paste\u201d."
+        );
+      }
     } catch (e) {
       console.error("File parse error:", e);
-      setContactsCount(1);
+      setContactsCount(0);
+      setParseError("That file could not be read. Try CSV, TXT or XLSX, or paste the numbers in directly.");
     } finally {
       setIsParsing(false);
     }
@@ -2592,6 +2893,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   const handleContactsFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     setContactsFile(file || null);
+    setParseError("");
     if (file) {
       parseContactsFile(file);
     } else {
@@ -2599,11 +2901,11 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     }
   };
 
-  // Manual text line counter
+  // Live counter for typed or pasted numbers. Shares `countNumbers` with the server, so the
+  // figure driving the running total is the figure the order is billed on.
   const handleManualTextChange = (text: string) => {
     setManualText(text);
-    const lines = text.split(/\r?\n|,/).map(l => l.trim()).filter(l => l.length > 0);
-    setContactsCount(lines.length);
+    setContactsCount(countNumbers(text));
   };
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
@@ -2612,7 +2914,15 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
 
     if (!selectedCatId) return setSubmitError("Please select a category.");
     if (!selectedServiceId) return setSubmitError("Please select a service.");
-    if (!canAfford) return setSubmitError(`Insufficient balance. Your wallet holds ₹${balance.toFixed(2)}, but this service costs ₹${calculatedCost.toFixed(2)}.`);
+
+    // Order size is checked before affordability: when an order is both below the minimum and,
+    // at that size, nearly free, "you need at least 100 numbers" is the message that helps.
+    if (currentService && quantityPriced) {
+      const problem = validateQuantity(currentService, contactsCount);
+      if (problem) return setSubmitError(problem);
+    }
+
+    if (!canAfford) return setSubmitError(`Insufficient balance. Your wallet holds ₹${balance.toFixed(2)}, but this order costs ₹${calculatedCost.toFixed(2)}.`);
 
     if (audioInputMethod === 'FILE' && !audioFile) {
       return setSubmitError("Please upload an audio file.");
@@ -2729,10 +3039,11 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
           >
             <option value="">{!selectedCatId ? "First select a category above…" : "-- Select service --"}</option>
             {availableServices.map(s => (
-              <option key={s.id} value={s.id}>{s.name} — ₹{Number(s.price).toFixed(2)}</option>
+              <option key={s.id} value={s.id}>{s.name} — {describePricing(s)}</option>
             ))}
           </select>
         </label>
+        {currentService && <ServiceTerms service={currentService} />}
 
         {/* 3. Voice Selection */}
         <div className="field-block">
@@ -2803,21 +3114,22 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
                 )}
                 <input type="file" onChange={handleContactsFileChange}/>
               </span>
-              {contactsFile && !isParsing && (
-                <div className="flash-success small-flash">✓ {contactsCount} contacts found from file</div>
+              {parseError && <div className="form-error small-flash">{parseError}</div>}
+              {contactsFile && !parseError && (
+                <QuantityQuote service={currentService} count={contactsCount} busy={isParsing} />
               )}
             </div>
           ) : (
             <div>
               <textarea
-                rows={4}
+                rows={8}
                 className="mono"
-                placeholder="Paste or type phone numbers here (one number per line or separated by commas)…"
+                placeholder={"Type one number and press enter for the next…\n9876543210\n9123456789"}
                 value={manualText}
                 onChange={e => handleManualTextChange(e.target.value)}
               />
-              {manualText.trim().length > 0 && (
-                <div className="flash-success small-flash">✓ {contactsCount} contacts entered manually</div>
+              {(manualText.trim().length > 0 || quantityPriced) && (
+                <QuantityQuote service={currentService} count={contactsCount} />
               )}
             </div>
           )}
@@ -2844,8 +3156,12 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
         <div className="summary-box">
           <div className="summary-row"><span>Selected service</span><strong>{currentService ? currentService.name : 'None selected'}</strong></div>
           <div className="summary-row"><span>Selected voice</span><strong>{voiceType === 'FEMALE' ? 'Female voice' : 'Male voice'}</strong></div>
-          <div className="summary-row"><span>Target contacts</span><strong>{contactsCount > 0 ? `${contactsCount} contacts` : '-'}</strong></div>
+          <div className="summary-row"><span>Target contacts</span><strong>{contactsCount > 0 ? `${contactsCount.toLocaleString("en-IN")} contacts` : '-'}</strong></div>
+          {currentService && quantityPriced && (
+            <div className="summary-row"><span>Rate</span><strong>₹{formatRate(unitRate(currentService))} per number</strong></div>
+          )}
           <div className="summary-row total"><span>Total charge</span><strong>₹{calculatedCost.toFixed(2)}</strong></div>
+          {quantityProblem && <p className="summary-warn">{quantityProblem}</p>}
           {!canAfford && currentService && (
             <p className="summary-warn">Insufficient balance (₹{balance.toFixed(2)} available)</p>
           )}
@@ -2857,7 +3173,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
 
         <div className="modal-footer">
           <button type="button" className="outline" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button className="primary" disabled={submitting || isParsing || !selectedServiceId || !canAfford}>
+          <button className="primary" disabled={submitting || isParsing || !selectedServiceId || !canAfford || Boolean(quantityProblem)}>
             {submitting
               ? (progressLabel ? `Uploading… ${progress}%` : "Placing order…")
               : <>Confirm &amp; debit ₹{calculatedCost.toFixed(2)} <Icon name="arrow" size={16}/></>}
@@ -3009,6 +3325,27 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
 }) {
   const [status, setStatus] = useState<Status>(order.status);
   const [reportFile, setReportFile] = useState<File | null>(null);
+
+  /**
+   * The pasted number list, fetched when the modal opens rather than carried in the orders
+   * list. null means "still loading" so the textarea can say so instead of flashing empty and
+   * looking like the customer submitted nothing.
+   */
+  const [contactsText, setContactsText] = useState<string | null>(
+    order.contactsInputType === 'MANUAL' ? null : ''
+  );
+
+  useEffect(() => {
+    if (order.contactsInputType !== 'MANUAL') return;
+    let mounted = true;
+    (async () => {
+      const res = await getBroadcastContacts(order.id);
+      if (!mounted) return;
+      setContactsText(res.error ? `(${res.error})` : (res.data || ''));
+    })();
+    return () => { mounted = false; };
+  }, [order.id, order.contactsInputType]);
+
   const [holdReason, setHoldReason] = useState(order.holdReason || "");
   const [cancelReason, setCancelReason] = useState(order.cancelReason || "");
   const [refundReason, setRefundReason] = useState(order.refundReason || "");
@@ -3166,17 +3503,23 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
             <small>Contacts data</small>
             {order.contactsKey ? (
               <button className="text-button" onClick={() => handleDownload(order.contactsKey!)} title={order.contactsKey}><Icon name="download" size={14}/>Download contacts file</button>
-            ) : order.manualContacts ? (
-              <strong>Text paste ({order.contactCount} numbers)</strong>
+            ) : order.contactsInputType === 'MANUAL' ? (
+              <strong>Text paste ({(order.contactCount || 0).toLocaleString("en-IN")} numbers)</strong>
             ) : <span className="text-muted">No data</span>}
           </div>
         </div>
 
-        {/* Display manual contacts to admin or customer if text paste was used */}
-        {order.manualContacts && (
+        {/* Display manual contacts to admin or customer if text paste was used. Loaded on
+            demand: a pasted list can run to tens of thousands of numbers and does not belong
+            in the payload of every screen that lists this order. */}
+        {order.contactsInputType === 'MANUAL' && (
           <div className="detail-note">
             <strong>Target phone numbers (text paste)</strong>
-            <textarea readOnly rows={3} value={order.manualContacts} className="mono readonly"/>
+            {contactsText === null ? (
+              <p className="text-muted">Loading numbers…</p>
+            ) : (
+              <textarea readOnly rows={6} value={contactsText} className="mono readonly"/>
+            )}
           </div>
         )}
 

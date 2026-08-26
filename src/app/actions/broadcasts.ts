@@ -6,24 +6,69 @@ import { checkIsAdmin } from '@/app/actions/auth'
 import { logActivity, describeActor } from '@/app/actions/activity'
 import { STORAGE_BUCKET } from '@/lib/uploads'
 import { consumeUploadedKey, discardUpload } from '@/lib/storage'
-import { resolveServicePrice } from '@/lib/pricing'
+import { resolveServicePrice, serviceIsQuantityPriced } from '@/lib/pricing'
+import { countNumbers } from '@/lib/quantity'
+import { countContactsInFile } from '@/lib/contacts'
 import { calculateFailedCallRefund } from '@/lib/refunds'
 import { hasDeliveryCountColumns } from '@/lib/supabase/schema'
 import { guard } from '@/lib/errors'
 
+/**
+ * The columns the orders list actually renders.
+ *
+ * Named explicitly rather than selected with `*` for one reason: `manual_contacts` holds the
+ * customer's entire pasted number list, and `*` shipped every one of them, for every order,
+ * on every load of the panel. Under quantity pricing a single order can carry tens of
+ * thousands of numbers, so that column alone would come to dominate the payload of a screen
+ * that only ever shows a count. It is fetched on demand instead, by `getBroadcastContacts`,
+ * when an operator actually opens the order.
+ *
+ * Anything added here must exist on every database this code can reach - a column that does
+ * not fails the whole query rather than coming back null - which is why the delivery counts
+ * are appended separately below, behind their schema probe.
+ */
+const BROADCAST_LIST_COLUMNS = [
+  'id',
+  'user_id',
+  'reference_no',
+  'name',
+  'status',
+  'created_at',
+  'scheduled_for',
+  'description',
+  'audio_key',
+  'contacts_key',
+  'contacts_input_type',
+  'contact_count',
+  'charge',
+  'category_name',
+  'service_name',
+  'voice_type',
+  'hold_reason',
+  'cancel_reason',
+  'refund_reason',
+  'refund_amount',
+  'partial_refund_amount',
+  'admin_comment',
+].join(',')
+
 export async function getBroadcasts() {
   const isAdmin = await checkIsAdmin()
-  
+
   const supabaseAuth = await createClient()
   const { data: { user } } = await supabaseAuth.auth.getUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()
 
+  const columns = (await hasDeliveryCountColumns())
+    ? `${BROADCAST_LIST_COLUMNS},delivered_calls,failed_calls`
+    : BROADCAST_LIST_COLUMNS
+
   let query = supabase
     .from('broadcasts')
     .select(`
-      *,
+      ${columns},
       users!inner (
         company_name,
         email
@@ -60,6 +105,40 @@ export async function getBroadcasts() {
   return { data: formatted }
 }
 
+/**
+ * The pasted number list for one order, fetched only when someone opens it.
+ *
+ * Kept out of `getBroadcasts` because it is by far the largest column on the row and the list
+ * screen never shows it. Access is the same as for the order itself: the owner, or an admin.
+ */
+export async function getBroadcastContacts(referenceNo: string) {
+  const isAdmin = await checkIsAdmin()
+
+  const supabaseAuth = await createClient()
+  const { data: { user } } = await supabaseAuth.auth.getUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = await createServiceRoleClient()
+
+  let query = supabase
+    .from('broadcasts')
+    .select('manual_contacts')
+    .eq('reference_no', referenceNo)
+
+  // Scoped to the caller for a customer, so a guessed reference number returns nothing rather
+  // than someone else's contact list.
+  if (!isAdmin) query = query.eq('user_id', user.id)
+
+  const { data, error } = await query.maybeSingle()
+
+  if (error) {
+    console.error('getBroadcastContacts error:', error)
+    return { error: 'Could not load the phone numbers for this order.' }
+  }
+
+  return { data: data?.manual_contacts || '' }
+}
+
 export async function createBroadcast(formData: FormData) {
   return guard('createBroadcast', () => runCreateBroadcast(formData))
 }
@@ -84,17 +163,9 @@ async function runCreateBroadcast(formData: FormData) {
   const notes = String(formData.get("notes") || "")
   const contactsInputType = String(formData.get("contactsInputType") || "FILE").toUpperCase()
   const manualContacts = String(formData.get("manualContacts") || "")
-  const contactCount = formData.get("contactCount") ? parseInt(String(formData.get("contactCount")), 10) : 0
-  // FIX: Securely recalculate charge based on service price in DB instead of trusting frontend.
-  // resolveServicePrice also applies this customer's own price where one is set, and refuses
-  // a service that is hidden from them - so the catalogue they were shown is the catalogue
-  // they can actually buy from.
-  let charge = 0;
-  if (serviceId) {
-    const resolved = await resolveServicePrice(supabase, user.id, serviceId)
-    if (!resolved.ok) return { error: resolved.error }
-    charge = resolved.price
-  }
+  // What the browser thought the list held. Kept only to be compared against the real count
+  // below - a quantity-priced order is never billed on this number.
+  const claimedContactCount = formData.get("contactCount") ? parseInt(String(formData.get("contactCount")), 10) : 0
 
   // The browser uploads straight to Supabase Storage and posts the resulting keys here, so
   // this action never handles file bytes and cannot trip the Server Action body limit.
@@ -119,19 +190,61 @@ async function runCreateBroadcast(formData: FormData) {
     return { error: 'Please enter target phone numbers.' }
   }
 
-  if (charge < 0 || isNaN(charge)) {
-    return { error: 'Invalid charge amount.' }
-  }
-
   // Prove the keys the browser handed back are this customer's own objects, exist, and are
   // within the size limit, before any money moves.
   if (audioUploadKey) {
     const check = await consumeUploadedKey('audio', audioUploadKey, user.id)
     if (!check.ok) return { error: check.error }
   }
+
+  let contactsSize = 0
   if (contactsUploadKey) {
     const check = await consumeUploadedKey('contacts', contactsUploadKey, user.id)
     if (!check.ok) return { error: check.error }
+    contactsSize = check.size
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // How many numbers this order actually targets.
+  // ---------------------------------------------------------------------------------------
+  // Under quantity pricing this is the multiplier on the charge, so it is counted here rather
+  // than accepted from the form: the modal counts as the customer types purely so it can show
+  // a running total. Pasted numbers are counted with the same parser the browser used, so the
+  // two agree; an uploaded list is read back out of storage.
+  let contactCount = claimedContactCount
+  if (contactsInputType === 'MANUAL') {
+    contactCount = countNumbers(manualContacts)
+    if (contactCount <= 0) {
+      return { error: 'No phone numbers were found in what you entered. Enter one number per line.' }
+    }
+  } else if (contactsUploadKey) {
+    const counted = await countContactsInFile(contactsUploadKey, contactsSize)
+    if (!counted.ok) {
+      // Counting only has to succeed for a service that bills on it. A flat-priced service is
+      // charged the same whatever the list holds, so an unreadable format (a PDF the operator
+      // will open by hand, say) must not block the order the way it did not before.
+      const billsOnQuantity = serviceId ? await serviceIsQuantityPriced(supabase, serviceId) : false
+      if (billsOnQuantity) return { error: counted.error }
+      contactCount = claimedContactCount
+    } else {
+      contactCount = counted.count
+    }
+  }
+
+  // FIX: Securely recalculate charge based on service price in DB instead of trusting frontend.
+  // resolveServicePrice also applies this customer's own price where one is set, refuses a
+  // service that is hidden from them, and enforces the service's own min/max order quantity -
+  // so the catalogue they were shown is the catalogue they can actually buy from, at the
+  // quantity it allows.
+  let charge = 0;
+  if (serviceId) {
+    const resolved = await resolveServicePrice(supabase, user.id, serviceId, contactCount)
+    if (!resolved.ok) return { error: resolved.error }
+    charge = resolved.price
+  }
+
+  if (charge < 0 || isNaN(charge)) {
+    return { error: 'Invalid charge amount.' }
   }
 
   // FIX Bug 1 & 3: Deduct balance FIRST using atomic safe_deduct_balance RPC
