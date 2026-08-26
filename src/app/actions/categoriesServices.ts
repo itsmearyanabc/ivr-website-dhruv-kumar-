@@ -44,6 +44,12 @@ export interface ServiceQuantityInput {
   max_quantity?: number | null;
 }
 
+/** Shown when per-unit pricing is asked for on a database the migration has not reached. */
+const MIGRATION_REQUIRED =
+  "Per-unit pricing is not available on this database yet. Run the migration " +
+  "supabase/migrations/20260826000000_service_quantity_pricing.sql in the Supabase SQL editor, " +
+  "then try again. You can save this service as a flat price in the meantime.";
+
 /** null for "not set", 'invalid' for something that was set but is not a usable quantity. */
 function toPositiveInt(value: number | null | undefined): number | null | 'invalid' {
   if (value === null || value === undefined) return null;
@@ -301,11 +307,16 @@ export async function createService(
 
     const supabase = await createServiceRoleClient();
 
-    // The quantity columns arrive with a migration that may not have run on this database
-    // yet. Writing one that does not exist fails the whole insert, which would leave the
-    // operator unable to create any service at all - so on an un-migrated database the
-    // service is still created, just without quantity pricing.
-    const quantityFields = (await hasServiceQuantityColumns()) ? normalised.values : {};
+    // The quantity columns arrive with a migration that may not have run on this database yet.
+    // Writing one that does not exist fails the whole insert, so a service can still be
+    // created without them - but only when none were asked for. Dropping values the operator
+    // actually typed and then reporting success is the worse failure: the service saves, the
+    // panel says it saved, and the customer screen goes on charging a flat price.
+    const columnsReady = await hasServiceQuantityColumns();
+    if (!columnsReady && normalised.values.unit_quantity !== null) {
+      return { error: MIGRATION_REQUIRED };
+    }
+    const quantityFields = columnsReady ? normalised.values : {};
 
     const { data, error } = await supabase
       .from('services')
@@ -355,11 +366,14 @@ export async function updateService(
 
     const supabase = await createServiceRoleClient();
 
-    // Only written where the column exists - see the note in createService. `quantity` being
-    // undefined means the caller is not managing these fields at all (the enable/disable
-    // toggle, for one), so they are left untouched rather than cleared.
-    const quantityFields =
-      quantity !== undefined && (await hasServiceQuantityColumns()) ? normalised.values : {};
+    // `quantity` being undefined means the caller is not managing these fields at all (the
+    // enable/disable toggle, for one), so they are left untouched rather than cleared.
+    const managingQuantity = quantity !== undefined;
+    const columnsReady = managingQuantity ? await hasServiceQuantityColumns() : false;
+    if (managingQuantity && !columnsReady && normalised.values.unit_quantity !== null) {
+      return { error: MIGRATION_REQUIRED };
+    }
+    const quantityFields = managingQuantity && columnsReady ? normalised.values : {};
 
     const { data, error } = await supabase
       .from('services')

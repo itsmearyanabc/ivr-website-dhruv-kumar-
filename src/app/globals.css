@@ -655,44 +655,60 @@ td.empty { display: table-cell; }
    Quantity pricing: the terms of a service, and the live quote
    ------------------------------------------------------------------ */
 
-/* Shown the moment a service is picked, so its minimum is read before the numbers are typed
-   rather than discovered by being rejected afterwards. */
-.service-terms {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
-  margin: -4px 0 14px; padding: 9px 12px;
-  background: var(--canvas); border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  font-size: 12px; color: var(--muted);
-}
-.service-terms .terms-rate { font-size: 13.5px; font-weight: 700; color: var(--text); }
-.service-terms .terms-rate small { font-weight: 500; color: var(--muted); font-size: 11.5px; }
-.service-terms .terms-sep { color: var(--line); }
-
 /* The running total, updated on every keystroke. Deliberately loud about which state it is
    in: a customer who cannot see that 80 numbers is under the minimum will keep pressing a
    disabled button and not know why. */
+/* Bounds on the left, the live total on the right, the verdict underneath. The two halves sit
+   on one row because they are read together: "am I allowed to order this, and what does it
+   cost". Stacks on narrow screens rather than wrapping mid-sum. */
 .quantity-quote {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
-  margin-top: 10px; padding: 10px 12px;
+  display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 16px;
+  margin-top: 10px; padding: 11px 13px;
   border: 1px solid var(--line); border-radius: var(--radius-sm);
   background: var(--canvas);
   font-size: 12.5px; color: var(--muted);
   transition: background .15s ease, border-color .15s ease;
 }
-.quantity-quote .quote-count { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
-.quantity-quote .quote-total { color: var(--text); font-variant-numeric: tabular-nums; }
-.quantity-quote .quote-total strong { font-size: 14px; }
-.quantity-quote .quote-hint { flex-basis: 100%; font-size: 11.5px; }
+.quantity-quote .quote-bounds { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
+.quantity-quote .quote-bounds strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.quantity-quote .quote-dash { color: var(--line); }
+
+.quantity-quote .quote-live {
+  justify-self: end; white-space: nowrap;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.quantity-quote .quote-count { font-size: 15px; font-weight: 700; }
+.quantity-quote .quote-times { color: var(--muted); }
+.quantity-quote .quote-amount { font-size: 16px; font-weight: 800; }
+.quantity-quote .quote-counting { font-style: italic; color: var(--muted); }
+
+.quantity-quote .quote-hint { grid-column: 1 / -1; font-size: 11.5px; line-height: 1.45; }
 
 .quantity-quote.valid { background: var(--green-soft); border-color: rgba(16, 136, 77, .25); }
 .quantity-quote.valid .quote-count,
-.quantity-quote.valid .quote-total strong { color: var(--green); }
+.quantity-quote.valid .quote-amount { color: var(--green); }
+.quantity-quote.valid .quote-hint { color: var(--green); }
 
+/* Under the minimum or over the maximum. Amber rather than red: nothing has failed, the order
+   just is not placeable yet, and the hint says exactly how far off it is. */
 .quantity-quote.invalid { background: var(--amber-soft); border-color: rgba(180, 83, 9, .28); }
-.quantity-quote.invalid .quote-count { color: var(--amber); }
+.quantity-quote.invalid .quote-count,
+.quantity-quote.invalid .quote-amount { color: var(--amber); }
 .quantity-quote.invalid .quote-hint { color: var(--amber); font-weight: 600; }
 
-.quantity-quote.busy { color: var(--muted); font-style: italic; }
+@media (max-width: 560px) {
+  .quantity-quote { grid-template-columns: 1fr; }
+  .quantity-quote .quote-live { justify-self: start; }
+}
+
+/* Admin service form: the per-unit / flat choice, and the field it makes mandatory. */
+.pricing-mode { width: 100%; margin-top: 6px; }
+.pricing-mode button { flex: 1; }
+.req {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--red); background: var(--red-soft); border: 1px solid var(--red-line);
+  border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: middle;
+}
 
 /* Files stream straight to storage, so a large upload needs to show it is still moving. */
 .upload-progress { margin: 12px 0 0; }
@@ -2026,3 +2042,8 @@ body:has(.impersonation-banner) .content > header { top: 44px; }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* Admin services table: the pricing basis, stated per row. */
+.service-type.per-unit { background: var(--green-soft); color: var(--green); border-color: rgba(16, 136, 77, .3); }
+.service-rate { display: block; margin-top: 3px; font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+.service-rate.muted-rate { color: var(--muted-2); }

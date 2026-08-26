@@ -36,7 +36,6 @@ import { UPLOAD_LIMITS, formatFileSize, describeLimit } from "@/lib/uploads";
 import { calculateFailedCallRefund } from "@/lib/refunds";
 import {
   countNumbers,
-  describePricing,
   isQuantityPriced,
   maxQuantityOf,
   minQuantityOf,
@@ -2040,57 +2039,82 @@ function AdminTransactionsView({ transactions, users }: { transactions: any[]; u
  * because "11 for 100" and "0.11 each" are the same deal stated two ways, and the operator is
  * about to sell at whichever one they actually meant.
  */
-function ServiceQuantityFields({ price, units, setUnits, min, setMin, max, setMax }: {
+function ServiceQuantityFields({ mode, setMode, price, units, setUnits, min, setMin, max, setMax }: {
+  mode: PricingMode; setMode: (v: PricingMode) => void;
   price: string;
   units: string; setUnits: (v: string) => void;
   min: string; setMin: (v: string) => void;
   max: string; setMax: (v: string) => void;
 }) {
-  const priced = units.trim() !== "" && Number(units) > 0;
-  const rate = priced ? Number(price || 0) / Number(units) : 0;
+  const unitsNum = units.trim() === "" ? null : Number(units);
+  const unitsValid = unitsNum !== null && Number.isFinite(unitsNum) && unitsNum > 0;
+  const rate = unitsValid ? Number(price || 0) / unitsNum : 0;
   const minNum = min.trim() === "" ? null : Number(min);
   const maxNum = max.trim() === "" ? null : Number(max);
   const boundsWrong = minNum !== null && maxNum !== null && maxNum < minNum;
 
   return (
     <>
-      <label>Units included in that price
-        <input
-          type="number"
-          min="1"
-          step="1"
-          placeholder="e.g. 100 — leave empty for a flat price per order"
-          value={units}
-          onChange={e => setUnits(e.target.value)}
-        />
-      </label>
+      <div className="field-block">
+        <label className="field-label">How is this service priced?</label>
+        <div className="segmented tight pricing-mode">
+          <button type="button" className={mode === "QUANTITY" ? "on" : ""} onClick={() => setMode("QUANTITY")}>
+            Per unit
+          </button>
+          <button type="button" className={mode === "FLAT" ? "on" : ""} onClick={() => setMode("FLAT")}>
+            Flat per order
+          </button>
+        </div>
+      </div>
 
-      {priced ? (
+      {mode === "QUANTITY" ? (
         <>
-          <p className="field-hint">
-            Charged at <strong>₹{rate.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}</strong> per number
-            {" — "}₹{Number(price || 0).toFixed(2)} per {Number(units).toLocaleString("en-IN")}.
-            An order for {(minNum || 1).toLocaleString("en-IN")} numbers costs ₹{(rate * (minNum || 1)).toFixed(2)}.
-          </p>
+          <label>Units that price covers <span className="req">required</span>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              required
+              placeholder="e.g. 100"
+              value={units}
+              onChange={e => {
+                setUnits(e.target.value);
+                // Seed the minimum with one full pack the first time units are entered.
+                // Left blank it falls back to 1, which on a service sold as "100 SMS for
+                // Rs 10" lets someone buy a single SMS for 10 paise - not what anyone
+                // pricing a pack intends. Filled into the visible field rather than applied
+                // behind the operator's back, so it can be read and changed before saving.
+                if (min.trim() === "") setMin(e.target.value);
+              }}
+            />
+          </label>
+
+          {unitsValid ? (
+            <p className="field-hint">
+              ₹{Number(price || 0).toFixed(2)} buys {unitsNum.toLocaleString("en-IN")} numbers, so customers are
+              charged <strong>₹{formatRate(rate)} per number</strong>.
+              {" "}The smallest order allowed is {(minNum || 1).toLocaleString("en-IN")} numbers
+              at ₹{(rate * (minNum || 1)).toFixed(2)};
+              {" "}{((minNum || 1) * 2).toLocaleString("en-IN")} numbers cost ₹{(rate * (minNum || 1) * 2).toFixed(2)}.
+            </p>
+          ) : (
+            <p className="field-hint error">
+              Enter how many numbers the price covers. For &ldquo;100 SMS for ₹10&rdquo;, that is 100 —
+              which charges ₹0.10 per number.
+            </p>
+          )}
+
           <div className="field-pair">
             <label>Minimum order quantity
               <input
-                type="number"
-                min="1"
-                step="1"
-                placeholder="e.g. 100"
-                value={min}
-                onChange={e => setMin(e.target.value)}
+                type="number" min="1" step="1" placeholder="e.g. 100"
+                value={min} onChange={e => setMin(e.target.value)}
               />
             </label>
             <label>Maximum order quantity
               <input
-                type="number"
-                min="1"
-                step="1"
-                placeholder="Leave empty for no limit"
-                value={max}
-                onChange={e => setMax(e.target.value)}
+                type="number" min="1" step="1" placeholder="Leave empty for no limit"
+                value={max} onChange={e => setMax(e.target.value)}
               />
             </label>
           </div>
@@ -2102,8 +2126,8 @@ function ServiceQuantityFields({ price, units, setUnits, min, setMin, max, setMa
         </>
       ) : (
         <p className="field-hint">
-          No units set, so this service charges ₹{Number(price || 0).toFixed(2)} per order however many
-          numbers the campaign carries. Enter a quantity above to bill per number instead.
+          Every order of this service costs ₹{Number(price || 0).toFixed(2)}, however many numbers it carries.
+          Switch to <strong>Per unit</strong> to charge by the number instead.
         </p>
       )}
     </>
@@ -2119,23 +2143,50 @@ function CategoryServiceManager() {
   const [servName, setServName] = useState("");
   const [servPrice, setServPrice] = useState("");
   const [servDesc, setServDesc] = useState("");
-  // Quantity pricing. Held as strings because "" is a meaningful value here - it is how the
-  // operator says "no quantity pricing on this service", which is not the same as zero.
+  // Quantity pricing. Held as strings because "" has to be distinguishable from zero while
+  // the operator is still typing.
+  const [servMode, setServMode] = useState<PricingMode>("QUANTITY");
   const [servUnits, setServUnits] = useState("");
   const [servMin, setServMin] = useState("");
   const [servMax, setServMax] = useState("");
 
   /** Everything the quantity fields need to become a `ServiceQuantityInput`. */
-  const quantityInput = () => ({
-    unit_quantity: servUnits.trim() === "" ? null : Number(servUnits),
-    min_quantity: servMin.trim() === "" ? null : Number(servMin),
-    max_quantity: servMax.trim() === "" ? null : Number(servMax),
-  });
+  const quantityInput = () => (
+    servMode === "FLAT"
+      ? { unit_quantity: null, min_quantity: null, max_quantity: null }
+      : {
+          unit_quantity: servUnits.trim() === "" ? null : Number(servUnits),
+          min_quantity: servMin.trim() === "" ? null : Number(servMin),
+          max_quantity: servMax.trim() === "" ? null : Number(servMax),
+        }
+  );
+
+  /**
+   * Blocks a save that would silently do nothing.
+   *
+   * Per-unit with no unit count is the failure that prompted this: the service saved, the
+   * panel said so, and the customer screen went on charging a flat price with no minimum,
+   * because the one field that turns quantity pricing on had been left empty.
+   */
+  const quantityFormError = (): string | null => {
+    if (servMode === "FLAT") return null;
+    const units = Number(servUnits);
+    if (servUnits.trim() === "" || !Number.isFinite(units) || units <= 0 || !Number.isInteger(units)) {
+      return "Enter how many numbers the price covers. For \u201c100 SMS for \u20b910\u201d, enter 100.";
+    }
+    const min = servMin.trim() === "" ? null : Number(servMin);
+    const max = servMax.trim() === "" ? null : Number(servMax);
+    if (min !== null && max !== null && max < min) {
+      return "The maximum order quantity cannot be below the minimum.";
+    }
+    return null;
+  };
 
   const clearServiceForm = () => {
     setServName("");
     setServPrice("");
     setServDesc("");
+    setServMode("QUANTITY");
     setServUnits("");
     setServMin("");
     setServMax("");
@@ -2190,6 +2241,9 @@ function CategoryServiceManager() {
     const priceNum = parseFloat(servPrice);
     if (isNaN(priceNum) || priceNum < 0) return alert("Please enter a valid price.");
 
+    const quantityProblem = quantityFormError();
+    if (quantityProblem) return alert(quantityProblem);
+
     setLoading(true);
     const res = await createService(selectedCatId, servName, priceNum, servDesc, quantityInput());
     setLoading(false);
@@ -2231,6 +2285,7 @@ function CategoryServiceManager() {
     setServName(service.name);
     setServPrice(String(service.price));
     setServDesc(service.description || "");
+    setServMode(service.unit_quantity ? "QUANTITY" : "FLAT");
     setServUnits(service.unit_quantity ? String(service.unit_quantity) : "");
     setServMin(service.min_quantity ? String(service.min_quantity) : "");
     setServMax(service.max_quantity ? String(service.max_quantity) : "");
@@ -2261,6 +2316,9 @@ function CategoryServiceManager() {
     if (!editingService || !servName.trim()) return alert("Service name is required.");
     const priceNum = parseFloat(servPrice);
     if (isNaN(priceNum) || priceNum < 0) return alert("Please enter a valid price.");
+
+    const quantityProblem = quantityFormError();
+    if (quantityProblem) return alert(quantityProblem);
 
     setLoading(true);
     const res = await updateService(
@@ -2405,6 +2463,7 @@ function CategoryServiceManager() {
                 />
               </label>
               <ServiceQuantityFields
+                mode={servMode} setMode={setServMode}
                 price={servPrice}
                 units={servUnits} setUnits={setServUnits}
                 min={servMin} setMin={setServMin}
@@ -2490,8 +2549,26 @@ function CategoryServiceManager() {
                                 {s.description && <small>{s.description}</small>}
                               </div>
                             </td>
-                            <td><span className="service-type">Manual</span></td>
-                            <td><strong className="amount">₹{Number(s.price).toFixed(2)}</strong></td>
+                            <td>
+                              {/* Per-unit or flat, stated on the row. Without it there is no way
+                                  to tell a service that bills by the number from one that does
+                                  not, and a save that quietly did neither looks identical. */}
+                              <span className={`service-type ${isQuantityPriced(s) ? "per-unit" : ""}`}>
+                                {isQuantityPriced(s) ? "Per unit" : "Flat"}
+                              </span>
+                            </td>
+                            <td>
+                              <strong className="amount">₹{Number(s.price).toFixed(2)}</strong>
+                              {isQuantityPriced(s) ? (
+                                <small className="service-rate">
+                                  per {Number(s.unit_quantity).toLocaleString("en-IN")} · ₹{formatRate(unitRate(s))}/number
+                                  <br/>
+                                  {minQuantityOf(s).toLocaleString("en-IN")}–{maxQuantityOf(s) === null ? "∞" : maxQuantityOf(s)!.toLocaleString("en-IN")} per order
+                                </small>
+                              ) : (
+                                <small className="service-rate muted-rate">per order</small>
+                              )}
+                            </td>
                             <td>
                               <button
                                 className="badge-button"
@@ -2602,6 +2679,7 @@ function CategoryServiceManager() {
                 />
               </label>
               <ServiceQuantityFields
+                mode={servMode} setMode={setServMode}
                 price={servPrice}
                 units={servUnits} setUnits={setServUnits}
                 min={servMin} setMin={setServMin}
@@ -2709,47 +2787,47 @@ function BroadcastTable({ orders, onSelect, admin = false, onViewCustomer }: { o
 
 function TicketTable({ tickets, admin = false, onSelect }: { tickets: Ticket[]; admin?: boolean; onSelect: (t: Ticket) => void }) { return <div className="table-wrap"><table><thead><tr><th>Ticket</th>{admin && <th>Customer</th>}<th>Priority</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{tickets.length ? tickets.map(t => <tr key={t.id}><td><strong>{t.subject}</strong><small>{t.id} · {t.message.length > 30 ? t.message.slice(0, 27) + "..." : t.message}</small></td>{admin && <td>{t.customer}</td>}<td><span className={t.priority === "High" ? "priority overdue" : "priority new"}>{t.priority}</span></td><td><Badge status={t.status}/></td><td>{t.created}</td><td><button className="text-button row-text" onClick={() => onSelect(t)}>View</button></td></tr>) : <tr><td colSpan={admin ? 6 : 5} className="empty">No support tickets found.</td></tr>}</tbody></table></div>; }
 
-/** A rate trimmed to the decimals it actually needs: 0.11, not 0.1100. */
-function formatRate(rate: number): string {
-  return rate.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
-}
-
 /**
- * The terms a quantity-priced service sells on, shown the moment it is selected.
- *
- * A customer who reads "minimum 100" before typing does not have to discover it by being
- * rejected after pasting 50 numbers and an audio file.
+ * How a service charges. Per-unit is the default for anything new: a flat price per order was
+ * the only option this panel used to have, and leaving it as the unstated default meant an
+ * operator could fill in a price, save, and never notice that the per-number fields they
+ * skipped were the ones that made the price behave the way they meant.
  */
-function ServiceTerms({ service }: { service: Service }) {
-  if (!isQuantityPriced(service)) return null;
+type PricingMode = "QUANTITY" | "FLAT";
 
-  const min = minQuantityOf(service);
-  const max = maxQuantityOf(service);
-
-  return (
-    <div className="service-terms">
-      <span className="terms-rate">₹{formatRate(unitRate(service))} <small>per number</small></span>
-      <span className="terms-sep" aria-hidden="true">·</span>
-      <span>
-        {describePricing(service)}
-      </span>
-      <span className="terms-sep" aria-hidden="true">·</span>
-      <span>
-        Order {min.toLocaleString("en-IN")}
-        {max !== null ? `–${max.toLocaleString("en-IN")}` : "+"} numbers
-      </span>
-    </div>
-  );
+/**
+ * A per-number rate at the precision it actually needs.
+ *
+ * Two decimals normally, because a rate is money and "Rs 0.1" reads as a typo. More only when
+ * two would lose the value: Rs 10 per 300 is Rs 0.0333, and rounding that to Rs 0.03 would
+ * misstate the rate by a tenth.
+ */
+function formatRate(rate: number): string {
+  const two = rate.toFixed(2);
+  return Number(two) === Number(rate.toFixed(4)) ? two : rate.toFixed(4).replace(/0+$/, "");
 }
 
 /**
- * Live count and running total for the numbers currently in the box.
+ * An amount with Indian digit grouping. Quantity pricing made these numbers big enough to
+ * need it - "Rs 10000.10" is misread at a glance in a way "Rs 10,000.10" is not.
+ */
+function formatMoney(amount: number): string {
+  return amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * The order-size band under the phone-number box: what this service accepts, how many numbers
+ * are in the box right now, and what they come to.
  *
- * Both are recomputed as the customer types, from the same parser and the same pricing
- * function the server bills with, so the total here is the total charged - not an estimate
- * the order might contradict.
+ * Shown from the moment a per-unit service is selected, before anything is typed, because the
+ * minimum is the thing a customer most needs to know *before* they start pasting - not after
+ * being turned away. Count and total recompute on every keystroke, from the same parser and
+ * the same pricing function the server bills with, so what is displayed here is what the
+ * order is charged.
  */
 function QuantityQuote({ service, count, busy }: { service: Service | undefined; count: number; busy?: boolean }) {
+  // A flat-priced service has no bounds and no per-number rate to show; it keeps the plain
+  // confirmation it had before quantity pricing existed.
   if (!service || !isQuantityPriced(service)) {
     return count > 0 ? (
       <div className="flash-success small-flash">✓ {count.toLocaleString("en-IN")} contacts ready</div>
@@ -2758,38 +2836,42 @@ function QuantityQuote({ service, count, busy }: { service: Service | undefined;
 
   const min = minQuantityOf(service);
   const max = maxQuantityOf(service);
-  const problem = count > 0 ? validateQuantity(service, count) : null;
+  const rate = unitRate(service);
   const total = quoteTotal(service, count);
+  const problem = count > 0 ? validateQuantity(service, count) : null;
 
-  if (busy) return <div className="quantity-quote busy">Counting numbers…</div>;
-
-  if (count === 0) {
-    return (
-      <div className="quantity-quote">
-        <span className="quote-count">0 numbers</span>
-        <span className="quote-hint">Minimum order is {min.toLocaleString("en-IN")}.</span>
-      </div>
-    );
-  }
+  const state = busy ? "busy" : count === 0 ? "empty" : problem ? "invalid" : "valid";
 
   return (
-    <div className={`quantity-quote ${problem ? "invalid" : "valid"}`}>
-      <span className="quote-count">
-        {problem ? "" : "✓ "}{count.toLocaleString("en-IN")} number{count === 1 ? "" : "s"}
-      </span>
-      <span className="quote-total">
-        × ₹{formatRate(unitRate(service))} = <strong>₹{total.toFixed(2)}</strong>
-      </span>
-      {problem ? (
-        <span className="quote-hint">{problem}</span>
-      ) : (
-        <span className="quote-hint">
-          {count < min
-            ? `${(min - count).toLocaleString("en-IN")} more needed`
-            : max !== null
-              ? `${(max - count).toLocaleString("en-IN")} more allowed`
-              : "Within this service's limits"}
-        </span>
+    <div className={`quantity-quote ${state}`}>
+      <div className="quote-bounds">
+        <span>Min <strong>{min.toLocaleString("en-IN")}</strong></span>
+        <span className="quote-dash" aria-hidden="true">—</span>
+        <span>Max <strong>{max === null ? "no limit" : max.toLocaleString("en-IN")}</strong></span>
+      </div>
+
+      <div className="quote-live">
+        {busy ? (
+          <span className="quote-counting">Counting numbers…</span>
+        ) : (
+          <>
+            <span className="quote-count">{count.toLocaleString("en-IN")}</span>
+            <span className="quote-times"> × ₹{formatRate(rate)} = </span>
+            <span className="quote-amount">₹{formatMoney(total)}</span>
+          </>
+        )}
+      </div>
+
+      {!busy && (
+        <div className="quote-hint">
+          {problem
+            ? problem
+            : count === 0
+              ? `Each line is one number. Enter at least ${min.toLocaleString("en-IN")} to place this order.`
+              : max !== null
+                ? `✓ Within limits · ${(max - count).toLocaleString("en-IN")} more allowed`
+                : "✓ Within limits"}
+        </div>
       )}
     </div>
   );
@@ -2846,6 +2928,17 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     currentService && quantityPriced && contactsCount > 0
       ? validateQuantity(currentService, contactsCount)
       : null;
+
+  /**
+   * Whether the order can be placed at the current quantity.
+   *
+   * An empty box counts as blocked even though it raises no *problem* to display - the band
+   * stays neutral and explains what to do, rather than scolding someone who has not started
+   * typing, but the button must not sit there enabled offering to debit Rs 0.00.
+   */
+  const quantityBlocked = Boolean(
+    currentService && quantityPriced && (contactsCount === 0 || quantityProblem)
+  );
 
   /**
    * Counts the numbers in an uploaded list so the order can be quoted before it is placed.
@@ -3039,11 +3132,10 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
           >
             <option value="">{!selectedCatId ? "First select a category above…" : "-- Select service --"}</option>
             {availableServices.map(s => (
-              <option key={s.id} value={s.id}>{s.name} — {describePricing(s)}</option>
+              <option key={s.id} value={s.id}>{s.name} — ₹{Number(s.price).toFixed(2)}</option>
             ))}
           </select>
         </label>
-        {currentService && <ServiceTerms service={currentService} />}
 
         {/* 3. Voice Selection */}
         <div className="field-block">
@@ -3115,8 +3207,8 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
                 <input type="file" onChange={handleContactsFileChange}/>
               </span>
               {parseError && <div className="form-error small-flash">{parseError}</div>}
-              {contactsFile && !parseError && (
-                <QuantityQuote service={currentService} count={contactsCount} busy={isParsing} />
+              {(contactsFile || quantityPriced) && !parseError && (
+                <QuantityQuote service={currentService} count={contactsFile ? contactsCount : 0} busy={isParsing} />
               )}
             </div>
           ) : (
@@ -3160,7 +3252,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
           {currentService && quantityPriced && (
             <div className="summary-row"><span>Rate</span><strong>₹{formatRate(unitRate(currentService))} per number</strong></div>
           )}
-          <div className="summary-row total"><span>Total charge</span><strong>₹{calculatedCost.toFixed(2)}</strong></div>
+          <div className="summary-row total"><span>Total charge</span><strong>₹{formatMoney(calculatedCost)}</strong></div>
           {quantityProblem && <p className="summary-warn">{quantityProblem}</p>}
           {!canAfford && currentService && (
             <p className="summary-warn">Insufficient balance (₹{balance.toFixed(2)} available)</p>
@@ -3173,10 +3265,14 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
 
         <div className="modal-footer">
           <button type="button" className="outline" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button className="primary" disabled={submitting || isParsing || !selectedServiceId || !canAfford || Boolean(quantityProblem)}>
+          <button className="primary" disabled={submitting || isParsing || !selectedServiceId || !canAfford || quantityBlocked}>
             {submitting
               ? (progressLabel ? `Uploading… ${progress}%` : "Placing order…")
-              : <>Confirm &amp; debit ₹{calculatedCost.toFixed(2)} <Icon name="arrow" size={16}/></>}
+              : quantityBlocked
+                // Naming a debit on a button that cannot be pressed reads as the price of an
+                // order the customer is not being allowed to place. Say what is missing.
+                ? <>{contactsCount < minQuantityOf(currentService!) ? "Enter at least " + minQuantityOf(currentService!).toLocaleString("en-IN") + " numbers" : "Too many numbers for this service"}</>
+                : <>Confirm &amp; debit ₹{formatMoney(calculatedCost)} <Icon name="arrow" size={16}/></>}
           </button>
         </div>
       </form>

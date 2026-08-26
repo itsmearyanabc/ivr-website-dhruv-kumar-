@@ -151,9 +151,12 @@ export async function resolveServicePrice(
   if (!Number.isFinite(price) || price < 0) {
     return { ok: false, error: 'That service is not priced correctly. Please contact support.' }
   }
-  if (quantityPriced && price <= 0) {
-    return { ok: false, error: 'That order works out to no charge. Please check the quantity and try again.' }
-  }
+
+  // A total of zero is deliberately allowed. `customer_service_overrides.price` may be 0 -
+  // the migration permits it explicitly - which is how a service is made free for one
+  // customer, and at least one live account is set up that way. Rejecting a zero total here
+  // would take that service away from them entirely. A zero quantity cannot reach this point:
+  // validateQuantity has already required at least the minimum, which is never below 1.
 
   return { ok: true, price, quantity, quantityPriced }
 }
