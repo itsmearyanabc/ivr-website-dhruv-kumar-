@@ -35,6 +35,7 @@ import AddFunds from "@/app/_components/customer/AddFunds";
 import { UPLOAD_LIMITS, formatFileSize, describeLimit } from "@/lib/uploads";
 import { calculateFailedCallRefund } from "@/lib/refunds";
 import {
+  countEntries,
   countNumbers,
   isQuantityPriced,
   maxQuantityOf,
@@ -2825,7 +2826,13 @@ function formatMoney(amount: number): string {
  * the same pricing function the server bills with, so what is displayed here is what the
  * order is charged.
  */
-function QuantityQuote({ service, count, busy }: { service: Service | undefined; count: number; busy?: boolean }) {
+function QuantityQuote({ service, count, entries = 0, busy }: {
+  service: Service | undefined;
+  count: number;
+  /** Lines in the box, valid or not. Distinguishes "nothing typed" from "nothing usable". */
+  entries?: number;
+  busy?: boolean;
+}) {
   // A flat-priced service has no bounds and no per-number rate to show; it keeps the plain
   // confirmation it had before quantity pricing existed.
   if (!service || !isQuantityPriced(service)) {
@@ -2840,7 +2847,11 @@ function QuantityQuote({ service, count, busy }: { service: Service | undefined;
   const total = quoteTotal(service, count);
   const problem = count > 0 ? validateQuantity(service, count) : null;
 
-  const state = busy ? "busy" : count === 0 ? "empty" : problem ? "invalid" : "valid";
+  // Text in the box that yielded no numbers is a problem, not a neutral empty state: the
+  // customer has done something and it did not register, which is exactly the case that looks
+  // like the price display is broken.
+  const unusable = count === 0 && entries > 0;
+  const state = busy ? "busy" : unusable ? "invalid" : count === 0 ? "empty" : problem ? "invalid" : "valid";
 
   return (
     <div className={`quantity-quote ${state}`}>
@@ -2864,13 +2875,15 @@ function QuantityQuote({ service, count, busy }: { service: Service | undefined;
 
       {!busy && (
         <div className="quote-hint">
-          {problem
-            ? problem
-            : count === 0
-              ? `Each line is one number. Enter at least ${min.toLocaleString("en-IN")} to place this order.`
-              : max !== null
-                ? `✓ Within limits · ${(max - count).toLocaleString("en-IN")} more allowed`
-                : "✓ Within limits"}
+          {unusable
+            ? `${entries.toLocaleString("en-IN")} line${entries === 1 ? "" : "s"} entered, but none of them is a phone number. Each line needs 10 to 15 digits — for example 9876543210.`
+            : problem
+              ? problem
+              : count === 0
+                ? `One number per line, 10 to 15 digits each. Enter at least ${min.toLocaleString("en-IN")} to place this order.`
+                : max !== null
+                  ? `✓ Within limits · ${(max - count).toLocaleString("en-IN")} more allowed`
+                  : "✓ Within limits"}
         </div>
       )}
     </div>
@@ -2897,6 +2910,8 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   const [manualText, setManualText] = useState("");
 
   const [contactsCount, setContactsCount] = useState<number>(0);
+  /** Lines the customer has typed, valid or not - only ever used to explain a count of zero. */
+  const [contactsEntries, setContactsEntries] = useState<number>(0);
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState("");
   const [scheduleType, setScheduleType] = useState("Start on processing");
@@ -2999,6 +3014,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   const handleManualTextChange = (text: string) => {
     setManualText(text);
     setContactsCount(countNumbers(text));
+    setContactsEntries(countEntries(text));
   };
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
@@ -3221,7 +3237,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
                 onChange={e => handleManualTextChange(e.target.value)}
               />
               {(manualText.trim().length > 0 || quantityPriced) && (
-                <QuantityQuote service={currentService} count={contactsCount} />
+                <QuantityQuote service={currentService} count={contactsCount} entries={contactsEntries} />
               )}
             </div>
           )}

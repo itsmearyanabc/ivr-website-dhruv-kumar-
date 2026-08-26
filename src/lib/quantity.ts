@@ -116,6 +116,14 @@ export function validateQuantity(service: QuantityPricing, quantity: number): st
   return null
 }
 
+/**
+ * What separates one entry from the next: a newline first and foremost, since the customer
+ * types a number and presses enter for the next, plus the commas and semicolons a pasted
+ * export arrives with. Defined once so the counter that explains a zero and the counter that
+ * bills the order can never disagree about where one number ends.
+ */
+const SEPARATORS = /[\r\n,;]+/
+
 /** Shortest and longest run of digits that counts as a phone number. */
 const MIN_DIGITS = 10
 const MAX_DIGITS = 15
@@ -142,11 +150,23 @@ export function countNumbers(text: string): number {
   return parseNumbers(text).length
 }
 
+/**
+ * Non-empty entries in the box, whether or not they are valid phone numbers.
+ *
+ * Only used to tell "nothing typed yet" apart from "plenty typed, none of it usable". Those
+ * two both count zero numbers and cost zero rupees, but one of them needs an explanation and
+ * the other needs to be left alone.
+ */
+export function countEntries(text: string): number {
+  if (!text) return 0
+  return text.split(SEPARATORS).filter(entry => entry.trim().length > 0).length
+}
+
 /** The individual entries `countNumbers` counts, each reduced to its digits. */
 export function parseNumbers(text: string): string[] {
   if (!text) return []
   const found: string[] = []
-  for (const entry of text.split(/[\r\n,;]+/)) {
+  for (const entry of text.split(SEPARATORS)) {
     const digits = entry.replace(/\D/g, '')
     if (digits.length >= MIN_DIGITS && digits.length <= MAX_DIGITS) found.push(digits)
   }
