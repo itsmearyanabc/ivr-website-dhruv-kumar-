@@ -3262,7 +3262,11 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
 
         {/* 7. Summary Box */}
         <div className="summary-box">
-          <div className="summary-row"><span>Selected service</span><strong>{currentService ? currentService.name : 'None selected'}</strong></div>
+          {/* Name and price together, worded exactly as the picker above - the summary is what
+              gets read back before confirming, and a bare name leaves the reader checking the
+              total against a price they have to scroll up to find. The price here is already
+              this customer's own, where one is set for them. */}
+          <div className="summary-row"><span>Selected service</span><strong>{currentService ? `${currentService.name} — ₹${Number(currentService.price).toFixed(2)}` : 'None selected'}</strong></div>
           <div className="summary-row"><span>Selected voice</span><strong>{voiceType === 'FEMALE' ? 'Female voice' : 'Male voice'}</strong></div>
           <div className="summary-row"><span>Target contacts</span><strong>{contactsCount > 0 ? `${contactsCount.toLocaleString("en-IN")} contacts` : '-'}</strong></div>
           {currentService && quantityPriced && (
