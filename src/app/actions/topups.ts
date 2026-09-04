@@ -27,6 +27,28 @@ const RATE_LIMITS = {
   maxOpenRequests: 3,
 }
 
+/**
+ * Which recorded outcomes actually consume a submission slot.
+ *
+ * Every attempt is written to `topup_submission_attempts` for the audit trail, but only these
+ * two reached the UTR namespace, and that is the thing being rationed: a well-formed 12-digit
+ * UTR that either landed (`ACCEPTED`) or collided with one already spent (`DUPLICATE_UTR`) is
+ * exactly what an enumeration attempt looks like.
+ *
+ * Everything else is excluded on purpose:
+ *
+ *  - `RATE_LIMITED_USER` / `RATE_LIMITED_IP` are the limiter's own refusals. Counting them
+ *    made the lockout feed itself - the window is rolling on `created_at`, so every blocked
+ *    retry wrote a fresh row and pushed the unlock further away. A customer who kept clicking
+ *    could never get back in, and nothing on screen said to stop.
+ *  - `TOO_MANY_PENDING` is a different limiter's refusal, with the same problem.
+ *  - `INVALID_UTR`, `INVALID_AMOUNT` and `AMOUNT_OUT_OF_RANGE` are typos, rejected on format
+ *    before any lookup happens. They cannot be a guess at someone else's UTR, so spending
+ *    five of the hour's five slots on mistyping is a lockout that protects nothing.
+ *  - `METHOD_DISABLED` and `INSERT_FAILED` are faults on our side, not attempts.
+ */
+const RATE_LIMITED_OUTCOMES = ['ACCEPTED', 'DUPLICATE_UTR']
+
 // ---------------------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------------------
@@ -286,11 +308,16 @@ async function runSubmitTopupRequest(formData: FormData): Promise<TopupSubmitRes
     .from('topup_submission_attempts')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', user.id)
+    .in('outcome', RATE_LIMITED_OUTCOMES)
     .gte('created_at', oneHourAgo)
 
   if ((userAttempts || 0) >= RATE_LIMITS.perUserPerHour) {
     await recordAttempt(user.id, ipHash, 'RATE_LIMITED_USER')
-    return { error: 'Too many top-up attempts. Please wait an hour or contact support.' }
+    return {
+      error:
+        `You have submitted ${RATE_LIMITS.perUserPerHour} top-ups in the last hour, which is the limit. ` +
+        'Wait for those to be reviewed, or contact support if one of them needs attention.',
+    }
   }
 
   if (ipHash) {
@@ -298,6 +325,7 @@ async function runSubmitTopupRequest(formData: FormData): Promise<TopupSubmitRes
       .from('topup_submission_attempts')
       .select('id', { count: 'exact', head: true })
       .eq('ip_hash', ipHash)
+      .in('outcome', RATE_LIMITED_OUTCOMES)
       .gte('created_at', oneHourAgo)
 
     if ((ipAttempts || 0) >= RATE_LIMITS.perIpPerHour) {
@@ -353,6 +381,32 @@ async function runSubmitTopupRequest(formData: FormData): Promise<TopupSubmitRes
   if (insertError) {
     if (insertError.code === '23505') {
       await recordAttempt(user.id, ipHash, 'DUPLICATE_UTR')
+
+      // The partial unique index refused the row, so a live claim on this UTR already exists.
+      // Who holds it decides whether this is someone re-submitting their own reference after
+      // a page refresh, or one account trying to bank a payment another account already
+      // claimed - which is the shape of an actual attempt to spend a UTR twice, and the one
+      // thing here worth waking an operator up for.
+      const { data: holder } = await supabase
+        .from('wallet_topup_requests')
+        .select('reference_no, user_id, status')
+        .eq('utr_number', utr)
+        .neq('status', 'REJECTED')
+        .maybeSingle()
+
+      if (holder && holder.user_id !== user.id) {
+        await logActivity({
+          ...(await describeActor(user.id)),
+          actionType: 'PAYMENT_UTR_CONFLICT',
+          entityType: 'TOPUP',
+          entityId: holder.reference_no,
+          description:
+            `Rejected a top-up for Rs ${amount.toFixed(2)}: UTR ${utr} is already claimed by ` +
+            `a different customer on ${holder.reference_no} (${holder.status}).`,
+          metadata: { utr, claimedBy: holder.user_id, claimStatus: holder.status },
+        })
+      }
+
       return {
         error:
           'This UTR has already been submitted. If you believe this is a mistake, raise a support ticket.',
@@ -467,12 +521,51 @@ export async function getAllTopupRequests() {
     return []
   }
 
-  return data.map((row: any) => ({
-    ...row,
-    customer: row.users?.company_name || row.users?.full_name || 'Unknown',
-    email: row.users?.email || 'Unknown',
-    customer_balance: Number(row.users?.balance || 0),
-  }))
+  // ---------------------------------------------------------------------------------------
+  // Prior claims on the same UTR.
+  // ---------------------------------------------------------------------------------------
+  // A rejected request releases its UTR - deliberately, so a mistyped reference can be
+  // corrected - which means the same UTR can be presented over and over with a different
+  // amount each time until an approval goes through. The database stops a UTR being held
+  // twice at once; it cannot judge whether the operator *should* approve this attempt. That
+  // judgement needs the history, so it is put in front of them rather than left to be
+  // discovered by searching the queue.
+  const utrs = Array.from(new Set(data.map((row: any) => row.utr_number).filter(Boolean)))
+  const history = new Map<string, { rejected: number; otherUsers: Set<string> }>()
+
+  if (utrs.length > 0) {
+    const { data: claims, error: claimsError } = await supabase
+      .from('wallet_topup_requests')
+      .select('utr_number, user_id, status')
+      .in('utr_number', utrs)
+
+    if (claimsError) {
+      // Losing the history is not a reason to lose the queue - the amounts and UTRs still
+      // render, just without the prior-claim warning.
+      console.error('Top-up UTR history lookup failed:', claimsError)
+    } else {
+      for (const claim of claims || []) {
+        const entry = history.get(claim.utr_number) || { rejected: 0, otherUsers: new Set<string>() }
+        if (claim.status === 'REJECTED') entry.rejected++
+        entry.otherUsers.add(claim.user_id)
+        history.set(claim.utr_number, entry)
+      }
+    }
+  }
+
+  return data.map((row: any) => {
+    const seen = history.get(row.utr_number)
+    return {
+      ...row,
+      customer: row.users?.company_name || row.users?.full_name || 'Unknown',
+      email: row.users?.email || 'Unknown',
+      customer_balance: Number(row.users?.balance || 0),
+      /** How many times this exact UTR was submitted and turned down before. */
+      utr_rejected_before: seen ? seen.rejected : 0,
+      /** True when more than one account has ever claimed this UTR. */
+      utr_claimed_by_others: seen ? seen.otherUsers.size > 1 : false,
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------------------

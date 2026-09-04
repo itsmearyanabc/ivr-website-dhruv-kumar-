@@ -758,6 +758,10 @@ td.empty { display: table-cell; }
 .detail-note strong { font-size: 12.5px; }
 .detail-note p { color: var(--muted); font-size: 12.5px; margin: 5px 0 0; line-height: 1.55; }
 .detail-note.info { background: var(--red-soft); border: 1px solid var(--red-line); border-radius: var(--radius-sm); padding: 14px; margin-top: 12px; }
+/* Same shape as .info, in the amber the rest of the panel uses for "look before you act".
+   Carries the prior-claim warning on a top-up UTR. */
+.detail-note.warn { background: var(--amber-soft); border: 1px solid var(--amber); border-radius: var(--radius-sm); padding: 14px; margin-top: 12px; }
+.detail-note.warn strong { color: var(--amber); }
 
 .report-ready {
   display: flex; align-items: center; gap: 10px; background: var(--green-soft);

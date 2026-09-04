@@ -289,6 +289,27 @@ function TopupReviewModal({
           <p>Find this reference in your bank statement and confirm the credit is {money(request.amount)}.</p>
         </div>
 
+        {/*
+          A rejected request releases its UTR so a mistyped one can be corrected, which also
+          means the same reference can be presented repeatedly with a different amount until
+          an approval slips through. The database cannot judge that; the operator can, given
+          the history.
+        */}
+        {(request.utr_rejected_before > 0 || request.utr_claimed_by_others) && (
+          <div className="detail-note warn">
+            <strong>Check this UTR carefully</strong>
+            <p>
+              {request.utr_claimed_by_others
+                ? "This reference has also been claimed by a different customer account. "
+                : ""}
+              {request.utr_rejected_before > 0
+                ? `It has been submitted and rejected ${request.utr_rejected_before} time${request.utr_rejected_before === 1 ? "" : "s"} before. `
+                : ""}
+              Confirm the bank credit before approving — a UTR pays out once.
+            </p>
+          </div>
+        )}
+
         <div className="detail-grid">
           <div><small>Status</small><Badge status={request.status === "PENDING" ? "Placed" : request.status === "APPROVED" ? "Completed" : "Cancelled"} /></div>
           <div><small>Submitted</small><strong>{new Date(request.created_at).toLocaleString()}</strong></div>
