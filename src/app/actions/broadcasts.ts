@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server'
 
-import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
-import { logActivity, describeActor } from '@/app/actions/activity'
+import { logActivity, describeActor } from '@/lib/activity'
 import { STORAGE_BUCKET } from '@/lib/uploads'
 import { consumeUploadedKey, discardUpload } from '@/lib/storage'
 import { resolveServicePrice, serviceIsQuantityPriced } from '@/lib/pricing'
@@ -12,6 +12,7 @@ import { countContactsInFile } from '@/lib/contacts'
 import { calculateFailedCallRefund } from '@/lib/refunds'
 import { hasDeliveryCountColumns } from '@/lib/supabase/schema'
 import { guard } from '@/lib/errors'
+import { getAuthUser } from '@/lib/session'
 
 /**
  * The columns the orders list actually renders.
@@ -55,8 +56,7 @@ const BROADCAST_LIST_COLUMNS = [
 export async function getBroadcasts() {
   const isAdmin = await checkIsAdmin()
 
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()
@@ -75,11 +75,6 @@ export async function getBroadcasts() {
       ),
       reports (
         file_key
-      ),
-      broadcast_status_history (
-        status,
-        reason,
-        created_at
       )
     `)
     .order('created_at', { ascending: false })
@@ -99,10 +94,50 @@ export async function getBroadcasts() {
     ...b,
     customer: b.users?.company_name || 'Unknown',
     email: b.users?.email || 'Unknown',
-    history: b.broadcast_status_history?.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) || [],
   }))
 
   return { data: formatted }
+}
+
+/**
+ * The status timeline for one order, fetched only when someone opens it.
+ *
+ * Kept out of `getBroadcasts` for the same reason as `manual_contacts`: it is a one-to-many
+ * join, so every order multiplied its own row by however many transitions it had been
+ * through, and the list screen never shows any of them - only the order modal does. On a
+ * panel holding a few thousand orders that join was the bulk of the payload of the heaviest
+ * query in the app, and it ran on every load.
+ *
+ * Access is the same as for the order itself: the owner, or an admin.
+ */
+export async function getBroadcastHistory(referenceNo: string) {
+  const isAdmin = await checkIsAdmin()
+
+  const user = await getAuthUser()
+  if (!user) return { error: 'Unauthorized' }
+
+  const supabase = await createServiceRoleClient()
+
+  // Scoped to the caller for a customer, so a guessed reference returns nothing rather than
+  // somebody else's fulfilment history.
+  let owner = supabase.from('broadcasts').select('id').eq('reference_no', referenceNo)
+  if (!isAdmin) owner = owner.eq('user_id', user.id)
+
+  const { data: order, error: ownerError } = await owner.maybeSingle()
+  if (ownerError || !order) return { data: [] }
+
+  const { data, error } = await supabase
+    .from('broadcast_status_history')
+    .select('status, reason, created_at')
+    .eq('broadcast_id', order.id)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('getBroadcastHistory error:', error)
+    return { error: 'Could not load the status history for this order.' }
+  }
+
+  return { data: data || [] }
 }
 
 /**
@@ -114,8 +149,7 @@ export async function getBroadcasts() {
 export async function getBroadcastContacts(referenceNo: string) {
   const isAdmin = await checkIsAdmin()
 
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()
@@ -759,8 +793,7 @@ export async function resubmitFiles(formData: FormData) {
 }
 
 async function runResubmitFiles(formData: FormData) {
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()
@@ -983,8 +1016,7 @@ async function runResubmitFiles(formData: FormData) {
 }
 
 export async function getDownloadUrl(path: string) {
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const isAdmin = await checkIsAdmin()

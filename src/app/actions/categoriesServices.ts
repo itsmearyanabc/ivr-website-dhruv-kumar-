@@ -4,7 +4,7 @@
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { checkIsAdmin } from "@/app/actions/auth";
 import { loadCustomerOverrides, priceFor, isVisibleTo } from "@/lib/pricing";
-import { logActivity, describeActor } from "@/app/actions/activity";
+import { logActivity, describeActor } from "@/lib/activity";
 import { hasServiceQuantityColumns } from "@/lib/supabase/schema";
 
 export interface Category {

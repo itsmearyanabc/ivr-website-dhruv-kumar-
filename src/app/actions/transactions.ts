@@ -1,9 +1,9 @@
 "use server";
-import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 import { checkIsAdmin } from '@/app/actions/auth';
+import { getAuthUser } from '@/lib/session';
 export async function getUserBalance() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (!user) return 0;
   
   const supabaseService = await createServiceRoleClient();
@@ -18,39 +18,28 @@ export async function getUserBalance() {
   return data.balance || 0;
 }
 
-export async function incrementUserBalance(amount: number) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-  
-  const supabaseService = await createServiceRoleClient();
-  
-  // Use atomic RPC increment to prevent race conditions
-  // NOTE: Create this function in Supabase:
-  // CREATE OR REPLACE FUNCTION increment_balance(uid UUID, amt DECIMAL)
-  // RETURNS void AS $$ UPDATE users SET balance = balance + amt WHERE id = uid; $$ LANGUAGE sql SECURITY DEFINER;
-  const { error: rpcError } = await supabaseService.rpc('increment_balance', {
-    uid: user.id,
-    amt: amount
-  });
-
-  if (rpcError) {
-    // Fallback to read-then-write if RPC not available
-    console.warn("RPC increment_balance not available, falling back to read-then-write:", rpcError);
-    const current = await getUserBalance();
-    const { error } = await supabaseService
-      .from('users')
-      .update({ balance: current + amount })
-      .eq('id', user.id);
-    return !error;
-  }
-  
-  return true;
-}
+/*
+ * `incrementUserBalance(amount)` used to live here, and it was a hole in the floor.
+ *
+ * Every export of a `'use server'` module is an endpoint any browser can POST to. This one
+ * took an amount straight from the caller, checked only that *someone* was signed in, and
+ * credited that caller's own wallet with it - no admin check, no bound, no ledger row. Any
+ * customer could have called it from the console and topped themselves up by any figure they
+ * liked, as often as they liked.
+ *
+ * Nothing referenced it. Deleting it removes the endpoint outright, which is the only real
+ * fix; guarding it would leave a money-moving path that nothing needs. Wallets are credited
+ * in exactly two supported places, both of which authorise first and write a transaction row:
+ *
+ *   - `adminAddFunds`        (users.ts)  - admin-gated manual credit
+ *   - `approve_wallet_topup` (RPC)       - the verified UPI top-up flow
+ *
+ * Refunds go through `creditWallet` in broadcasts.ts, which is server-only and not exported
+ * from a 'use server' module.
+ */
 
 export async function getUserTransactions() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (!user) return [];
   
   const supabaseService = await createServiceRoleClient();

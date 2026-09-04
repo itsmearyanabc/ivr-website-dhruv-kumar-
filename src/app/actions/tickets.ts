@@ -1,14 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server'
 
-import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
-import { logActivity, describeActor } from '@/app/actions/activity'
+import { getAuthUser } from '@/lib/session'
+import { logActivity, describeActor } from '@/lib/activity'
 
 export async function getTickets() {
   const isAdmin = await checkIsAdmin()
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()
@@ -131,8 +131,7 @@ export async function updateTicketStatus(id: string, status: string, replyMessag
   const isAdmin = await checkIsAdmin()
   if (!isAdmin) return { error: 'Unauthorized' }
   
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()

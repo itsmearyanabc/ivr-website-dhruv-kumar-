@@ -3,13 +3,14 @@
 
 import { createHash } from 'crypto'
 import { headers } from 'next/headers'
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { getVerifier, canAutoCredit } from '@/lib/payments/utr'
-import { logActivity, describeActor } from '@/app/actions/activity'
+import { logActivity, describeActor } from '@/lib/activity'
 import { STORAGE_BUCKET } from '@/lib/uploads'
 import { consumeUploadedKey, discardUpload } from '@/lib/storage'
 import { guard } from '@/lib/errors'
+import { getAuthUser } from '@/lib/session'
 
 const METHOD_CODE = 'UPI_QR'
 
@@ -104,8 +105,7 @@ async function signQrUrl(key: string | null): Promise<string | null> {
  * auto-credit policy are operator concerns and are deliberately not exposed here.
  */
 export async function getPaymentMethod() {
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()
@@ -158,8 +158,7 @@ export async function updatePaymentMethod(formData: FormData) {
 async function runUpdatePaymentMethod(formData: FormData) {
   if (!(await checkIsAdmin())) return { error: 'Admin access required' }
 
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const isEnabled = String(formData.get('is_enabled') || 'false') === 'true'
@@ -262,8 +261,7 @@ export async function submitTopupRequest(formData: FormData): Promise<TopupSubmi
 }
 
 async function runSubmitTopupRequest(formData: FormData): Promise<TopupSubmitResult> {
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const ipHash = await getIpHash()
@@ -469,8 +467,7 @@ async function runSubmitTopupRequest(formData: FormData): Promise<TopupSubmitRes
 // ---------------------------------------------------------------------------------------
 
 export async function getMyTopupRequests() {
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return []
 
   const supabase = await createServiceRoleClient()
@@ -575,8 +572,7 @@ export async function getAllTopupRequests() {
 export async function approveTopupRequest(requestId: string, note?: string) {
   if (!(await checkIsAdmin())) return { error: 'Admin access required' }
 
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()
@@ -614,8 +610,7 @@ export async function rejectTopupRequest(requestId: string, reason: string) {
   const trimmed = reason?.trim()
   if (!trimmed) return { error: 'A rejection reason is required so the customer knows what to fix.' }
 
-  const supabaseAuth = await createClient()
-  const { data: { user } } = await supabaseAuth.auth.getUser()
+  const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
 
   const supabase = await createServiceRoleClient()

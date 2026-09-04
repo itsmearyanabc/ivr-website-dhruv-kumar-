@@ -1,6 +1,6 @@
 "use server";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 import { checkIsAdmin } from "@/app/actions/auth";
 
 export async function getSystemSettings() {
@@ -23,7 +23,7 @@ export async function getSystemSettings() {
     return {
       price_per_call: settings?.price_per_call || "0.25"
     };
-  } catch (e) {
+  } catch {
     return { price_per_call: "0.25" };
   }
 }

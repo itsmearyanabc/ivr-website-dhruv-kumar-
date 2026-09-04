@@ -4,7 +4,7 @@
 
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
-import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts } from "@/app/actions/broadcasts";
+import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts, getBroadcastHistory } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
 import { getUserBalance, getUserTransactions, getAllTransactions } from "@/app/actions/transactions";
@@ -188,7 +188,7 @@ function mapBroadcast(b: any, index: number): Order {
     cancelReason: b.cancel_reason || '',
     refundReason: b.refund_reason || '',
     refundAmount: b.refund_amount,
-    history: b.history || [],
+
     categoryName: b.category_name,
     serviceName: b.service_name,
     voiceType: b.voice_type,
@@ -3491,6 +3491,23 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
     return () => { mounted = false; };
   }, [order.id, order.contactsInputType]);
 
+  /**
+   * The status timeline, fetched when the modal opens rather than carried on every row of the
+   * orders list. Same reason as the contact list above: it is a one-to-many join that only
+   * this modal renders, and it was being paid for on every load of the panel.
+   */
+  const [history, setHistory] = useState<OrderHistory[] | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const res = await getBroadcastHistory(order.id);
+      if (!mounted) return;
+      setHistory(res.data || []);
+    })();
+    return () => { mounted = false; };
+  }, [order.id]);
+
   const [holdReason, setHoldReason] = useState(order.holdReason || "");
   const [cancelReason, setCancelReason] = useState(order.cancelReason || "");
   const [refundReason, setRefundReason] = useState(order.refundReason || "");
@@ -3693,7 +3710,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
           </div>
         )}
 
-        <OrderStatusHistory history={order.history} created={order.created}/>
+        <OrderStatusHistory history={history ?? undefined} created={order.created}/>
 
         {order.adminComment && (
           <div className="detail-note info">

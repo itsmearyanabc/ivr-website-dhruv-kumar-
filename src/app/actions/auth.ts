@@ -1,25 +1,18 @@
 'use server'
 import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
-import { logActivity } from '@/app/actions/activity'
+import { logActivity } from '@/lib/activity'
 import { hasPasswordColumn } from '@/lib/supabase/schema'
+import { resolveIsAdmin } from '@/lib/session'
 
+/**
+ * Whether the caller is an administrator.
+ *
+ * The work is in `@/lib/session`, memoised for the length of one server request: this is
+ * called by nearly every action, usually alongside a second `auth.getUser()` in the action
+ * body, and each of those was its own network round trip to the Supabase auth server.
+ */
 export async function checkIsAdmin() {
-  try {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return false
-
-    const supabaseAdmin = await createServiceRoleClient()
-    const { data: profile } = await supabaseAdmin
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    return profile?.role === 'ADMIN'
-  } catch {
-    return false
-  }
+  return resolveIsAdmin()
 }
 
 export async function signUp(formData: FormData) {

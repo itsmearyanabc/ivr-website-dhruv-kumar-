@@ -2,7 +2,7 @@
 "use server";
 import { createClient, createAdminClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { checkIsAdmin } from "@/app/actions/auth";
-import { logActivity, describeActor } from "@/app/actions/activity";
+import { logActivity, describeActor } from "@/lib/activity";
 import { hasPasswordColumn } from "@/lib/supabase/schema";
 
 /**

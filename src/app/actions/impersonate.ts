@@ -4,7 +4,7 @@
 import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import crypto from 'crypto'
-import { logActivity } from '@/app/actions/activity'
+import { logActivity } from '@/lib/activity'
 import { hasPasswordColumn } from '@/lib/supabase/schema'
 
 const IMPERSONATION_COOKIE = 'xpack_impersonation'
