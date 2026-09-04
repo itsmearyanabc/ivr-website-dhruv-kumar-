@@ -24,28 +24,52 @@ export type RefundBreakdown =
       totalCalls: number
       /** charge / totalCalls - shown to the operator so the figure is checkable by hand. */
       perCallRate: number
-      /** What will actually be credited, after capping. */
+      /**
+       * What this order is owed for its failed calls **in total**, across every save.
+       * A function of the call counts alone, so re-entering the same counts yields the same
+       * figure however many times the fulfilment is saved.
+       */
+      totalDue: number
+      /** Already credited back on this order before this save. */
+      alreadyRefunded: number
+      /** What this save will actually credit: the shortfall between the two above. */
       refund: number
-      /** True when the raw calculation was reduced to fit what is still refundable. */
-      capped: boolean
-      /** The uncapped figure, present only when `capped` is true. */
-      uncapped?: number
+      /** True when earlier saves already cover what is owed, so nothing more moves. */
+      settled: boolean
+      /**
+       * Set when more has already been credited than the current counts justify - revised
+       * figures after a larger refund, say. Never clawed back automatically; the operator is
+       * told so they can decide.
+       */
+      overRefunded?: number
     }
   | { ok: false; error: string }
 
 /**
- * Splits an order's charge across its calls and returns the value of the failed ones.
+ * Splits an order's charge across its calls and returns what is still owed for the failed
+ * ones.
  *
- * @param charge              what the order was billed, from `broadcasts.charge`
- * @param delivered           calls that connected, off the fulfilment report
- * @param failed              calls that did not, off the fulfilment report
- * @param refundableRemaining charge minus everything already credited back on this order
+ * The call counts describe a *total*, not an instalment: 40 failures out of 100 on a Rs 550
+ * order means Rs 220 is owed for that order, full stop. So this returns the difference
+ * between that total and whatever has already been credited, which makes saving the
+ * fulfilment twice a no-op instead of a second payout.
+ *
+ * That distinction is the whole point. Previously this returned the full Rs 220 every time
+ * and relied on the caller capping it at "charge minus refunds so far", which stops the
+ * customer being handed more than the order was worth but does nothing to stop the same
+ * refund being paid again: re-uploading a corrected report three times credited Rs 220,
+ * Rs 220 and Rs 110, refunding the entire Rs 550 of an order where 60% of the calls landed.
+ *
+ * @param charge          what the order was billed, from `broadcasts.charge`
+ * @param delivered       calls that connected, off the fulfilment report
+ * @param failed          calls that did not, off the fulfilment report
+ * @param alreadyRefunded everything already credited back on this order, from the ledger
  */
 export function calculateFailedCallRefund(
   charge: number,
   delivered: number,
   failed: number,
-  refundableRemaining: number,
+  alreadyRefunded: number,
 ): RefundBreakdown {
   if (!Number.isFinite(charge) || charge <= 0) {
     return { ok: false, error: 'This order has no charge to refund against.' }
@@ -63,20 +87,21 @@ export function calculateFailedCallRefund(
   }
 
   const perCallRate = toMoney(charge / totalCalls)
-  const raw = toMoney((charge * failed) / totalCalls)
 
-  // Never pay back more than is still owed. An order that was already partly refunded, or
-  // one being closed out a second time, must not hand the customer the same money twice.
-  if (raw > refundableRemaining) {
-    return {
-      ok: true,
-      totalCalls,
-      perCallRate,
-      refund: toMoney(Math.max(0, refundableRemaining)),
-      capped: true,
-      uncapped: raw,
-    }
+  // Never more than the order was worth, however the counts are entered. A report claiming
+  // more failures than there were calls billed still cannot refund more than was charged.
+  const totalDue = toMoney(Math.min(charge, (charge * failed) / totalCalls))
+  const paid = toMoney(Math.max(0, alreadyRefunded))
+  const refund = toMoney(Math.max(0, totalDue - paid))
+
+  return {
+    ok: true,
+    totalCalls,
+    perCallRate,
+    totalDue,
+    alreadyRefunded: paid,
+    refund,
+    settled: refund === 0,
+    ...(paid > totalDue ? { overRefunded: toMoney(paid - totalDue) } : {}),
   }
-
-  return { ok: true, totalCalls, perCallRate, refund: raw, capped: false }
 }

@@ -2,7 +2,7 @@
 // cspell:ignore Xpack xpack Dhruv Kaveri Proximo supabase SUPABASE
 "use client";
 
-import React, { FormEvent, useCallback, useEffect, useState } from "react";
+import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
@@ -2909,9 +2909,18 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   const [contactsFile, setContactsFile] = useState<File | null>(null);
   const [manualText, setManualText] = useState("");
 
-  const [contactsCount, setContactsCount] = useState<number>(0);
-  /** Lines the customer has typed, valid or not - only ever used to explain a count of zero. */
-  const [contactsEntries, setContactsEntries] = useState<number>(0);
+  /**
+   * Numbers found in the uploaded file. Only meaningful while the File tab is the active one.
+   *
+   * Deliberately separate from the typed list rather than sharing one counter with it: both
+   * inputs keep their contents when the customer switches tabs, so a single counter held
+   * whichever value was written last and the quote could describe the *other* tab's list.
+   * Pasting 5,000 numbers, switching to File to upload 100, then switching back left the
+   * modal quoting 100 while the order still carried all 5,000 - and `createBroadcast` counts
+   * the numbers itself, so the customer was billed for 5,000 having been shown the price of
+   * 100. The count has to be a function of whichever input is actually going to be submitted.
+   */
+  const [fileCount, setFileCount] = useState<number>(0);
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState("");
   const [scheduleType, setScheduleType] = useState("Start on processing");
@@ -2929,6 +2938,28 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   const currentCategory = categories.find(c => c.id === selectedCatId);
   const availableServices = currentCategory?.services || [];
   const currentService = availableServices.find(s => s.id === selectedServiceId);
+
+  /**
+   * The typed list, counted straight from the textarea rather than tracked alongside it.
+   *
+   * Derived instead of stored so it cannot drift out of step with the text it describes:
+   * every path that changes `manualText` changes this in the same render, including one that
+   * clears it.
+   */
+  const manualCount = useMemo(() => countNumbers(manualText), [manualText]);
+  const manualEntries = useMemo(() => countEntries(manualText), [manualText]);
+
+  /**
+   * How many numbers this order will actually carry - read from whichever input is live.
+   *
+   * Both tabs keep their contents when the customer switches between them, and only the tab
+   * that gets submitted decides the charge (see `manualContacts`/`contactsKey` below), so the
+   * quote has to follow the same switch. An unattached File tab counts zero rather than
+   * falling back to the typed list, because that is what would be submitted.
+   */
+  const contactsCount = inputMethod === 'FILE' ? (contactsFile ? fileCount : 0) : manualCount;
+  /** Lines the customer has typed, valid or not - only ever used to explain a count of zero. */
+  const contactsEntries = inputMethod === 'MANUAL' ? manualEntries : 0;
 
   // The running total. A quantity-priced service multiplies its rate by however many numbers
   // are in the box right now, so this recomputes on every keystroke; a flat-priced service
@@ -2982,7 +3013,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
         count = countNumbers(await file.text());
       }
 
-      setContactsCount(count);
+      setFileCount(count);
       if (count === 0) {
         setParseError(
           "No phone numbers were found in that file. They should be one per line or one per cell, " +
@@ -2991,7 +3022,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
       }
     } catch (e) {
       console.error("File parse error:", e);
-      setContactsCount(0);
+      setFileCount(0);
       setParseError("That file could not be read. Try CSV, TXT or XLSX, or paste the numbers in directly.");
     } finally {
       setIsParsing(false);
@@ -3005,7 +3036,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     if (file) {
       parseContactsFile(file);
     } else {
-      setContactsCount(0);
+      setFileCount(0);
     }
   };
 
@@ -3013,8 +3044,6 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   // figure driving the running total is the figure the order is billed on.
   const handleManualTextChange = (text: string) => {
     setManualText(text);
-    setContactsCount(countNumbers(text));
-    setContactsEntries(countEntries(text));
   };
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
@@ -3224,7 +3253,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
               </span>
               {parseError && <div className="form-error small-flash">{parseError}</div>}
               {(contactsFile || quantityPriced) && !parseError && (
-                <QuantityQuote service={currentService} count={contactsFile ? contactsCount : 0} busy={isParsing} />
+                <QuantityQuote service={currentService} count={contactsCount} busy={isParsing} />
               )}
             </div>
           ) : (
@@ -3489,17 +3518,21 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   const refundApplies = status === "Partial";
   const alreadyPartiallyRefunded = Boolean(order.partialRefundAmount && order.partialRefundAmount > 0);
 
-  // What is still owed on this order, mirroring the server's own cap so the preview cannot
-  // promise a figure the server will then reduce.
-  const refundableRemaining = Math.max(0, Number(((order.charge || 0) - Number(order.partialRefundAmount || 0)).toFixed(2)));
+  // What has already gone back on this order, and what is therefore still owed. The server
+  // reads this from the transaction ledger; the row's own total is the closest the browser
+  // has, and both feed the same function, so the preview tracks what will actually be paid.
+  const alreadyRefunded = Number(order.partialRefundAmount || 0);
+  const refundableRemaining = Math.max(0, Number(((order.charge || 0) - alreadyRefunded).toFixed(2)));
 
   const deliveredNum = deliveredCalls.trim() === "" ? null : Number.parseInt(deliveredCalls, 10);
   const failedNum = failedCalls.trim() === "" ? null : Number.parseInt(failedCalls, 10);
   const hasCallCounts = deliveredCalls.trim() !== "" || failedCalls.trim() !== "";
 
   // The same function the server runs, so the number previewed here is the number credited.
+  // It returns the *shortfall* against what has already been refunded, which is why saving a
+  // corrected report twice now previews - and credits - ₹0.00 the second time.
   const refundBreakdown = refundApplies && hasCallCounts
-    ? calculateFailedCallRefund(order.charge || 0, deliveredNum ?? 0, failedNum ?? 0, refundableRemaining)
+    ? calculateFailedCallRefund(order.charge || 0, deliveredNum ?? 0, failedNum ?? 0, alreadyRefunded)
     : null;
 
   const partialRefundValue = refundBreakdown?.ok ? refundBreakdown.refund : 0;
@@ -3507,13 +3540,27 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
 
   const reportTooLarge = Boolean(reportFile && reportFile.size > UPLOAD_LIMITS.REPORT);
 
+  // Mirrors the server's own requirements so the operator is told before the upload runs,
+  // rather than after. The server enforces these independently - this is the courtesy copy.
+  const reportMissing = reportApplies && !reportFile && !order.reportKey;
+  const reasonRequired: Record<string, string> = {
+    "On hold": holdReason,
+    Cancelled: cancelReason,
+    Refunded: refundReason,
+  };
+  const reasonMissing = status in reasonRequired && !reasonRequired[status].trim();
+
   const blockingError = (refundBreakdown && !refundBreakdown.ok)
     ? refundBreakdown.error
     : partialRefundOverCharge
       ? `A partial refund cannot exceed the ₹${(order.charge || 0).toFixed(2)} charged for this order.`
       : reportTooLarge
         ? `The report file is larger than ${describeLimit(UPLOAD_LIMITS.REPORT)}. Please compress it before uploading.`
-        : "";
+        : reportMissing
+          ? `Attach the fulfilment report before marking this order ${status}. The customer is shown it as the record of what was delivered.`
+          : reasonMissing
+            ? `Give a reason for marking this order ${status}. The customer is shown it.`
+            : "";
 
   const handleDownload = async (key: string) => {
     const res = await getDownloadUrl(key);
@@ -3761,15 +3808,20 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                     <div className="summary-row"><span>Total calls attempted</span><strong>{refundBreakdown.totalCalls}</strong></div>
                     <div className="summary-row"><span>Rate per call</span><strong>₹{refundBreakdown.perCallRate.toFixed(2)}</strong></div>
                     <div className="summary-row"><span>Failed calls</span><strong>{failedNum ?? 0}</strong></div>
-                    <div className="summary-row total"><span>Refund to wallet</span><strong>₹{refundBreakdown.refund.toFixed(2)}</strong></div>
+                    <div className="summary-row"><span>Owed for failed calls</span><strong>₹{refundBreakdown.totalDue.toFixed(2)}</strong></div>
+                    {refundBreakdown.alreadyRefunded > 0 && (
+                      <div className="summary-row"><span>Already refunded</span><strong>−₹{refundBreakdown.alreadyRefunded.toFixed(2)}</strong></div>
+                    )}
+                    <div className="summary-row total"><span>Credited on save</span><strong>₹{refundBreakdown.refund.toFixed(2)}</strong></div>
                   </div>
                 )}
 
-                {refundBreakdown?.ok && refundBreakdown.capped && (
+                {refundBreakdown?.ok && refundBreakdown.overRefunded !== undefined && (
                   <div className="form-warning">
-                    ⚠️ These figures work out to ₹{refundBreakdown.uncapped!.toFixed(2)}, but only
-                    ₹{refundableRemaining.toFixed(2)} is still refundable on this order. The refund has been
-                    capped at that.
+                    ⚠️ ₹{refundBreakdown.alreadyRefunded.toFixed(2)} has already been refunded on this order, which
+                    is ₹{refundBreakdown.overRefunded.toFixed(2)} more than these call counts justify. Nothing further
+                    will be credited, and nothing is taken back automatically — adjust it from the customer&apos;s
+                    wallet if it needs correcting.
                   </div>
                 )}
 
@@ -3777,8 +3829,15 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                   <div className="form-success">✓ ₹{refundBreakdown.refund.toFixed(2)} will be credited back to the customer&apos;s wallet balance.</div>
                 )}
 
-                {refundBreakdown?.ok && refundBreakdown.refund === 0 && (
+                {refundBreakdown?.ok && refundBreakdown.refund === 0 && refundBreakdown.totalDue === 0 && (
                   <div className="form-success">✓ No calls failed — nothing will be refunded.</div>
+                )}
+
+                {refundBreakdown?.ok && refundBreakdown.settled && refundBreakdown.totalDue > 0 && refundBreakdown.overRefunded === undefined && (
+                  <div className="form-success">
+                    ✓ The ₹{refundBreakdown.totalDue.toFixed(2)} owed for these failed calls has already been
+                    credited. Saving again will not refund it a second time — attach a corrected report freely.
+                  </div>
                 )}
               </div>
             )}

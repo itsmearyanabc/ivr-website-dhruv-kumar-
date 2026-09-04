@@ -419,6 +419,12 @@ async function creditWallet(
   return true
 }
 
+/** 'IN_PROGRESS' -> 'In progress', for a message an operator reads. */
+function formatStatusLabel(status: string): string {
+  const word = status.replace(/_/g, ' ').toLowerCase()
+  return word.charAt(0).toUpperCase() + word.slice(1)
+}
+
 export async function updateBroadcastStatus(formData: FormData) {
   return guard('updateBroadcastStatus', () => runUpdateBroadcastStatus(formData))
 }
@@ -513,6 +519,48 @@ async function runUpdateBroadcastStatus(formData: FormData) {
   const allowsPartialRefund = status === 'PARTIAL'
   if (!allowsPartialRefund) partialRefundAmount = null
 
+  // ---------------------------------------------------------------------------------------
+  // What each closing status must carry.
+  // ---------------------------------------------------------------------------------------
+  // Closing a run out is a claim about work that was done, so it has to come with the
+  // evidence: COMPLETED and PARTIAL are what the customer sees as "here is what you paid
+  // for", and an order sitting at Completed with nothing attached gives them no way to check
+  // it and the operator no record of what was delivered.
+  //
+  // An order already carrying a report satisfies this - the status can be corrected, or a
+  // report replaced, without forcing the operator to re-upload a file that has not changed.
+  if (allowsReport && !reportUploadKey) {
+    const { data: attached } = await supabase
+      .from('reports')
+      .select('file_key')
+      .eq('broadcast_id', existingBroadcast.id)
+      .maybeSingle()
+
+    if (!attached?.file_key) {
+      return {
+        error: `A fulfilment report is required before an order can be marked ${formatStatusLabel(status)}. Attach the delivery report and save again.`,
+      }
+    }
+  }
+
+  // The statuses that stop or suspend an order instead of completing it carry no report, so
+  // the reason *is* the record. It is also the only thing the customer is told: a cancelled
+  // order with no explanation reads as money taken and nothing said, and a held order with no
+  // reason leaves them nothing to act on in the resubmit flow.
+  const requiredReasons: Record<string, string> = {
+    CANCELLED: cancelReason,
+    ON_HOLD: holdReason,
+    REFUNDED: refundReason,
+  }
+  if (status in requiredReasons && !requiredReasons[status].trim()) {
+    // The browser uploads before it submits, so a report picked against a status that is
+    // about to be refused is already in the bucket with nothing to point at it.
+    await discardUpload(reportUploadKey)
+    return {
+      error: `A reason is required when an order is marked ${formatStatusLabel(status)}. The customer is shown it, so say what happened.`,
+    }
+  }
+
   // The transaction ledger - not the order row - is the authority on what has already been
   // paid back. Every refund path below writes a CREDIT against the order reference, so this
   // sum stays correct across repeated saves and across status round-trips, which is what
@@ -535,12 +583,17 @@ async function runUpdateBroadcastStatus(formData: FormData) {
   // The refund is recomputed here from the call counts, never taken from the browser. The
   // admin screen runs the same function to preview the figure, so what they approved and
   // what gets credited are the same number - but this is the one that moves money.
+  //
+  // The counts describe the order's *total* entitlement, so what is credited is the shortfall
+  // against what the ledger says has already gone back. That is what makes re-saving safe:
+  // correcting a fulfilment report used to pay the whole failed-call refund a second time,
+  // and a third save refunded what was left of the order entirely.
   if (hasCallCounts && allowsPartialRefund) {
     const breakdown = calculateFailedCallRefund(
       originalCharge,
       deliveredCalls as number,
       failedCalls as number,
-      refundableRemaining,
+      alreadyRefunded,
     )
     if (!breakdown.ok) return { error: breakdown.error }
     partialRefundAmount = breakdown.refund > 0 ? breakdown.refund : null
@@ -726,9 +779,11 @@ async function runResubmitFiles(formData: FormData) {
     const check = await consumeUploadedKey('audio', newAudioKey, user.id)
     if (!check.ok) return { error: check.error }
   }
+  let newContactsSize = 0
   if (newContactsKey) {
     const check = await consumeUploadedKey('contacts', newContactsKey, user.id)
     if (!check.ok) return { error: check.error }
+    newContactsSize = check.size
   }
 
   // Fetch the broadcast and verify ownership + ON_HOLD status
@@ -763,6 +818,112 @@ async function runResubmitFiles(formData: FormData) {
   if (newAudioKey) updatePayload.audio_key = newAudioKey
   if (newContactsKey) updatePayload.contacts_key = newContactsKey
 
+  // ---------------------------------------------------------------------------------------
+  // Re-price a replaced contact list.
+  // ---------------------------------------------------------------------------------------
+  // Swapping the contact list changes how many numbers the campaign targets, and under
+  // quantity pricing that count *is* the multiplier on the invoice. This path used to update
+  // only the storage key, so an order placed for 100 numbers could be put on hold and come
+  // back carrying half a million - still recorded, and still billed, as 100. The count is
+  // re-derived from the file the same way `createBroadcast` derives it, and the difference is
+  // settled before the order returns to the queue.
+  //
+  // A flat-priced service is deliberately left alone: its charge does not depend on the count,
+  // so re-resolving would do nothing but silently apply today's catalogue price to an order
+  // sold at an older one. Only its recorded contact_count is refreshed.
+  const originalCharge = Number(broadcast.charge || 0)
+  let settledCharge: number | null = null
+  let chargeDelta = 0
+
+  /**
+   * Abandons the resubmission, leaving the order exactly as it was.
+   *
+   * Both replacements are dropped, not just the one that failed: the browser uploads audio
+   * and contacts before submitting, so refusing on the contact list would otherwise leave a
+   * new audio file in the bucket with nothing pointing at it.
+   */
+  const abandon = async (message: string) => {
+    await discardUpload(newAudioKey)
+    await discardUpload(newContactsKey)
+    return { error: message }
+  }
+
+  if (newContactsKey) {
+    const counted = await countContactsInFile(newContactsKey, newContactsSize)
+    const billsOnQuantity = broadcast.service_id
+      ? await serviceIsQuantityPriced(supabase, broadcast.service_id)
+      : false
+
+    if (!counted.ok) {
+      // Same rule as the create path: a service that bills on the count cannot be sold
+      // without one, but a flat-priced order is unaffected by an unreadable format - the
+      // operator opens the file by hand either way.
+      if (billsOnQuantity) {
+        return abandon(counted.error)
+      }
+    } else {
+      updatePayload.contact_count = counted.count
+
+      if (billsOnQuantity && broadcast.service_id) {
+        const resolved = await resolveServicePrice(
+          supabase,
+          broadcast.user_id,
+          broadcast.service_id,
+          counted.count,
+        )
+        if (!resolved.ok) {
+          return abandon(resolved.error)
+        }
+
+        settledCharge = resolved.price
+        chargeDelta = Number((settledCharge - originalCharge).toFixed(2))
+      }
+    }
+  }
+
+  // Money moves before the row does, so an order can never point at a bigger list than it
+  // was charged for. A shortfall stops the resubmission outright rather than half-applying it.
+  if (chargeDelta > 0) {
+    const { data: deductResult, error: deductError } = await supabase.rpc('safe_deduct_balance', {
+      uid: broadcast.user_id,
+      amt: chargeDelta,
+    })
+    const deducted = Array.isArray(deductResult) ? deductResult[0] : deductResult
+
+    // A failed RPC and a declined one mean different things to the customer: one is a fault
+    // they can do nothing about, the other is a shortfall they can top up. Reporting a
+    // balance of zero for the first would send them to Add funds for no reason.
+    if (deductError) {
+      console.error('Resubmit balance deduction error:', deductError)
+      return abandon(
+        'The larger contact list could not be charged for just now. Nothing was changed — ' +
+        'please try again shortly.',
+      )
+    }
+    if (!deducted?.success) {
+      const balance = Number(deducted?.new_balance || 0)
+      return abandon(
+        `This contact list has ${Number(updatePayload.contact_count).toLocaleString('en-IN')} numbers, ` +
+        `which brings the order to ₹${settledCharge!.toFixed(2)} — ₹${chargeDelta.toFixed(2)} more than ` +
+        `you have already paid. Your wallet holds ₹${balance.toFixed(2)}. Add funds, or upload a shorter list.`,
+      )
+    }
+  } else if (chargeDelta < 0) {
+    // The list shrank. Hand back the difference before the order is re-queued at the lower
+    // charge, so the ledger never shows the customer paying for numbers the order no longer
+    // carries.
+    const refunded = await creditWallet(supabase, broadcast.user_id, -chargeDelta)
+    if (!refunded) {
+      console.error('Resubmit refund failed for broadcast', broadcast.reference_no)
+      return abandon(
+        'The smaller contact list could not be re-priced because the wallet refund failed. ' +
+        'Nothing was changed — please try again, or raise a support ticket.',
+      )
+    }
+  }
+
+  if (settledCharge !== null) updatePayload.charge = settledCharge
+
   // Update broadcast: reset to PLACED, clear hold reason, update file keys
   const { error: updateError } = await supabase
     .from('broadcasts')
@@ -774,6 +935,13 @@ async function runResubmitFiles(formData: FormData) {
     // The new uploads are orphans now - the order still points at the originals.
     if (newAudioKey) await discardUpload(newAudioKey)
     if (newContactsKey) await discardUpload(newContactsKey)
+    // The row still carries the original charge, so any settlement made for the list that
+    // was not applied has to be put back or the customer is out of pocket for nothing.
+    if (chargeDelta > 0) {
+      await creditWallet(supabase, broadcast.user_id, chargeDelta)
+    } else if (chargeDelta < 0) {
+      await supabase.rpc('safe_deduct_balance', { uid: broadcast.user_id, amt: -chargeDelta })
+    }
     return { error: 'Failed to update broadcast after resubmission.' }
   }
 
@@ -781,11 +949,34 @@ async function runResubmitFiles(formData: FormData) {
   if (newAudioKey && broadcast.audio_key) await discardUpload(broadcast.audio_key)
   if (newContactsKey && broadcast.contacts_key) await discardUpload(broadcast.contacts_key)
 
+  // The adjustment is booked against its own reference, not the order's.
+  //
+  // `updateBroadcastStatus` works out what is still refundable by summing every CREDIT filed
+  // under the order's reference_no. A re-pricing credit is not a refund - it is the other half
+  // of a charge that was lowered at the same time - so filing it there would make a later
+  // cancellation believe that money had already been handed back and pay out nothing.
+  if (chargeDelta !== 0) {
+    await supabase.from('transactions').insert([{
+      user_id: broadcast.user_id,
+      amount: Math.abs(chargeDelta),
+      type: chargeDelta > 0 ? 'DEBIT' : 'CREDIT',
+      status: 'SUCCESS',
+      order_id: `${broadcast.reference_no}-ADJ`,
+    }])
+  }
+
   // Record history
+  const priceNote =
+    chargeDelta !== 0
+      ? ` Contact list changed to ${Number(updatePayload.contact_count).toLocaleString('en-IN')} numbers; ` +
+        `order re-priced from ₹${originalCharge.toFixed(2)} to ₹${settledCharge!.toFixed(2)} ` +
+        `(${chargeDelta > 0 ? 'debited' : 'refunded'} ₹${Math.abs(chargeDelta).toFixed(2)}).`
+      : ''
+
   await supabase.from('broadcast_status_history').insert([{
     broadcast_id: broadcast.id,
     status: 'PLACED',
-    reason: 'Files resubmitted by customer'
+    reason: `Files resubmitted by customer.${priceNote}`
   }])
 
   return { success: true }
@@ -800,13 +991,20 @@ export async function getDownloadUrl(path: string) {
   const supabase = await createServiceRoleClient()
   
   if (!isAdmin) {
-    // FIX Bug 11: Check ownership via broadcast user_id for audio/contacts
-    const { data: ownedBroadcasts } = await supabase
-      .from('broadcasts')
-      .select('id')
-      .eq('user_id', user.id)
-      .or(`audio_key.eq.${path},contacts_key.eq.${path}`)
-      .limit(1)
+    // Ownership is proved with two plain equality filters rather than one `.or()`.
+    //
+    // `.or()` takes a *string* that PostgREST parses as filter syntax, so interpolating a
+    // browser-supplied path into it let the caller write filters rather than just supply a
+    // value: a path of `x,audio_key.not.is.null` turned the ownership probe into "any order
+    // this user owns", which answers yes for a key they do not own. Nothing in the bucket can
+    // currently carry a comma - `safeName` in createUploadTicket strips keys to
+    // [A-Za-z0-9.-] - so it was not reachable, but that is an accident of another function's
+    // behaviour and not something this check should depend on.
+    const [byAudio, byContacts] = await Promise.all([
+      supabase.from('broadcasts').select('id').eq('user_id', user.id).eq('audio_key', path).limit(1),
+      supabase.from('broadcasts').select('id').eq('user_id', user.id).eq('contacts_key', path).limit(1),
+    ])
+    const ownedBroadcasts = [...(byAudio.data || []), ...(byContacts.data || [])]
 
     // Check report ownership via broadcast join
     const { data: ownedReports } = await supabase
