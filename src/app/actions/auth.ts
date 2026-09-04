@@ -122,9 +122,16 @@ export async function signIn(formData: FormData, isAdmin = false) {
       return { error: 'System configuration error: ADMIN_EMAIL and ADMIN_PASSWORD must be set.' }
     }
 
-    const adminEmailLower = adminEmail.toLowerCase()
-    
-    if (email !== adminEmail || password !== adminPassword) {
+    // Normalised the same way the submitted address is, a few lines above. The typed value
+    // arrives trimmed and lower-cased, so comparing it against the raw environment variable
+    // made any capital in ADMIN_EMAIL - or a stray space picked up pasting it into the Render
+    // dashboard - reject every attempt, while blaming the password in the message.
+    //
+    // The password is deliberately NOT normalised: whitespace is part of a credential, and
+    // trimming it here would silently accept something other than what was configured.
+    const adminEmailLower = adminEmail.trim().toLowerCase()
+
+    if (email !== adminEmailLower || password !== adminPassword) {
       return { error: 'Incorrect administrator username or password.' }
     }
 
@@ -186,7 +193,10 @@ export async function signIn(formData: FormData, isAdmin = false) {
       return { error: 'Admin database synchronization failed.' }
     }
   } else {
-    const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase();
+    // Trimmed as well as lower-cased, for the same reason as the admin branch: a stray space
+    // on the configured address would stop this guard matching and quietly let the
+    // administrator sign in through the customer portal instead of being sent to /admin.
+    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
     if (adminEmail && email === adminEmail) {
       return { error: 'Please use the Administrator portal to log in.' }
     }

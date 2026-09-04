@@ -265,7 +265,10 @@ export async function stopImpersonation() {
   }
 
   // Fallback: sign back in with the configured administrator credentials.
-  const adminEmail = process.env.ADMIN_EMAIL
+  // Normalised to match the address the admin auth user was created under in `signIn`, so a
+  // capital or a stray space in ADMIN_EMAIL cannot strand the admin in the customer session
+  // this is trying to get them out of.
+  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase()
   const adminPassword = process.env.ADMIN_PASSWORD
   if (!adminEmail || !adminPassword) {
     await supabase.auth.signOut()
