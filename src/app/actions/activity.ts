@@ -64,6 +64,43 @@ export async function describeActor(userId: string | null | undefined) {
   }
 }
 
+/**
+ * India is UTC+05:30 all year - it observes no daylight saving - so the offset is a constant
+ * rather than something that needs a timezone database to resolve.
+ */
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000
+
+/**
+ * The UTC instants bracketing one Indian calendar day.
+ *
+ * `new Date('2026-09-04T00:00:00')` - a timestamp with no zone suffix - is parsed in whatever
+ * timezone the *server* happens to run in. That is UTC on Render but IST on a developer's
+ * machine, so the filter silently meant a different day in production than it did locally,
+ * and neither matched the dates on screen: the log renders each row with `toLocaleString()`,
+ * in the *browser's* timezone. An operator in India asking for 4 September got 05:30 on the
+ * 4th through 05:29 on the 5th, missing the early morning and pulling in rows that visibly
+ * read as the next day.
+ *
+ * Anchoring to IST explicitly makes the filter mean the day the operator meant, wherever the
+ * code is running - which also makes dev and production agree. Same hazard the analytics
+ * chart was fixed for; see the note about `toISOString()` in CLAUDE.md.
+ *
+ * Returns null for anything that is not a YYYY-MM-DD date.
+ */
+function istDayBounds(day: string): { start: string; end: string } | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null
+
+  const midnightUtc = Date.parse(`${day}T00:00:00Z`)
+  if (Number.isNaN(midnightUtc)) return null
+
+  // Midnight IST is 18:30 UTC on the previous day; the day ends 24 hours later.
+  const start = midnightUtc - IST_OFFSET_MS
+  return {
+    start: new Date(start).toISOString(),
+    end: new Date(start + 24 * 60 * 60 * 1000 - 1).toISOString(),
+  }
+}
+
 /** Admin read for the Activity log screen. Runs server-side so RLS timing cannot hide rows. */
 export async function getActivityLogs(filterDate?: string) {
   const { checkIsAdmin } = await import('@/app/actions/auth')
@@ -78,9 +115,13 @@ export async function getActivityLogs(filterDate?: string) {
     .limit(200)
 
   if (filterDate) {
-    const start = new Date(`${filterDate}T00:00:00`)
-    const end = new Date(`${filterDate}T23:59:59.999`)
-    query = query.gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
+    const window = istDayBounds(filterDate)
+    // A malformed date would otherwise reach `toISOString()` as an Invalid Date and throw,
+    // and this action is a public endpoint like every other export of a 'use server' module.
+    // Ignoring the filter shows more than asked for, which beats an unexplained failure.
+    if (window) {
+      query = query.gte('created_at', window.start).lte('created_at', window.end)
+    }
   }
 
   const { data, error } = await query
