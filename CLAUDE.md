@@ -84,7 +84,10 @@ service in from Admin -> Services. The math lives in [quantity.ts](src/lib/quant
 and dependency-free so the browser's live quote and the server's charge come from the same
 function - the same reason [refunds.ts](src/lib/refunds.ts) is written that way. `countNumbers`
 is shared for the same reason: the count shown is the count billed. Never import server code
-into that module; it is bundled into the browser.
+into that module; it is bundled into the browser. A list that arrives as a *file* is counted
+server-side instead, by [contacts.ts](src/lib/contacts.ts), which pulls the object back and
+runs that same `countNumbers` over it — the browser parsed the file, so its count is exactly
+the number a customer has a reason to misreport.
 
 **Uploads bypass the server.** `createUploadTicket` issues a signed Supabase Storage URL for
 one exact path; the browser PUTs directly, then posts the key back. `consumeUploadedKey`
@@ -104,6 +107,14 @@ must not depend on RLS). Admin-facing reads go through service-role server actio
 browser client: RLS `is_admin()` resolution silently returned empty rows and produced blank
 screens.
 
+**One auth round trip per request.** `auth.getUser()` validates the JWT against the Supabase
+auth server — a network hop, not a local decode — and most actions made it twice, once to find
+the caller and once to resolve the role. [session.ts](src/lib/session.ts) memoises both behind
+React's `cache()`, whose scope is one server request: two calls inside an action share an
+answer, the next request re-validates from scratch, and nothing is held across users or beyond
+the moment the action returns. Start an action from `getAuthUser()` / `resolveIsAdmin()`
+rather than a fresh `auth.getUser()`.
+
 **Keep `xlsx` out of the client entry bundle.** Statically imported into a client component it
 is ~425 KB of the first load. [PortalApp.tsx](src/app/_components/PortalApp.tsx) reaches it
 through `loadXLSX()` on demand instead.
@@ -121,7 +132,7 @@ admin directory reveals them. Sign-in, signup and admin reset all keep it in ste
 
 ## Database
 
-Supabase Postgres. Migrations in `supabase/migrations/` (7, chronological); the SQL in
+Supabase Postgres. Migrations in `supabase/migrations/` (9, chronological); the SQL in
 `database/` is a duplicate/bootstrap set. RLS is on everywhere, with `public.is_admin()` as
 the admin predicate. `customer_service_overrides` has RLS enabled and **no policy at all** —
 it is reachable only through the service-role key.
@@ -143,7 +154,7 @@ The same values must be set in the Render dashboard; `render.yaml` marks them `s
 ## Loose ends
 
 - `src/app/api/paytm/*` — dead code, unreferenced and unconfigured.
-- `apply-migration.js`, `wipe_xpack_customers.js`, `state.tmp.js`, empty `out.html` — one-off
-  root scripts, not part of the app. `state.tmp.js` is untracked.
+- `apply-migration.js`, `wipe_xpack_customers.js`, empty `out.html` — one-off root scripts,
+  not part of the app.
 - `render.yaml` still declares a Postgres database nothing reads (kept so a blueprint apply
   will not delete it).
