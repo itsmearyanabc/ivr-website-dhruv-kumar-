@@ -567,9 +567,14 @@ td.empty { display: table-cell; }
 /* ------------------------------------------------------------
    Modals
    ------------------------------------------------------------ */
+/* Above every piece of app chrome. At 20 this sat *below* the sticky admin bar (40) and
+   its dropdown (50), which on a narrow viewport put the nav menu on top of an open modal
+   and hid the modal's own close button behind the header - leaving no way to dismiss it
+   but a reload. `.admin-bar` is a stacking context, so clearing 40 clears the menu inside
+   it too; 120 also clears the customer portal's mobile sidebar (100) and its backdrop (99). */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(10, 10, 15, .62);
-  backdrop-filter: blur(2px); z-index: 20; display: grid; place-items: center; padding: 20px;
+  backdrop-filter: blur(2px); z-index: 120; display: grid; place-items: center; padding: 20px;
 }
 .modal {
   width: min(660px, 100%); background: #fff; border-radius: 16px;
@@ -891,11 +896,14 @@ td.empty { display: table-cell; }
 body:has(.impersonation-banner) .app-shell { padding-top: 44px; }
 body:has(.impersonation-banner) .sidebar { top: 44px; }
 body:has(.impersonation-banner) .content > header { top: 44px; }
+/* The backdrop is inset:0, so without this a centred modal runs under the banner and the
+   top of its header - the close button included - is unreachable while impersonating. */
+body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 
 .toast {
   position: fixed; bottom: 24px; right: 24px; background: var(--ink); color: #fff;
   padding: 13px 17px; border-radius: var(--radius-sm); box-shadow: 0 12px 34px rgba(12, 12, 17, .38);
-  display: flex; gap: 9px; align-items: center; font-size: 12.5px; font-weight: 700; z-index: 25;
+  display: flex; gap: 9px; align-items: center; font-size: 12.5px; font-weight: 700; z-index: 130;
 }
 .toast span { color: #4ade80; display: flex; }
 
