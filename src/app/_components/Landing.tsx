@@ -20,7 +20,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/app/_components/ui";
 import { getCategoriesWithServices } from "@/app/actions/categoriesServices";
-import { isQuantityPriced, unitRate } from "@/lib/quantity";
+import { isQuantityPriced, quoteTotal, unitRate } from "@/lib/quantity";
 
 /** What a customer actually gets, in the order they tend to ask about it. */
 const CAPABILITIES = [
@@ -58,50 +58,75 @@ const STEPS = [
  *
  * Display only. Nothing here places an order or quotes a price that binds - the figure that
  * moves money is still `resolveServicePrice` on the server, against the specific service a
- * customer picks and any per-customer rate they have. This is the shop window.
+ * customer picks and any per-customer rate they have.
  *
- * The rate is the average across the quantity-priced services actually on sale, read through
- * the same public catalogue action the order screen uses, so it tracks the price list instead
- * of being a number typed into the marketing copy and left to rot. Services are priced by the
- * pack here - Rs 500 per 600 calls, Rs 1000 per 1300 - so the averaged per-call rate sits
- * between the cheapest and dearest of them, and is labelled as an average rather than dressed
- * up as a quote.
+ * The price follows the actual services on sale rather than an average of them. For a given
+ * number of calls it finds every service that will accept an order that size and takes the
+ * cheapest, which is what a customer would rationally choose - so the rate improves as the
+ * slider moves up, exactly as the price list intends, instead of sitting at one blended
+ * figure that matches nothing on offer. An average was misleading in both directions: it
+ * overstated the cost of a large campaign and understated a small one.
+ *
+ * Read through the same public catalogue action the order screen uses, so it tracks the
+ * catalogue instead of being a number typed into marketing copy and left to rot.
  */
+
+/** The range the slider covers. Named so the fill and the scale labels cannot drift from it. */
+const CALLS_MIN = 100;
+const CALLS_MAX = 50000;
+
+type PricedService = {
+  name: string;
+  price: number | string;
+  unit_quantity?: number | null;
+  min_quantity?: number | null;
+  max_quantity?: number | null;
+};
+
+/** Strips the operator's internal prefix so a badge reads "500 Calls", not "Min: 500 Calls". */
+function serviceLabel(name: string): string {
+  return name.replace(/^\s*min[:.\s-]+/i, "").trim() || name;
+}
+
 function CallCalculator() {
-  const [rate, setRate] = useState<number | null>(null);
-  const [calls, setCalls] = useState(1000);
+  const [services, setServices] = useState<PricedService[]>([]);
+  const [calls, setCalls] = useState(5000);
 
   useEffect(() => {
     let alive = true;
     getCategoriesWithServices()
       .then(res => {
         if (!alive) return;
-        const rates: number[] = [];
-        // Typed to just the fields the rate needs, rather than `any`: this walks a payload
-        // shaped by the catalogue action, and naming what is read here means a change to that
-        // shape shows up as a type error instead of a silently empty average.
-        type PricedService = { price: number | string; unit_quantity?: number | null };
+        const found: PricedService[] = [];
         const cats = (res.data || []) as Array<{ services?: PricedService[] }>;
         for (const cat of cats) {
           for (const svc of cat.services || []) {
-            // Flat-priced services have no per-call rate to average - a fixed fee per order
-            // says nothing about what one more number costs.
-            if (isQuantityPriced(svc)) {
-              const r = unitRate(svc);
-              if (r > 0) rates.push(r);
-            }
+            // Flat-priced services are left out: a fixed fee per order cannot be scaled to an
+            // arbitrary number of calls, so it has nothing to say on this slider.
+            if (isQuantityPriced(svc)) found.push(svc);
           }
         }
-        if (rates.length) setRate(rates.reduce((a, b) => a + b, 0) / rates.length);
+        setServices(found);
       })
       .catch(() => {});
     return () => { alive = false; };
   }, []);
 
-  const total = useMemo(() => (rate === null ? null : rate * calls), [rate, calls]);
+  /** The service a customer would pick for this many calls: the cheapest that will take it. */
+  const match = useMemo(() => {
+    const eligible = services.filter(svc => {
+      const min = Number(svc.min_quantity || 0);
+      const max = Number(svc.max_quantity || 0);
+      if (min > 0 && calls < min) return false;
+      if (max > 0 && calls > max) return false;
+      return true;
+    });
+    if (!eligible.length) return null;
 
-  /** A name for the size of the campaign. Cosmetic - the rate shown does not change with it. */
-  const tier = calls >= 25000 ? "Enterprise" : calls >= 10000 ? "Scale" : calls >= 2500 ? "Growth" : "Starter";
+    return eligible
+      .map(svc => ({ svc, total: quoteTotal(svc, calls), rate: unitRate(svc) }))
+      .sort((a, b) => a.total - b.total)[0];
+  }, [services, calls]);
 
   const money = (n: number) =>
     `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -119,40 +144,45 @@ function CallCalculator() {
             <strong>{calls.toLocaleString("en-IN")}</strong>
             <span>calls</span>
           </div>
-          <span className="calc-tier">{tier}</span>
+          {/* The badge names the real service the price came from, so the figure below can be
+              checked against the catalogue rather than taken on trust. */}
+          <span className="calc-tier">{match ? serviceLabel(match.svc.name) : "—"}</span>
         </div>
 
+        {/* The filled portion is painted from the value rather than left to the browser:
+            a range input's track is one flat colour on every engine, so without this the
+            control shows where the thumb is but not how far along it has been dragged. */}
         <input
           type="range"
           className="calc-slider"
-          min={100}
-          max={50000}
+          min={CALLS_MIN}
+          max={CALLS_MAX}
           step={100}
           value={calls}
           onChange={e => setCalls(Number(e.target.value))}
+          style={{ ["--fill" as string]: `${((calls - CALLS_MIN) / (CALLS_MAX - CALLS_MIN)) * 100}%` }}
           aria-label="Number of calls"
         />
         <div className="calc-scale">
           <span>100</span><span>10k</span><span>25k</span><span>50k</span>
         </div>
 
-        <div className="calc-figures">
-          <div className="calc-figure">
-            <span className="calc-figure-label">Average rate</span>
-            <strong>{rate === null ? "—" : `₹${rate.toFixed(2)}`}</strong>
-            <small>per call</small>
-          </div>
-          <div className="calc-figure primary">
-            <span className="calc-figure-label">Estimated cost</span>
-            <strong>{total === null ? "—" : money(total)}</strong>
-            <small>{calls.toLocaleString("en-IN")} calls</small>
-          </div>
+        <div className="calc-total">
+          <span className="calc-figure-label">Estimated cost</span>
+          <strong>{match ? money(match.total) : "—"}</strong>
+          <small>
+            {match
+              ? `${calls.toLocaleString("en-IN")} calls at ₹${match.rate.toFixed(2)} each`
+              : services.length
+                ? "No service covers a campaign this size yet."
+                : "Loading current pricing…"}
+          </small>
         </div>
 
         <p className="calc-note">
-          {rate === null
-            ? "Loading current rates…"
-            : "Averaged across our current services. Your exact rate is shown before you confirm any order."}
+          {match
+            ? `Priced from our "${serviceLabel(match.svc.name)}" service. Your exact total is shown before you confirm any order.`
+            : "Your exact total is shown before you confirm any order."}
         </p>
       </div>
     </div>
@@ -167,15 +197,15 @@ export default function Landing({ onSignIn, onSignUp }: {
     <main className="landing-page">
       <header className="landing-header">
         <div className="landing-header-inner">
-          {/* The supplied artwork is painted on a cream ground rather than a transparent
-              one, so it is used on the page's light surfaces only. The dark sidebar and the
-              auth panel keep the lettermark until there is a knockout version. */}
+          {/* The supplied artwork arrived on a cream ground; that ground has been made
+              transparent and the file trimmed and resized, 768 KB down to 30 KB. Still light
+              surfaces only - the mark is navy on navy against the dark sidebar. */}
           <Image
             className="landing-logo"
             src="/bulkshout-logo.png"
             alt="BulkShout - Say More. Reach Further."
-            width={2321}
-            height={449}
+            width={719}
+            height={120}
             priority
           />
           {/* Both routes into the product sit together in the corner where a visitor looks
@@ -258,8 +288,8 @@ export default function Landing({ onSignIn, onSignUp }: {
           className="landing-logo footer"
           src="/bulkshout-logo.png"
           alt="BulkShout"
-          width={2321}
-          height={449}
+          width={719}
+          height={120}
         />
         <p>© {new Date().getFullYear()} BulkShout. IVR voice broadcast services.</p>
       </footer>
