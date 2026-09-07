@@ -10,7 +10,18 @@ import { Icon } from "@/app/_components/ui";
  * so a menu entry can deep-link into a tab without needing extra routing.
  */
 
-export type NavEntry = { label: string; view: string; hint?: string };
+export type NavEntry = {
+  label: string;
+  view: string;
+  hint?: string;
+  /**
+   * Hidden from staff. The activity log records what each staff member did, and the staff
+   * directory is how their access is granted and revoked - neither belongs to the people
+   * being recorded. Hiding them here is presentation only; both are refused server-side,
+   * which is what actually enforces it.
+   */
+  ownerOnly?: boolean;
+};
 export type NavGroup = { label: string; icon: string; view?: string; entries?: NavEntry[] };
 
 export const ADMIN_NAV: NavGroup[] = [
@@ -29,7 +40,8 @@ export const ADMIN_NAV: NavGroup[] = [
     icon: "users",
     entries: [
       { label: "All customers", view: "Customers", hint: "Directory and wallet balances" },
-      { label: "Activity log", view: "Activity log", hint: "Full operational audit trail" },
+      { label: "Activity log", view: "Activity log", hint: "Full operational audit trail", ownerOnly: true },
+      { label: "Staff", view: "Staff", hint: "Who can operate this console", ownerOnly: true },
     ],
   },
   {
@@ -62,6 +74,7 @@ export default function AdminShell({
   onNavigate,
   userName,
   pendingTopups = 0,
+  isSuperAdmin = false,
   onLogout,
   children,
 }: {
@@ -69,6 +82,8 @@ export default function AdminShell({
   onNavigate: (view: string) => void;
   userName: string;
   pendingTopups?: number;
+  /** False for staff, who are shown a console without the log that records them. */
+  isSuperAdmin?: boolean;
   onLogout: () => void;
   children: React.ReactNode;
 }) {
@@ -159,7 +174,7 @@ export default function AdminShell({
                   </button>
 
                   <div className="admin-menu" role="menu">
-                    {group.entries.map((entry) => (
+                    {group.entries.filter(e => !e.ownerOnly || isSuperAdmin).map((entry) => (
                       <button
                         key={entry.view}
                         role="menuitem"

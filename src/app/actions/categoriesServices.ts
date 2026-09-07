@@ -5,6 +5,7 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { checkIsAdmin } from "@/app/actions/auth";
 import { loadCustomerOverrides, priceFor, isVisibleTo } from "@/lib/pricing";
 import { logActivity, describeActor } from "@/lib/activity";
+import { getAuthUser } from "@/lib/session";
 import { hasServiceQuantityColumns, hasServiceSortOrder } from "@/lib/supabase/schema";
 
 export interface Category {
@@ -339,6 +340,17 @@ export async function createCategory(name: string, description?: string) {
       return { error: error.message || "Failed to create category" };
     }
 
+    // Recorded so the log can answer who did this, which is the whole point of staff
+    // accounts: the catalogue is the part of the panel that changes what customers are
+    // charged, and it was the one area that wrote no audit entry at all.
+    const actor = await getAuthUser();
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'CATEGORY_CREATED',
+      entityType: 'CATEGORY',
+      entityId: data?.id || null,
+      description: `Created the category "${name.trim()}".`,
+    });
     return { data };
   } catch (err: any) {
     return { error: err.message || "Failed to create category" };
@@ -375,6 +387,17 @@ export async function updateCategory(id: string, name: string, description?: str
       return { error: error.message || "Failed to update category" };
     }
 
+    // Recorded so the log can answer who did this, which is the whole point of staff
+    // accounts: the catalogue is the part of the panel that changes what customers are
+    // charged, and it was the one area that wrote no audit entry at all.
+    const actor = await getAuthUser();
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'CATEGORY_UPDATED',
+      entityType: 'CATEGORY',
+      entityId: id || null,
+      description: `Updated the category "${name.trim()}".`,
+    });
     return { data };
   } catch (err: any) {
     return { error: err.message || "Failed to update category" };
@@ -401,6 +424,17 @@ export async function deleteCategory(id: string) {
       return { error: error.message || "Failed to delete category" };
     }
 
+    // Recorded so the log can answer who did this, which is the whole point of staff
+    // accounts: the catalogue is the part of the panel that changes what customers are
+    // charged, and it was the one area that wrote no audit entry at all.
+    const actor = await getAuthUser();
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'CATEGORY_DELETED',
+      entityType: 'CATEGORY',
+      entityId: id || null,
+      description: `Deleted a category.`,
+    });
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "Failed to delete category" };
@@ -459,6 +493,17 @@ export async function createService(
       return { error: error.message || "Failed to create service" };
     }
 
+    // Recorded so the log can answer who did this, which is the whole point of staff
+    // accounts: the catalogue is the part of the panel that changes what customers are
+    // charged, and it was the one area that wrote no audit entry at all.
+    const actor = await getAuthUser();
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'SERVICE_CREATED',
+      entityType: 'SERVICE',
+      entityId: data?.id || null,
+      description: `Created the service "${name.trim()}" at ₹${Number(price).toFixed(2)}.`,
+    });
     return { data };
   } catch (err: any) {
     return { error: err.message || "Failed to create service" };
@@ -516,6 +561,17 @@ export async function updateService(
       return { error: error.message || "Failed to update service" };
     }
 
+    // Recorded so the log can answer who did this, which is the whole point of staff
+    // accounts: the catalogue is the part of the panel that changes what customers are
+    // charged, and it was the one area that wrote no audit entry at all.
+    const actor = await getAuthUser();
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'SERVICE_UPDATED',
+      entityType: 'SERVICE',
+      entityId: id || null,
+      description: `Updated the service "${name.trim()}" at ₹${Number(price).toFixed(2)}.`,
+    });
     return { data };
   } catch (err: any) {
     return { error: err.message || "Failed to update service" };
@@ -542,6 +598,17 @@ export async function deleteService(id: string) {
       return { error: error.message || "Failed to delete service" };
     }
 
+    // Recorded so the log can answer who did this, which is the whole point of staff
+    // accounts: the catalogue is the part of the panel that changes what customers are
+    // charged, and it was the one area that wrote no audit entry at all.
+    const actor = await getAuthUser();
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'SERVICE_DELETED',
+      entityType: 'SERVICE',
+      entityId: id || null,
+      description: `Deleted a service.`,
+    });
     return { success: true };
   } catch (err: any) {
     return { error: err.message || "Failed to delete service" };

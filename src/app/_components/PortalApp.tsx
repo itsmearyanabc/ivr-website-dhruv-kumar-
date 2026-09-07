@@ -32,8 +32,10 @@ import AdminShell, { baseView, TabStrip } from "@/app/_components/admin/AdminShe
 import { TopupRequestsView, AdminSettingsView } from "@/app/_components/admin/PaymentsAdmin";
 import StatisticsGraph from "@/app/_components/admin/StatisticsGraph";
 import ActivityLog from "@/app/_components/admin/ActivityLog";
+import StaffManager from "@/app/_components/admin/StaffManager";
 import AddFunds from "@/app/_components/customer/AddFunds";
 import Landing from "@/app/_components/Landing";
+import { checkIsSuperAdmin } from "@/app/actions/staff";
 import {
   UPLOAD_LIMITS,
   formatFileSize,
@@ -292,6 +294,12 @@ export default function PortalApp({ portal }: { portal: Role }) {
   const [pending, setPending] = useState(0);
   /** null while the visitor is on the landing page; set once they pick sign in or sign up. */
   const [authMode, setAuthMode] = useState<"login" | "signup" | null>(null);
+  /**
+   * Whether this operator owns the console rather than working in it. Presentation only -
+   * every owner-only read is refused server-side too, so a staff member who forged the flag
+   * would still get nothing back.
+   */
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const track = useCallback(async function <T>(work: Promise<T>): Promise<T> {
     setPending(n => n + 1);
     try {
@@ -371,6 +379,10 @@ export default function PortalApp({ portal }: { portal: Role }) {
         if (serverSession) {
           setSession(serverSession as Session);
           fetchData(serverSession as Session);
+          // Only the console asks this; a customer session has no owner-only screens.
+          if ((serverSession as Session).role === "admin") {
+            checkIsSuperAdmin().then(v => { if (mounted) setIsSuperAdmin(Boolean(v)); }).catch(() => {});
+          }
         }
         setIsSessionLoading(false);
       }
@@ -612,6 +624,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
         onNavigate={goTo}
         userName={session.name}
         pendingTopups={pendingTopups}
+        isSuperAdmin={isSuperAdmin}
         onLogout={() => setShowLogoutConfirm(true)}
       >
         <AdminPage
@@ -1817,6 +1830,15 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
   }
   if (viewName === "Support desk") return <><Heading eyebrow="ADMIN CONSOLE" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
+  if (viewName === "Staff") {
+    return (
+      <>
+        <Heading eyebrow="ADMIN CONSOLE" title="Staff" text="Who can operate this console, and what they can reach."/>
+        <StaffManager />
+      </>
+    );
+  }
+
   if (viewName === "Activity log") {
     return (
       <>

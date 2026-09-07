@@ -81,6 +81,33 @@ export function hasServiceSortOrder() {
   return probeColumn('services', 'sort_order')
 }
 
+/**
+ * True once `user_role` carries STAFF.
+ *
+ * Probed rather than assumed because inserting a role the enum does not have fails the whole
+ * write: without this the staff screen would offer a form that cannot succeed, on a database
+ * that is simply waiting for its migration.
+ */
+export async function hasStaffRole(): Promise<boolean> {
+  const key = 'enum:user_role.STAFF'
+  const cached = cache.get(key)
+  if (cached && Date.now() - cached.checkedAt < PROBE_TTL_MS) return cached.value
+
+  let exists = false
+  try {
+    const supabase = await createServiceRoleClient()
+    // Selecting on the value is enough: PostgREST has to cast 'STAFF' to user_role to build
+    // the filter, and fails loudly if the label does not exist. Matching no rows is fine.
+    const { error } = await supabase.from('users').select('id').eq('role', 'STAFF').limit(1)
+    exists = !error
+  } catch {
+    exists = false
+  }
+
+  cache.set(key, { value: exists, checkedAt: Date.now() })
+  return exists
+}
+
 async function probeTable(table: string): Promise<boolean> {
   const key = `table:${table}`
   const cached = cache.get(key)

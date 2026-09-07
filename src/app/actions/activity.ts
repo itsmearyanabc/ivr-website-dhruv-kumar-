@@ -50,10 +50,24 @@ function istDayBounds(day: string): { start: string; end: string } | null {
   }
 }
 
-/** Admin read for the Activity log screen. Runs server-side so RLS timing cannot hide rows. */
+/**
+ * The activity log, for the super admin only.
+ *
+ * Staff are deliberately refused. The log is the record of what each of them did, so it is
+ * the one screen the person being recorded should not be able to read - a staff member who
+ * could check the trail could check what had been noticed in it.
+ *
+ * Enforced here rather than by hiding the nav item, because this is a `'use server'` export
+ * and therefore an endpoint: a staff member's browser can POST to it directly whatever the
+ * menu shows. The empty array is the same shape the screen already handles for a database
+ * without the audit table, so a staff member who reached it sees an empty log rather than an
+ * error telling them there is something here worth attacking.
+ *
+ * Runs server-side so RLS timing cannot hide rows.
+ */
 export async function getActivityLogs(filterDate?: string) {
-  const { checkIsAdmin } = await import('@/app/actions/auth')
-  if (!(await checkIsAdmin())) return []
+  const { resolveIsSuperAdmin } = await import('@/lib/session')
+  if (!(await resolveIsSuperAdmin())) return []
   if (!(await hasActivityLogTable())) return []
 
   const supabase = await createServiceRoleClient()

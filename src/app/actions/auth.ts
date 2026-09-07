@@ -97,6 +97,49 @@ export async function signUp(formData: FormData) {
   return { success: true }
 }
 
+/**
+ * Signs in a staff member at the operations console.
+ *
+ * Authenticates first and checks the role afterwards, deliberately: asking the database "is
+ * this address staff?" before verifying the password would answer that question for anyone
+ * who typed an address, and a wrong password and a customer's address would then give
+ * different errors. Both come back as the same refusal.
+ *
+ * A disabled staff account is refused here as well as at the session check, so revoking
+ * access takes effect on the next attempt rather than the next page load.
+ */
+async function signInStaff(email: string, password: string): Promise<
+  { ok: true; name: string } | { ok: false; error: string }
+> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
+  if (error || !data.user) {
+    return { ok: false, error: 'Incorrect administrator username or password.' }
+  }
+
+  const service = await createServiceRoleClient()
+  const { data: profile } = await service
+    .from('users')
+    .select('role, is_active, full_name')
+    .eq('id', data.user.id)
+    .single()
+
+  if (profile?.role !== 'STAFF') {
+    // Not staff: undo the session this attempt just created, so a customer who typed their
+    // own details into the console is not left quietly signed in behind the refusal.
+    await supabase.auth.signOut()
+    return { ok: false, error: 'Incorrect administrator username or password.' }
+  }
+
+  if (profile.is_active === false) {
+    await supabase.auth.signOut()
+    return { ok: false, error: 'This staff account has been disabled. Ask the account owner to re-enable it.' }
+  }
+
+  return { ok: true, name: profile.full_name || email }
+}
+
 export async function signIn(formData: FormData, isAdmin = false) {
   const email = String(formData.get("email") || "").trim().toLowerCase()
   const password = String(formData.get("password") || "")
@@ -124,8 +167,24 @@ export async function signIn(formData: FormData, isAdmin = false) {
     // trimming it here would silently accept something other than what was configured.
     const adminEmailLower = adminEmail.trim().toLowerCase()
 
-    if (email !== adminEmailLower || password !== adminPassword) {
+    // Two kinds of operator sign in here. The owner is the configured pair and is matched
+    // against the environment, exactly as before. Anyone else is a staff account: a real row
+    // with its own password, so the audit trail can name the person rather than recording
+    // every action against one shared login.
+    //
+    // Staff are verified by signing in for real below - this branch only decides whether to
+    // let the attempt continue. The role check happens after authentication, so a customer's
+    // correct password still does not open the console.
+    const isOwnerAttempt = email === adminEmailLower
+
+    if (isOwnerAttempt && password !== adminPassword) {
       return { error: 'Incorrect administrator username or password.' }
+    }
+
+    if (!isOwnerAttempt) {
+      const staffOk = await signInStaff(email, password)
+      if (!staffOk.ok) return { error: staffOk.error }
+      return { data: { role: 'ADMIN' as const, name: staffOk.name, email, company: 'Xpack Operations' } }
     }
 
     try {
