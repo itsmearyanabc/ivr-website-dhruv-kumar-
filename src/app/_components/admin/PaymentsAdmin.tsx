@@ -15,6 +15,7 @@ import {
 import { updatePricePerCall } from "@/app/actions/settings";
 import { uploadFile } from "@/lib/uploadClient";
 import { UPLOAD_LIMITS, describeLimit } from "@/lib/uploads";
+import { sanitiseDecimalInput } from "@/lib/decimalInput";
 
 const money = (value: any) => `₹${Number(value || 0).toFixed(2)}`;
 
@@ -482,7 +483,7 @@ function GeneralSettings({
           <PanelTop title="Call pricing" text="Fallback per-call rate used when a service has no fixed price." />
           <div className="admin-update boxed-form">
             <label>Price per call (₹)
-              <input type="number" step="0.01" value={localPrice} onChange={(e) => setLocalPrice(e.target.value)} />
+              <input type="text" inputMode="decimal" value={localPrice} onChange={(e) => setLocalPrice(sanitiseDecimalInput(e.target.value))} />
             </label>
             {error && <div className="form-error">{error}</div>}
             <button className="primary" onClick={save} disabled={saving}>

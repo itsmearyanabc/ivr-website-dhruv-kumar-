@@ -39,6 +39,44 @@ export const UPLOAD_LIMITS = {
   QR_IMAGE: 10 * 1024 * 1024,
 } as const;
 
+/**
+ * What a fulfilment report may be.
+ *
+ * The customer downloads this file as the record of what was delivered, so it has to open in
+ * something they already have. "Any file type" let an operator attach whatever was to hand -
+ * an .msg export, a screenshot, a zip - and the customer got a download they could not read
+ * and no way to say so except a support ticket.
+ *
+ * Extensions rather than MIME types are the check that matters: browsers report
+ * `application/octet-stream` for a CSV often enough that a MIME allowlist rejects real
+ * reports, and the operator cannot do anything about it when it does.
+ */
+export const REPORT_EXTENSIONS = ['.pdf', '.csv', '.xls', '.xlsx', '.txt'] as const;
+
+/** For the file picker's `accept`. MIME types are a courtesy; the extensions do the work. */
+export const REPORT_ACCEPT = [
+  ...REPORT_EXTENSIONS,
+  'application/pdf',
+  'text/csv',
+  'text/plain',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+].join(',');
+
+/** "PDF, CSV, Excel or TXT" - the same list the picker enforces, for UI copy. */
+export const REPORT_TYPES_LABEL = 'PDF, CSV, Excel or TXT';
+
+/**
+ * Whether a filename is an acceptable report.
+ *
+ * Shared by the browser and the server on purpose: `accept` on a file input is only a filter -
+ * every picker offers a way past it - so this is checked again where the object is claimed.
+ */
+export function isAllowedReportName(name: string): boolean {
+  const lower = (name || '').toLowerCase();
+  return REPORT_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;

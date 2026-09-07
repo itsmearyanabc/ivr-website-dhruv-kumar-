@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
+import { sanitiseDecimalInput } from "@/lib/decimalInput";
 import React, { FormEvent, useCallback, useEffect, useState } from "react";
 import { Icon, Badge, Heading, PanelTop } from "@/app/_components/ui";
 import { getPaymentMethod, getMyTopupRequests, submitTopupRequest } from "@/app/actions/topups";
@@ -70,6 +71,17 @@ export default function AddFunds({
     const numericAmount = Number(amount);
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
       return setError("Enter the amount you paid.");
+    }
+    // Checked here rather than by min/max on the input: the field is a text input so a
+    // half-typed decimal survives the keystroke, and text inputs ignore those attributes.
+    // The server enforces the same bounds - this is so the customer is told before the trip.
+    const min = Number(method.min_amount);
+    const max = Number(method.max_amount);
+    if (Number.isFinite(min) && min > 0 && numericAmount < min) {
+      return setError(`The smallest top-up is ${money(min)}. You entered ${money(numericAmount)}.`);
+    }
+    if (Number.isFinite(max) && max > 0 && numericAmount > max) {
+      return setError(`The largest top-up is ${money(max)}. You entered ${money(numericAmount)}.`);
     }
 
     setSubmitting(true);
@@ -171,12 +183,10 @@ export default function AddFunds({
             <form className="admin-update boxed-form topup-form" onSubmit={submit}>
               <label>Amount paid (₹)
                 <input
-                  type="number"
-                  step="0.01"
-                  min={Number(method.min_amount)}
-                  max={Number(method.max_amount)}
+                  type="text"
+                  inputMode="decimal"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => setAmount(sanitiseDecimalInput(e.target.value))}
                   placeholder={String(Number(method.min_amount))}
                   required
                 />

@@ -32,7 +32,16 @@ import { TopupRequestsView, AdminSettingsView } from "@/app/_components/admin/Pa
 import StatisticsGraph from "@/app/_components/admin/StatisticsGraph";
 import ActivityLog from "@/app/_components/admin/ActivityLog";
 import AddFunds from "@/app/_components/customer/AddFunds";
-import { UPLOAD_LIMITS, formatFileSize, describeLimit, isUncapped } from "@/lib/uploads";
+import {
+  UPLOAD_LIMITS,
+  formatFileSize,
+  describeLimit,
+  isUncapped,
+  isAllowedReportName,
+  REPORT_ACCEPT,
+  REPORT_TYPES_LABEL,
+} from "@/lib/uploads";
+import { sanitiseDecimalInput } from "@/lib/decimalInput";
 import { calculateFailedCallRefund } from "@/lib/refunds";
 import {
   capNumberText,
@@ -806,13 +815,12 @@ function CustomerPricingPanel({ customer }: { customer: any }) {
                     <td>
                       <div className="pricing-cell">
                         <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                          type="text"
+                          inputMode="decimal"
                           placeholder={row.base_price.toFixed(2)}
                           value={draft}
                           disabled={busy}
-                          onChange={e => setDrafts(d => ({ ...d, [row.service_id]: e.target.value }))}
+                          onChange={e => setDrafts(d => ({ ...d, [row.service_id]: sanitiseDecimalInput(e.target.value) }))}
                           onKeyDown={e => { if (e.key === "Enter") savePrice(row); }}
                         />
                         <button
@@ -1793,7 +1801,7 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
         <section className="panel pricing-panel">
           <PanelTop title="Call pricing (default per-call rate)" text="Used as the fallback estimate when a service has no fixed price."/>
           <div className="admin-update pricing-form">
-            <label>Price per call (₹)<input type="number" step="0.01" value={localPrice} onChange={e => setLocalPrice(e.target.value)}/></label>
+            <label>Price per call (₹)<input type="text" inputMode="decimal" value={localPrice} onChange={e => setLocalPrice(sanitiseDecimalInput(e.target.value))}/></label>
             <button className="primary" onClick={handleSavePricing}>Save pricing</button>
           </div>
         </section>
@@ -2458,13 +2466,13 @@ function CategoryServiceManager() {
                 />
               </label>
               <label>Price (₹)
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  required 
-                  placeholder="40.00" 
-                  value={servPrice} 
-                  onChange={e => setServPrice(e.target.value)}
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  required
+                  placeholder="40.00"
+                  value={servPrice}
+                  onChange={e => setServPrice(sanitiseDecimalInput(e.target.value))}
                 />
               </label>
               <ServiceQuantityFields
@@ -2674,13 +2682,13 @@ function CategoryServiceManager() {
                 />
               </label>
               <label>Price (₹)
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  required 
-                  placeholder="40.00" 
-                  value={servPrice} 
-                  onChange={e => setServPrice(e.target.value)}
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  required
+                  placeholder="40.00"
+                  value={servPrice}
+                  onChange={e => setServPrice(sanitiseDecimalInput(e.target.value))}
                 />
               </label>
               <ServiceQuantityFields
@@ -3909,11 +3917,25 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                   ) : order.reportKey ? (
                     <><Icon name="file"/><b>Replace the existing report</b><small>A report is already attached — choosing a file overwrites it</small></>
                   ) : (
-                    <><Icon name="upload"/><b>Upload the campaign report</b><small>Any file type · up to {describeLimit(UPLOAD_LIMITS.REPORT)}</small></>
+                    <><Icon name="upload"/><b>Upload the campaign report</b><small>{REPORT_TYPES_LABEL} · up to {describeLimit(UPLOAD_LIMITS.REPORT)}</small></>
                   )}
                   <input
                     type="file"
-                    onChange={e => { setReportFile(e.target.files?.[0] || null); setFormError(""); }}
+                    accept={REPORT_ACCEPT}
+                    onChange={e => {
+                      const picked = e.target.files?.[0] || null;
+                      // `accept` only filters the dialog; "All files" is always one click away.
+                      // Caught here so the operator is told before the upload runs, and again
+                      // on the server, which is what actually enforces it.
+                      if (picked && !isAllowedReportName(picked.name)) {
+                        setReportFile(null);
+                        setFormError(`${picked.name} is not a ${REPORT_TYPES_LABEL} file. The customer downloads this as the record of what was delivered.`);
+                        e.target.value = "";
+                        return;
+                      }
+                      setReportFile(picked);
+                      setFormError("");
+                    }}
                   />
                 </span>
                 {reportFile ? (

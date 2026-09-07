@@ -9,7 +9,14 @@
  */
 
 import { createServiceRoleClient } from '@/lib/supabase/server'
-import { UPLOAD_LIMITS, describeLimit, STORAGE_BUCKET, type UploadKind } from '@/lib/uploads'
+import {
+  UPLOAD_LIMITS,
+  describeLimit,
+  isAllowedReportName,
+  REPORT_TYPES_LABEL,
+  STORAGE_BUCKET,
+  type UploadKind,
+} from '@/lib/uploads'
 
 /** Where each kind of upload lives, and who is allowed to create one. */
 export const KIND_CONFIG: Record<UploadKind, { prefix: string; adminOnly: boolean; limit: number }> = {
@@ -38,6 +45,13 @@ export async function consumeUploadedKey(
   const expectedPrefix = config.adminOnly ? `${config.prefix}/` : `${config.prefix}/${userId}/`
   if (!key.startsWith(expectedPrefix) || key.includes('..')) {
     return { ok: false, error: 'That upload does not belong to this account. Please re-select the file.' }
+  }
+
+  // Re-checked on the way back in, not only when the ticket was issued: the key is supplied by
+  // the browser, and a ticket for report.csv does not stop a client posting back some other
+  // key it holds.
+  if (kind === 'report' && !isAllowedReportName(key)) {
+    return { ok: false, error: `A report has to be a ${REPORT_TYPES_LABEL} file.` }
   }
 
   const supabase = await createServiceRoleClient()

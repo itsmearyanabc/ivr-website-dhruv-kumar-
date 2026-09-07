@@ -23,7 +23,13 @@
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { KIND_CONFIG } from '@/lib/storage'
-import { describeLimit, STORAGE_BUCKET, type UploadKind } from '@/lib/uploads'
+import {
+  describeLimit,
+  isAllowedReportName,
+  REPORT_TYPES_LABEL,
+  STORAGE_BUCKET,
+  type UploadKind,
+} from '@/lib/uploads'
 
 /** Strip anything that could change the meaning of a storage path. */
 function safeName(name: string): string {
@@ -65,6 +71,13 @@ export async function createUploadTicket(
   }
   if (size > config.limit) {
     return { error: `That file is larger than the ${describeLimit(config.limit)} limit for this upload.` }
+  }
+
+  // The picker's `accept` is a filter, not a rule - every file dialog offers a way round it -
+  // so the ticket is refused here too. Cheaper than letting the object reach the bucket and
+  // rejecting it afterwards, which leaves the upload to be cleaned up.
+  if (kind === 'report' && !isAllowedReportName(filename)) {
+    return { error: `A report has to be a ${REPORT_TYPES_LABEL} file. The customer downloads it as the record of what was delivered.` }
   }
 
   // Customer uploads carry the owner id so ownership is provable from the key alone. Admin
