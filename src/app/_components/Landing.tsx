@@ -16,7 +16,10 @@
  * and putting marketing in front of it would only add a click for the operator.
  */
 
+import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/app/_components/ui";
+import { getCategoriesWithServices } from "@/app/actions/categoriesServices";
+import { isQuantityPriced, unitRate } from "@/lib/quantity";
 
 /** What a customer actually gets, in the order they tend to ask about it. */
 const CAPABILITIES = [
@@ -48,6 +51,107 @@ const STEPS = [
   { n: "2", title: "Build the broadcast", text: "Pick a service, add your audio or script, paste or upload the numbers." },
   { n: "3", title: "Watch it land", text: "Follow the status live and download the report when it is done." },
 ];
+
+/**
+ * "What would this cost me?", answered on the landing page before anyone signs up.
+ *
+ * Display only. Nothing here places an order or quotes a price that binds - the figure that
+ * moves money is still `resolveServicePrice` on the server, against the specific service a
+ * customer picks and any per-customer rate they have. This is the shop window.
+ *
+ * The rate is the average across the quantity-priced services actually on sale, read through
+ * the same public catalogue action the order screen uses, so it tracks the price list instead
+ * of being a number typed into the marketing copy and left to rot. Services are priced by the
+ * pack here - Rs 500 per 600 calls, Rs 1000 per 1300 - so the averaged per-call rate sits
+ * between the cheapest and dearest of them, and is labelled as an average rather than dressed
+ * up as a quote.
+ */
+function CallCalculator() {
+  const [rate, setRate] = useState<number | null>(null);
+  const [calls, setCalls] = useState(1000);
+
+  useEffect(() => {
+    let alive = true;
+    getCategoriesWithServices()
+      .then(res => {
+        if (!alive) return;
+        const rates: number[] = [];
+        for (const cat of (res.data || []) as any[]) {
+          for (const svc of cat.services || []) {
+            // Flat-priced services have no per-call rate to average - a fixed fee per order
+            // says nothing about what one more number costs.
+            if (isQuantityPriced(svc)) {
+              const r = unitRate(svc);
+              if (r > 0) rates.push(r);
+            }
+          }
+        }
+        if (rates.length) setRate(rates.reduce((a, b) => a + b, 0) / rates.length);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const total = useMemo(() => (rate === null ? null : rate * calls), [rate, calls]);
+
+  /** A name for the size of the campaign. Cosmetic - the rate shown does not change with it. */
+  const tier = calls >= 25000 ? "Enterprise" : calls >= 10000 ? "Scale" : calls >= 2500 ? "Growth" : "Starter";
+
+  const money = (n: number) =>
+    `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return (
+    <div className="landing-hero-art">
+      <div className="calc-card">
+        <div className="calc-head">
+          <h3>Estimate your campaign</h3>
+          <p>Move the slider to see what a broadcast of that size costs.</p>
+        </div>
+
+        <div className="calc-readout">
+          <div className="calc-calls">
+            <strong>{calls.toLocaleString("en-IN")}</strong>
+            <span>calls</span>
+          </div>
+          <span className="calc-tier">{tier}</span>
+        </div>
+
+        <input
+          type="range"
+          className="calc-slider"
+          min={100}
+          max={50000}
+          step={100}
+          value={calls}
+          onChange={e => setCalls(Number(e.target.value))}
+          aria-label="Number of calls"
+        />
+        <div className="calc-scale">
+          <span>100</span><span>10k</span><span>25k</span><span>50k</span>
+        </div>
+
+        <div className="calc-figures">
+          <div className="calc-figure">
+            <span className="calc-figure-label">Average rate</span>
+            <strong>{rate === null ? "—" : `₹${rate.toFixed(2)}`}</strong>
+            <small>per call</small>
+          </div>
+          <div className="calc-figure primary">
+            <span className="calc-figure-label">Estimated cost</span>
+            <strong>{total === null ? "—" : money(total)}</strong>
+            <small>{calls.toLocaleString("en-IN")} calls</small>
+          </div>
+        </div>
+
+        <p className="calc-note">
+          {rate === null
+            ? "Loading current rates…"
+            : "Averaged across our current services. Your exact rate is shown before you confirm any order."}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function Landing({ onSignIn, onSignUp }: {
   onSignIn: () => void;
@@ -95,19 +199,7 @@ export default function Landing({ onSignIn, onSignUp }: {
           </ul>
         </div>
 
-        {/* A flat abstraction of the order screen rather than a screenshot: it cannot go stale
-            when the panel changes, and it loads as markup instead of an image. */}
-        <div className="landing-hero-art" aria-hidden="true">
-          <div className="art-card">
-            <div className="art-row"><span className="art-label">Service</span><span className="art-value">100 Calls</span></div>
-            <div className="art-row"><span className="art-label">Contacts</span><span className="art-value">1,240</span></div>
-            <div className="art-row"><span className="art-label">Rate</span><span className="art-value">₹1.00 / number</span></div>
-            <div className="art-divider" />
-            <div className="art-row total"><span className="art-label">Total</span><span className="art-value">₹1,240.00</span></div>
-            <div className="art-bar"><span style={{ width: "72%" }} /></div>
-            <p className="art-note">In progress · 892 of 1,240 delivered</p>
-          </div>
-        </div>
+        <CallCalculator />
       </section>
 
       <section className="landing-section">

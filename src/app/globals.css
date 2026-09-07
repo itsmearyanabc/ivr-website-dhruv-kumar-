@@ -2164,19 +2164,77 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .landing-points svg { color: var(--red); }
 
 .landing-hero-art { display: flex; justify-content: center; }
-.art-card {
-  width: 100%; max-width: 380px; background: var(--surface);
+/* ------------------------------------------------------------
+   Landing page: campaign cost calculator
+   ------------------------------------------------------------
+   Display only, and styled to say so. The reference for this was a red-and-gold reward
+   widget; here it wears the same navy as the rest of the site, because it is standing in the
+   hero of a product page rather than competing with it. The slider is the one saturated
+   element, which is what makes it read as the thing to touch. */
+.calc-card {
+  width: 100%; max-width: 420px; background: var(--surface);
   border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 22px; box-shadow: var(--shadow);
+  padding: 24px; box-shadow: var(--shadow);
 }
-.art-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; font-size: 13.5px; }
-.art-label { color: var(--muted); }
-.art-value { font-weight: 600; }
-.art-divider { height: 1px; background: var(--line); margin: 8px 0; }
-.art-row.total .art-value { font-size: 18px; font-weight: 700; color: var(--red); }
-.art-bar { height: 7px; border-radius: 99px; background: var(--line-soft); overflow: hidden; margin: 16px 0 9px; }
-.art-bar span { display: block; height: 100%; background: var(--red); border-radius: 99px; }
-.art-note { margin: 0; font-size: 12px; color: var(--muted); }
+.calc-head h3 { margin: 0 0 5px; font-size: 16px; }
+.calc-head p { margin: 0 0 20px; font-size: 13px; color: var(--muted); line-height: 1.55; }
+
+.calc-readout {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--canvas); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 18px;
+}
+.calc-calls { display: flex; align-items: baseline; gap: 7px; }
+.calc-calls strong { font-size: 30px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+.calc-calls span { font-size: 13px; color: var(--muted); font-weight: 600; }
+.calc-tier {
+  background: var(--red); color: #fff; font-size: 11px; font-weight: 700;
+  letter-spacing: .6px; text-transform: uppercase;
+  padding: 6px 12px; border-radius: 99px; white-space: nowrap;
+}
+
+/* Styled on both engines rather than relying on one: an unstyled range input falls back to
+   the platform blue, which is the one colour this palette does not contain. */
+.calc-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px; border-radius: 99px; margin: 0;
+  background: var(--line); cursor: pointer;
+}
+.calc-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--red); border: 3px solid var(--surface);
+  box-shadow: 0 2px 8px rgba(73, 84, 100, .35); cursor: grab;
+}
+.calc-slider::-webkit-slider-thumb:active { cursor: grabbing; }
+.calc-slider::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--red); border: 3px solid var(--surface);
+  box-shadow: 0 2px 8px rgba(73, 84, 100, .35); cursor: grab;
+}
+.calc-slider::-moz-range-track { height: 6px; border-radius: 99px; background: var(--line); }
+.calc-slider:focus-visible { outline: 2px solid var(--red); outline-offset: 4px; }
+
+.calc-scale {
+  display: flex; justify-content: space-between;
+  margin: 9px 0 20px; font-size: 11px; font-weight: 600; color: var(--muted-2);
+}
+
+.calc-figures { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.calc-figure {
+  background: var(--canvas); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 13px 14px;
+}
+.calc-figure.primary { background: var(--red-soft); border-color: var(--red-line); }
+.calc-figure-label {
+  display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 6px;
+}
+.calc-figure strong { display: block; font-size: 19px; font-weight: 700; letter-spacing: -.5px; }
+.calc-figure.primary strong { color: var(--red); }
+.calc-figure small { display: block; margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+
+.calc-note { margin: 16px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--muted-2); }
 
 .landing-section { max-width: 1120px; margin: auto; padding: 46px 22px; }
 .landing-section h2 { font-size: clamp(24px, 3vw, 32px); letter-spacing: -.7px; margin: 0 0 26px; }
