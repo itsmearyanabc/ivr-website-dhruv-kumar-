@@ -908,8 +908,8 @@ function CustomerProfileModal({ customer, orders, onClose, refreshData }: { cust
   };
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal compact-modal">
         <div className="modal-head">
           <div><p className="eyebrow">CUSTOMER</p><h2>{customer.full_name || customer.company_name}</h2><p>{customer.email}</p></div>
           <button className="close" onClick={onClose}><Icon name="close"/></button>
@@ -2399,8 +2399,8 @@ function CategoryServiceManager() {
       </div>
 
       {showNewCategory && (
-        <div className="modal-backdrop" onClick={() => setShowNewCategory(false)}>
-          <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal compact-modal">
             <div className="modal-head">
               <div>
                 <p className="eyebrow">NEW CATEGORY</p>
@@ -2439,8 +2439,8 @@ function CategoryServiceManager() {
       )}
 
       {showNewService && (
-        <div className="modal-backdrop" onClick={() => setShowNewService(false)}>
-          <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal compact-modal">
             <div className="modal-head">
               <div>
                 <p className="eyebrow">NEW SERVICE</p>
@@ -2615,8 +2615,8 @@ function CategoryServiceManager() {
       </section>
 
       {showEditCategory && editingCategory && (
-        <div className="modal-backdrop" onClick={() => setShowEditCategory(false)}>
-          <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal compact-modal">
             <div className="modal-head">
               <div>
                 <p className="eyebrow">EDIT CATEGORY</p>
@@ -2655,8 +2655,8 @@ function CategoryServiceManager() {
       )}
 
       {showEditService && editingService && (
-        <div className="modal-backdrop" onClick={() => setShowEditService(false)}>
-          <div className="modal compact-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal compact-modal">
             <div className="modal-head">
               <div>
                 <p className="eyebrow">EDIT SERVICE</p>

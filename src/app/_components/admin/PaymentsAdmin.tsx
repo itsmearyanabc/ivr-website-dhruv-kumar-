@@ -273,8 +273,8 @@ function TopupReviewModal({
   };
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="modal compact-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal compact-modal">
         <div className="modal-head">
           <div>
             <p className="eyebrow">TOP-UP {request.reference_no}</p>

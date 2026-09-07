@@ -567,6 +567,11 @@ td.empty { display: table-cell; }
 /* ------------------------------------------------------------
    Modals
    ------------------------------------------------------------ */
+/* Nothing here dismisses on a backdrop click, and new modals should not either. These panels
+   hold typed work - a service being priced, a refund being calculated, a report being
+   attached - and a stray click beside the panel discarded all of it with nothing to undo it.
+   The X and Cancel are the way out, and every modal carries both. */
+
 /* Above every piece of app chrome. At 20 this sat *below* the sticky admin bar (40) and
    its dropdown (50), which on a narrow viewport put the nav menu on top of an open modal
    and hid the modal's own close button behind the header - leaving no way to dismiss it
