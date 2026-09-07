@@ -654,7 +654,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
       <ImpersonationBanner />
       <div className={`sidebar-backdrop ${isMobileMenuOpen ? 'mobile-open' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
       <aside className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
-        <div className="brand"><span className="brand-mark"><b>X</b></span><span>XPACK<em>PANEL</em></span></div>
+        <div className="brand"><span className="brand-mark"><b>B</b></span><span>BulkShout<em>PANEL</em></span></div>
         <div className="workspace"><span className="company-dot">{session.name.slice(0, 1).toUpperCase()}</span><span>{session.company || session.name}</span></div>
         <nav>{nav.map(([label, icon]) => <button key={label} onClick={() => goTo(label)} className={view === label ? "active" : ""}><Icon name={icon}/>{label}</button>)}</nav>
         <div className="sidebar-bottom">
@@ -674,7 +674,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
           <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(true)}>
             <Icon name="menu" size={24} />
           </button>
-          <div className="mobile-brand">XPACK</div>
+          <div className="mobile-brand">BulkShout</div>
           <div className="header-actions">
             <button className="balance-chip" onClick={() => goTo("Add funds")} title="Add funds">
               <Icon name="indian-rupee" size={14}/>
@@ -1017,7 +1017,7 @@ function WrongPortal({ role, portal, onSignOut }: { role: Role; portal: Role; on
         <p>
           {adminOnCustomer
             ? "Administrator sessions run in the operations console. Continue there to manage broadcasts."
-            : "This console is reserved for Xpack administrators. Your customer panel is on the main site."}
+            : "This console is reserved for BulkShout administrators. Your customer panel is on the main site."}
         </p>
         <div className="gate-actions">
           <a className="primary" href={adminOnCustomer ? "/admin" : "/"}>
@@ -1164,13 +1164,13 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
     }
   };
 
-  const title = mode === "admin" ? "Administrator sign in" : mode === "signup" ? "Create your Xpack account" : mode === "forgot" ? "Reset your password" : "Welcome back";
+  const title = mode === "admin" ? "Administrator sign in" : mode === "signup" ? "Create your BulkShout account" : mode === "forgot" ? "Reset your password" : "Welcome back";
   const isLocked = lockoutUntil !== null;
 
   return (
     <main className={`auth-shell${isAdminPortal ? " admin-shell" : ""}`}>
       <section className="auth-brand">
-        <div className="brand"><span className="brand-mark"><b>X</b></span><span>XPACK<em>{isAdminPortal ? "ADMIN" : "PANEL"}</em></span></div>
+        <div className="brand"><span className="brand-mark"><b>B</b></span><span>BulkShout<em>{isAdminPortal ? "ADMIN" : "PANEL"}</em></span></div>
         {isAdminPortal ? (
           <div>
             <p className="eyebrow">RESTRICTED CONSOLE</p>
@@ -1197,7 +1197,7 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
               <Icon name="arrow" size={14}/> Back
             </button>
           )}
-          <div className="auth-heading"><p className="eyebrow">{isAdminPortal ? "RESTRICTED AREA" : "XPACK PANEL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer panel in under a minute." : mode === "forgot" ? "Tell us your email and our operations team will reset the password on your account." : "Sign in to manage your broadcasts."}</p></div>
+          <div className="auth-heading"><p className="eyebrow">{isAdminPortal ? "RESTRICTED AREA" : "BULKSHOUT PANEL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized BulkShout Operations credentials." : mode === "signup" ? "Set up your customer panel in under a minute." : mode === "forgot" ? "Tell us your email and our operations team will reset the password on your account." : "Sign in to manage your broadcasts."}</p></div>
           {mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}
           <label>Email address<input name="email" type="email" required placeholder={isAdminPortal ? "administrator email" : "you@company.com"} autoComplete={isAdminPortal ? "off" : "email"} disabled={isLocked}/></label>
           {mode !== "forgot" && <label>Password<div className="password-field"><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" autoComplete={isAdminPortal ? "off" : "current-password"} disabled={isLocked}/><button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}
@@ -1209,7 +1209,7 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
           <button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Request a password reset" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>
           {!isAdminPortal && (
             <p className="auth-switch">
-              {mode === "signup" ? "Already have an account?" : mode === "forgot" ? "Remembered it?" : "New to Xpack?"}{" "}
+              {mode === "signup" ? "Already have an account?" : mode === "forgot" ? "Remembered it?" : "New to BulkShout?"}{" "}
               <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : mode === "forgot" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" || mode === "forgot" ? "Sign in" : "Create an account"}</button>
             </p>
           )}

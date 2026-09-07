@@ -127,7 +127,7 @@ export default function AdminShell({
         <div className="admin-bar-inner">
           <button className="admin-brand" onClick={() => go("Dashboard")}>
             <span className="brand-mark"><b>X</b></span>
-            <span>XPACK<em>ADMIN</em></span>
+            <span>BulkShout<em>ADMIN</em></span>
           </button>
 
           <button

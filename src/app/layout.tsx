@@ -18,7 +18,7 @@ const montserrat = Montserrat({
 });
 
 export const metadata: Metadata = {
-  title: "Xpack | IVR Broadcast Panel",
+  title: "BulkShout | IVR Broadcast Panel",
   description: "Create, track, and manage IVR broadcasts from a single panel.",
 };
 

@@ -184,7 +184,7 @@ export async function signIn(formData: FormData, isAdmin = false) {
     if (!isOwnerAttempt) {
       const staffOk = await signInStaff(email, password)
       if (!staffOk.ok) return { error: staffOk.error }
-      return { data: { role: 'ADMIN' as const, name: staffOk.name, email, company: 'Xpack Operations' } }
+      return { data: { role: 'ADMIN' as const, name: staffOk.name, email, company: 'BulkShout Operations' } }
     }
 
     try {
@@ -215,7 +215,7 @@ export async function signIn(formData: FormData, isAdmin = false) {
           email: adminEmailLower,
           password: adminPassword,
           email_confirm: true,
-          user_metadata: { name: 'Admin', company: 'Xpack Operations' }
+          user_metadata: { name: 'Admin', company: 'BulkShout Operations' }
         })
 
         if (createError || !newUser.user) {

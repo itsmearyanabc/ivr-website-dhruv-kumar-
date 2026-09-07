@@ -604,7 +604,7 @@ function PaymentMethodSettings() {
                 <input name="upi_vpa" defaultValue={config.upi_vpa || ""} placeholder="business@okhdfcbank" />
               </label>
               <label>Payee name
-                <input name="upi_payee_name" defaultValue={config.upi_payee_name || ""} placeholder="Xpack Media" />
+                <input name="upi_payee_name" defaultValue={config.upi_payee_name || ""} placeholder="BulkShout Media" />
               </label>
               <label>Static QR image
                 <span className="dropzone">
