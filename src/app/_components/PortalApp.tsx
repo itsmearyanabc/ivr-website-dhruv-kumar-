@@ -33,6 +33,7 @@ import { TopupRequestsView, AdminSettingsView } from "@/app/_components/admin/Pa
 import StatisticsGraph from "@/app/_components/admin/StatisticsGraph";
 import ActivityLog from "@/app/_components/admin/ActivityLog";
 import AddFunds from "@/app/_components/customer/AddFunds";
+import Landing from "@/app/_components/Landing";
 import {
   UPLOAD_LIMITS,
   formatFileSize,
@@ -289,6 +290,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
    * running.
    */
   const [pending, setPending] = useState(0);
+  /** null while the visitor is on the landing page; set once they pick sign in or sign up. */
+  const [authMode, setAuthMode] = useState<"login" | "signup" | null>(null);
   const track = useCallback(async function <T>(work: Promise<T>): Promise<T> {
     setPending(n => n + 1);
     try {
@@ -539,7 +542,30 @@ export default function PortalApp({ portal }: { portal: Role }) {
   };
 
   if (isSessionLoading) return <div className="boot-screen"><TopProgressBar active /><div className="loader"/><p>Loading your panel…</p></div>;
-  if (!session) return <><TopProgressBar active={pending > 0} /><Auth portal={portal} onLogin={login} /></>;
+  if (!session) {
+    // /admin is a restricted console reached deliberately, not a shopfront - it keeps going
+    // straight to the sign-in card. Everyone arriving at the domain itself gets the landing
+    // page, and only sees a password field once they have asked for one.
+    if (portal !== "admin" && !authMode) {
+      return (
+        <>
+          <TopProgressBar active={pending > 0} />
+          <Landing onSignIn={() => setAuthMode("login")} onSignUp={() => setAuthMode("signup")} />
+        </>
+      );
+    }
+    return (
+      <>
+        <TopProgressBar active={pending > 0} />
+        <Auth
+          portal={portal}
+          onLogin={login}
+          initialMode={authMode || undefined}
+          onBack={portal === "admin" ? undefined : () => setAuthMode(null)}
+        />
+      </>
+    );
+  }
   if (session.role !== portal) return <WrongPortal role={session.role} portal={portal} onSignOut={logout} />;
 
   const nav: Array<[string, string]> = [["Dashboard", "grid"], ["New broadcast", "plus"], ["My broadcasts", "radio"], ["Add funds", "indian-rupee"], ["Support", "help"], ["Settings", "settings"]];
@@ -991,9 +1017,18 @@ function WrongPortal({ role, portal, onSignOut }: { role: Role; portal: Role; on
   );
 }
 
-function Auth({ portal, onLogin }: { portal: Role; onLogin: (s: Session) => void }) {
+function Auth({ portal, onLogin, initialMode, onBack }: {
+  portal: Role;
+  onLogin: (s: Session) => void;
+  /** Which form the visitor asked for from the landing page. */
+  initialMode?: "login" | "signup";
+  /** Absent on /admin, which has no landing page to return to. */
+  onBack?: () => void;
+}) {
   const isAdminPortal = portal === "admin";
-  const [mode, setMode] = useState<"login" | "signup" | "admin" | "forgot">(isAdminPortal ? "admin" : "login");
+  const [mode, setMode] = useState<"login" | "signup" | "admin" | "forgot">(
+    isAdminPortal ? "admin" : initialMode || "login"
+  );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -1144,6 +1179,11 @@ function Auth({ portal, onLogin }: { portal: Role; onLogin: (s: Session) => void
       </section>
       <section className="auth-panel">
         <form className="auth-card" onSubmit={submit}>
+          {onBack && (
+            <button type="button" className="auth-back" onClick={onBack} disabled={isLocked}>
+              <Icon name="arrow" size={14}/> Back
+            </button>
+          )}
           <div className="auth-heading"><p className="eyebrow">{isAdminPortal ? "RESTRICTED AREA" : "XPACK PANEL"}</p><h2>{title}</h2><p>{mode === "admin" ? "Use your authorized Xpack Operations credentials." : mode === "signup" ? "Set up your customer panel in under a minute." : mode === "forgot" ? "Tell us your email and our operations team will reset the password on your account." : "Sign in to manage your broadcasts."}</p></div>
           {mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}
           <label>Email address<input name="email" type="email" required placeholder={isAdminPortal ? "administrator email" : "you@company.com"} autoComplete={isAdminPortal ? "off" : "email"} disabled={isLocked}/></label>
