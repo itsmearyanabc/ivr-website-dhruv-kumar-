@@ -124,9 +124,37 @@ export function validateQuantity(service: QuantityPricing, quantity: number): st
  */
 const SEPARATORS = /[\r\n,;]+/
 
-/** Shortest and longest run of digits that counts as a phone number. */
-const MIN_DIGITS = 10
-const MAX_DIGITS = 15
+/**
+ * A subscriber number is ten digits. Everything else here is about getting an entry down to
+ * those ten before measuring it.
+ *
+ * This used to accept anything from 10 to 15 digits, which quietly billed typing slips as
+ * real targets: "98765432228786787" is one mis-keyed line, not a phone number, but at 17 it
+ * was only rejected for being too long - at 11 to 15 it was accepted and charged for.
+ */
+const NUMBER_DIGITS = 10
+
+/**
+ * Strips the prefixes an Indian list arrives with, or returns null if what is left is not a
+ * subscriber number.
+ *
+ * A pasted export mixes formats freely - one row typed bare, the next copied out of a phone
+ * with its country code - and all of them mean the same ten digits. Rejecting the prefixed
+ * ones would refuse a list the customer considers perfectly good, so they are reduced rather
+ * than discarded. Note this is a *format* rule, not a duplicate check: "9876543210" and
+ * "+919876543210" on separate lines still count as two, exactly as two identical bare lines
+ * always have.
+ */
+function normaliseNumber(digits: string): string | null {
+  if (digits.length === NUMBER_DIGITS) return digits
+  // 0 98765 43210 - the domestic trunk prefix.
+  if (digits.length === NUMBER_DIGITS + 1 && digits.startsWith('0')) return digits.slice(1)
+  // +91 98765 43210, or 91 98765 43210 once the plus is stripped.
+  if (digits.length === NUMBER_DIGITS + 2 && digits.startsWith('91')) return digits.slice(2)
+  // 0091 98765 43210 - trunk prefix and country code together.
+  if (digits.length === NUMBER_DIGITS + 4 && digits.startsWith('0091')) return digits.slice(4)
+  return null
+}
 
 /**
  * Phone numbers in a pasted, typed, or uploaded list.
@@ -137,10 +165,10 @@ const MAX_DIGITS = 15
  * once its other columns are dropped for having no digits in them.
  *
  * Each entry is reduced to its digits before being measured, so "+91 98765 43210",
- * "+919876543210" and "98765-43210" are one number each rather than three fragments. Ten to
- * fifteen digits is the accepted range: below it are stray dates, amounts and row numbers
- * that would otherwise be billed as targets, and above it is two numbers run together on one
- * line, which is not the format the field asks for.
+ * "+919876543210" and "98765-43210" are one number each rather than three fragments. What
+ * survives is exactly ten digits, after any trunk prefix or country code is taken off: below
+ * that are stray dates, amounts and row numbers, and above it are two numbers run together or
+ * a line typed with an extra keystroke - all of which were previously counted and billed.
  *
  * Deliberately identical in the browser and on the server. The modal quotes the order from
  * this count and `createBroadcast` bills from it, so any divergence would be a customer
@@ -167,8 +195,8 @@ export function parseNumbers(text: string): string[] {
   if (!text) return []
   const found: string[] = []
   for (const entry of text.split(SEPARATORS)) {
-    const digits = entry.replace(/\D/g, '')
-    if (digits.length >= MIN_DIGITS && digits.length <= MAX_DIGITS) found.push(digits)
+    const number = normaliseNumber(entry.replace(/\D/g, ''))
+    if (number) found.push(number)
   }
   return found
 }

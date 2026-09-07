@@ -32,7 +32,7 @@ import { TopupRequestsView, AdminSettingsView } from "@/app/_components/admin/Pa
 import StatisticsGraph from "@/app/_components/admin/StatisticsGraph";
 import ActivityLog from "@/app/_components/admin/ActivityLog";
 import AddFunds from "@/app/_components/customer/AddFunds";
-import { UPLOAD_LIMITS, formatFileSize, describeLimit } from "@/lib/uploads";
+import { UPLOAD_LIMITS, formatFileSize, describeLimit, isUncapped } from "@/lib/uploads";
 import { calculateFailedCallRefund } from "@/lib/refunds";
 import {
   countEntries,
@@ -1739,6 +1739,9 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
               <option>All statuses</option>
               <option>Placed</option>
               <option>In progress</option>
+              {/* Partial is how every run is now closed out, so it belongs in the filter -
+                  it was missing here while Completed, which can no longer be set, was not. */}
+              <option>Partial</option>
               <option>Completed</option>
               <option>Cancelled</option>
               <option>On hold</option>
@@ -3078,10 +3081,16 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
 
     // Checked here as well as on the server: an oversized upload is rejected by the platform
     // before the action runs, so the server-side message would never reach the customer.
-    if (audioFile && audioFile.size > UPLOAD_LIMITS.AUDIO) {
+    //
+    // Scoped to the method actually chosen. Picking a file and then switching to text left the
+    // abandoned file in state, and this check did not look at the method - so an order being
+    // sent as text-to-speech was blocked by the size of a recording it was never going to
+    // upload, with an error naming a file the form no longer showed. The submit below already
+    // only uploads what the chosen method points at; this now agrees with it.
+    if (audioInputMethod === 'FILE' && audioFile && audioFile.size > UPLOAD_LIMITS.AUDIO) {
       return setSubmitError(`The audio file is ${formatFileSize(audioFile.size)}. The limit is ${describeLimit(UPLOAD_LIMITS.AUDIO)}.`);
     }
-    if (contactsFile && contactsFile.size > UPLOAD_LIMITS.CONTACTS) {
+    if (inputMethod === 'FILE' && contactsFile && contactsFile.size > UPLOAD_LIMITS.CONTACTS) {
       return setSubmitError(`The contact list is ${formatFileSize(contactsFile.size)}. The limit is ${describeLimit(UPLOAD_LIMITS.CONTACTS)}.`);
     }
 
@@ -3211,7 +3220,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
                 {audioFile ? (
                   <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></>
                 ) : (
-                  <><Icon name="upload"/><b>Upload audio file</b><small>Maximum {describeLimit(UPLOAD_LIMITS.AUDIO)} (.mp3, .wav, .aac)</small></>
+                  <><Icon name="upload"/><b>Upload audio file</b><small>{isUncapped(UPLOAD_LIMITS.AUDIO) ? "Any size" : `Maximum ${describeLimit(UPLOAD_LIMITS.AUDIO)}`} (.mp3, .wav, .aac)</small></>
                 )}
                 <input name="audio" type="file" onChange={e => setAudioFile(e.target.files?.[0] || null)} accept="audio/*"/>
               </span>
@@ -3513,9 +3522,8 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   const [refundReason, setRefundReason] = useState(order.refundReason || "");
   const [refundAmount] = useState(order.refundAmount || "");
 
-  // Double entry partial refund
-  // The refund is driven by these two counts, taken off the fulfilment report.
-  const [deliveredCalls, setDeliveredCalls] = useState<string>(order.deliveredCalls != null ? String(order.deliveredCalls) : "");
+  // The refund is driven by one figure off the fulfilment report: how many calls failed.
+  // Delivered is derived, never typed - see `deliveredNum` below.
   const [failedCalls, setFailedCalls] = useState<string>(order.failedCalls != null ? String(order.failedCalls) : "");
   const [adminComment, setAdminComment] = useState<string>(order.adminComment || "");
 
@@ -3528,10 +3536,11 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
 
-  // A report is attached whenever the run is closed out - a fully delivered campaign still
-  // gets one. A refund only belongs on Partial: Completed means every call landed, and
-  // Cancelled/Refunded already return the whole remaining charge on the server.
-  const reportApplies = status === "Completed" || status === "Partial";
+  // Partial is the only status that refunds, and the only one an operator can newly close an
+  // order into. A report still belongs on COMPLETED as well: this must match the server's
+  // `allowsReport`, or a historical COMPLETED order needing a report has no control to attach
+  // one and cannot be saved at all.
+  const reportApplies = status === "Partial" || status === "Completed";
   const refundApplies = status === "Partial";
   const alreadyPartiallyRefunded = Boolean(order.partialRefundAmount && order.partialRefundAmount > 0);
 
@@ -3541,14 +3550,28 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   const alreadyRefunded = Number(order.partialRefundAmount || 0);
   const refundableRemaining = Math.max(0, Number(((order.charge || 0) - alreadyRefunded).toFixed(2)));
 
-  const deliveredNum = deliveredCalls.trim() === "" ? null : Number.parseInt(deliveredCalls, 10);
+  // The order already knows how many numbers it targeted, so only the failures need entering
+  // and the rest follows. Asking for both counts let them disagree with the order - and since
+  // the rate is charge / (delivered + failed), a slip in either box quietly repriced every
+  // call: entering 5 and 5 on a 25-number order made each call worth Rs 2.50 instead of Rs 1.
+  const totalCalls = Number(order.contactCount || 0);
   const failedNum = failedCalls.trim() === "" ? null : Number.parseInt(failedCalls, 10);
-  const hasCallCounts = deliveredCalls.trim() !== "" || failedCalls.trim() !== "";
+  const hasCallCounts = failedCalls.trim() !== "";
+  const deliveredNum = failedNum === null ? null : Math.max(0, totalCalls - failedNum);
+
+  // More failures than the campaign had numbers is a misread report, not a bigger refund.
+  const failedOverTotal = Boolean(failedNum !== null && totalCalls > 0 && failedNum > totalCalls);
+  // Legacy rows predating the contact count have nothing to derive from.
+  const cannotDeriveDelivered = Boolean(refundApplies && hasCallCounts && totalCalls <= 0);
 
   // The same function the server runs, so the number previewed here is the number credited.
   // It returns the *shortfall* against what has already been refunded, which is why saving a
   // corrected report twice now previews - and credits - ₹0.00 the second time.
-  const refundBreakdown = refundApplies && hasCallCounts
+  // Skipped when the count cannot yield an honest figure. Feeding an impossible count through
+  // anyway clamped delivered to 0 and left the failure count as the whole denominator, so 30
+  // failures on a 25-number order rendered a complete, plausible-looking breakdown at Rs 0.83
+  // a call against a rate the order never had. Better to show the reason than a wrong sum.
+  const refundBreakdown = refundApplies && hasCallCounts && !failedOverTotal && !cannotDeriveDelivered
     ? calculateFailedCallRefund(order.charge || 0, deliveredNum ?? 0, failedNum ?? 0, alreadyRefunded)
     : null;
 
@@ -3567,7 +3590,11 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   };
   const reasonMissing = status in reasonRequired && !reasonRequired[status].trim();
 
-  const blockingError = (refundBreakdown && !refundBreakdown.ok)
+  const blockingError = failedOverTotal
+    ? `This broadcast targeted ${totalCalls.toLocaleString("en-IN")} numbers, so at most ${totalCalls.toLocaleString("en-IN")} calls can have failed. You have entered ${(failedNum ?? 0).toLocaleString("en-IN")}.`
+    : cannotDeriveDelivered
+      ? "This order has no contact count on file, so the delivered figure cannot be worked out from it. Refund it from the customer's wallet instead."
+    : (refundBreakdown && !refundBreakdown.ok)
     ? refundBreakdown.error
     : partialRefundOverCharge
       ? `A partial refund cannot exceed the ₹${(order.charge || 0).toFixed(2)} charged for this order.`
@@ -3767,7 +3794,18 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               <select value={status} onChange={e => setStatus(e.target.value as Status)}>
                 <option>Placed</option>
                 <option>In progress</option>
-                <option>Completed</option>
+                {/* A run is closed out as Partial now - the operator enters how many calls
+                    failed, which is zero for one that landed in full. Two ways to say
+                    "finished" meant the refund calculator only appeared on one of them, so a
+                    fully-failed campaign closed as Completed refunded nothing.
+
+                    Offered only for an order already in it, never as a new choice. A
+                    controlled select whose value matches no option renders blank, so dropping
+                    it outright left every historical COMPLETED order showing an empty status
+                    box - and, because the report control is hidden off `reportApplies`, one
+                    with no report attached could not be saved at all: the server still
+                    requires a report for COMPLETED and the UI offered nowhere to add it. */}
+                {order.status === "Completed" && <option>Completed</option>}
                 <option>Partial</option>
                 <option>On hold</option>
                 <option>Cancelled</option>
@@ -3779,9 +3817,10 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               <div className="refund-panel">
                 <h4>Refund calculator</h4>
                 <p>
-                  Enter the delivery figures from the report. The refund is worked out from what this
-                  customer was charged for this order — ₹{(order.charge || 0).toFixed(2)} — split across
-                  the calls that were actually attempted.
+                  Enter how many calls failed, from the report. The rest of this broadcast&rsquo;s{" "}
+                  {totalCalls.toLocaleString("en-IN")} numbers counts as delivered. The refund is worked
+                  out from what this customer was charged — ₹{(order.charge || 0).toFixed(2)} — split
+                  across every number the campaign targeted.
                 </p>
 
                 {alreadyPartiallyRefunded && (
@@ -3793,25 +3832,16 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                 )}
 
                 <div className="form-grid">
-                  <label>Calls delivered
-                    <input
-                      type="number"
-                      step="1"
-                      min="0"
-                      placeholder="0"
-                      value={deliveredCalls}
-                      onChange={e => setDeliveredCalls(e.target.value)}
-                    />
-                  </label>
                   <label>Calls failed
                     <input
                       type="number"
                       step="1"
                       min="0"
+                      max={totalCalls > 0 ? totalCalls : undefined}
                       placeholder="0"
                       value={failedCalls}
                       onChange={e => setFailedCalls(e.target.value)}
-                      className={refundBreakdown && !refundBreakdown.ok ? "invalid" : ""}
+                      className={(refundBreakdown && !refundBreakdown.ok) || failedOverTotal ? "invalid" : ""}
                     />
                   </label>
                 </div>
@@ -3820,11 +3850,16 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                   <div className="form-error">⚠️ {refundBreakdown.error}</div>
                 )}
 
+                {(failedOverTotal || cannotDeriveDelivered) && (
+                  <div className="form-error">⚠️ {blockingError}</div>
+                )}
+
                 {refundBreakdown?.ok && (
                   <div className="refund-breakdown">
                     <div className="summary-row"><span>Total calls attempted</span><strong>{refundBreakdown.totalCalls}</strong></div>
                     <div className="summary-row"><span>Rate per call</span><strong>₹{refundBreakdown.perCallRate.toFixed(2)}</strong></div>
                     <div className="summary-row"><span>Failed calls</span><strong>{failedNum ?? 0}</strong></div>
+                    <div className="summary-row"><span>Delivered (derived)</span><strong>{deliveredNum ?? 0}</strong></div>
                     <div className="summary-row"><span>Owed for failed calls</span><strong>₹{refundBreakdown.totalDue.toFixed(2)}</strong></div>
                     {refundBreakdown.alreadyRefunded > 0 && (
                       <div className="summary-row"><span>Already refunded</span><strong>−₹{refundBreakdown.alreadyRefunded.toFixed(2)}</strong></div>
@@ -3861,7 +3896,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
 
             {reportApplies && (
               <div className="field-block">
-                <label className="field-label">Campaign report file</label>
+                <label className="field-label">Campaign report file <span className="req">required</span></label>
                 <span className={`dropzone ${reportTooLarge ? "invalid" : reportFile ? "filled" : ""}`}>
                   {reportFile ? (
                     <><Icon name="check"/><b>{reportFile.name}</b><small>{formatFileSize(reportFile.size)} · ready to send to the customer</small></>
@@ -3884,8 +3919,8 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                 ) : (
                   <p className="field-hint">
                     {order.reportKey
-                      ? "The customer can already download the attached report."
-                      : "Optional — you can complete the order now and attach the report later."}
+                      ? "The customer can already download the attached report. Choosing a file replaces it; that on its own moves no money — the refund follows the call counts above."
+                      : `Required — an order cannot be marked ${status} without it. The customer is shown it as the record of what was delivered.`}
                   </p>
                 )}
               </div>

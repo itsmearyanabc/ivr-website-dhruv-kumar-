@@ -21,8 +21,16 @@ export const STORAGE_BUCKET = 'xpack_files';
 export type UploadKind = 'audio' | 'contacts' | 'report' | 'qr';
 
 export const UPLOAD_LIMITS = {
-  /** Campaign audio. */
-  AUDIO: 50 * 1024 * 1024,
+  /**
+   * Campaign audio - uncapped by product decision.
+   *
+   * Infinity rather than a very large number so every `size > limit` check in the codebase
+   * simply stops firing, with no separate "unlimited" branch to keep in step. The real
+   * ceiling is now entirely Supabase's: the bucket rejects anything over its own per-file
+   * limit and `explainUploadFailure` in @/lib/uploadClient says so by name. Nothing here can
+   * lift that - it is raised in Supabase -> Storage -> xpack_files -> Settings.
+   */
+  AUDIO: Infinity,
   /** Contact list: CSV, TXT, XLSX, PDF or anything else the operator can read. */
   CONTACTS: 50 * 1024 * 1024,
   /** Fulfilment report the admin sends back to the customer. Any file type. */
@@ -37,7 +45,13 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Human-readable ceiling for UI copy, e.g. "50 MB". */
+/** Human-readable ceiling for UI copy, e.g. "50 MB", or "no limit" for an uncapped kind. */
 export function describeLimit(bytes: number): string {
+  if (!Number.isFinite(bytes)) return 'no limit';
   return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+/** True when this kind accepts a file of any size, so copy can read "Any size" not "Maximum Infinity". */
+export function isUncapped(bytes: number): boolean {
+  return !Number.isFinite(bytes);
 }

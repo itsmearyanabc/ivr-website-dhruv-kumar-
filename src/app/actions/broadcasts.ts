@@ -487,20 +487,23 @@ async function runUpdateBroadcastStatus(formData: FormData) {
   const refundReason = String(formData.get("refundReason") || "")
   const adminComment = String(formData.get("adminComment") || "")
 
-  // Delivery counts read off the fulfilment report. When these are present the refund is
-  // derived from them and the typed amount below is ignored entirely - the operator enters
-  // how many calls failed, not how many rupees to hand back.
-  const deliveredCallsStr = String(formData.get("deliveredCalls") || "")
+  // The failure count read off the fulfilment report. When it is present the refund is
+  // derived from it and the typed amount below is ignored entirely - the operator enters how
+  // many calls failed, not how many rupees to hand back.
+  //
+  // Delivered is NOT read from the form. The browser sends it, but it is recomputed below
+  // from the order's own contact count: the campaign targeted a known number of contacts, so
+  // whatever did not fail was delivered. Trusting a delivered figure from the client would
+  // let the denominator of the refund rate (delivered + failed) be set from outside the
+  // order - post a small pair and every call on a large order reprices upward.
   const failedCallsStr = String(formData.get("failedCalls") || "")
-  const hasCallCounts = deliveredCallsStr !== "" || failedCallsStr !== ""
+  const hasCallCounts = failedCallsStr !== ""
 
-  let deliveredCalls: number | null = null
   let failedCalls: number | null = null
   if (hasCallCounts) {
-    deliveredCalls = Number.parseInt(deliveredCallsStr || "0", 10)
     failedCalls = Number.parseInt(failedCallsStr || "0", 10)
-    if (!Number.isInteger(deliveredCalls) || !Number.isInteger(failedCalls) || deliveredCalls < 0 || failedCalls < 0) {
-      return { error: 'Delivered and failed call counts must be whole numbers, zero or more.' }
+    if (!Number.isInteger(failedCalls) || failedCalls < 0) {
+      return { error: 'The failed call count must be a whole number, zero or more.' }
     }
   }
 
@@ -534,6 +537,33 @@ async function runUpdateBroadcastStatus(formData: FormData) {
 
   const originalCharge = Number(existingBroadcast.charge || 0)
   const currentStatus = existingBroadcast.status
+
+  // Delivered is derived here, from the order rather than the form: the campaign targeted a
+  // known list, so every number that did not fail was delivered. This also fixes the refund
+  // denominator to the order's own size, which is what makes the per-call rate simply
+  // `charge / contacts` - the same rate the customer was quoted when they placed it.
+  const totalCalls = Number(existingBroadcast.contact_count || 0)
+  const countsReconcile = totalCalls > 0 && (failedCalls ?? 0) <= totalCalls
+
+  // Refused only when the refund actually depends on the figure. The browser prefills the
+  // failure count from the order and resends it on every save whatever status is chosen, and
+  // `resubmitFiles` can lower an order's contact_count after the counts were recorded - so
+  // enforcing this on every save would block an unrelated On hold or Cancelled behind an
+  // error about a refund that is not being paid, with no control on screen to clear it.
+  let deliveredCalls: number | null = null
+  if (hasCallCounts && countsReconcile) {
+    deliveredCalls = totalCalls - (failedCalls as number)
+  } else if (hasCallCounts && status === 'PARTIAL') {
+    return {
+      error: totalCalls <= 0
+        ? "This order has no contact count on file, so the delivered figure cannot be worked out from it. Refund it from the customer's wallet instead."
+        : `This broadcast targeted ${totalCalls} numbers, so at most ${totalCalls} calls can have failed. You entered ${failedCalls}.`,
+    }
+  } else if (hasCallCounts) {
+    // Not a refunding save and the numbers do not reconcile: let the status change through and
+    // leave the recorded delivered figure exactly as it was rather than overwriting it.
+    deliveredCalls = existingBroadcast.delivered_calls ?? null
+  }
 
   // FIX Bug 2 & 9: Prevent invalid double-refunds
   const alreadyRefundedStatuses = ['CANCELLED', 'REFUNDED']
@@ -763,7 +793,7 @@ async function runUpdateBroadcastStatus(formData: FormData) {
     // Say what the customer is owed for and why, not just the figure - the call counts are
     // the whole justification for the amount.
     const basis = hasCallCounts
-      ? ` ${failedCalls} of ${(deliveredCalls as number) + (failedCalls as number)} calls failed.`
+      ? ` ${failedCalls} of ${totalCalls} calls failed.`
       : ''
     historyReason = `Partial refund processed: ₹${partialRefundAmount.toFixed(2)}.${basis}${adminComment ? ` ${adminComment}` : ''}`
   }
