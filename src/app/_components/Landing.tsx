@@ -16,6 +16,7 @@
  * and putting marketing in front of it would only add a click for the operator.
  */
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/app/_components/ui";
 import { getCategoriesWithServices } from "@/app/actions/categoriesServices";
@@ -76,7 +77,12 @@ function CallCalculator() {
       .then(res => {
         if (!alive) return;
         const rates: number[] = [];
-        for (const cat of (res.data || []) as any[]) {
+        // Typed to just the fields the rate needs, rather than `any`: this walks a payload
+        // shaped by the catalogue action, and naming what is read here means a change to that
+        // shape shows up as a type error instead of a silently empty average.
+        type PricedService = { price: number | string; unit_quantity?: number | null };
+        const cats = (res.data || []) as Array<{ services?: PricedService[] }>;
+        for (const cat of cats) {
           for (const svc of cat.services || []) {
             // Flat-priced services have no per-call rate to average - a fixed fee per order
             // says nothing about what one more number costs.
@@ -161,10 +167,17 @@ export default function Landing({ onSignIn, onSignUp }: {
     <main className="landing-page">
       <header className="landing-header">
         <div className="landing-header-inner">
-          <div className="brand">
-            <span className="brand-mark"><b>X</b></span>
-            <span>XPACK<em>PANEL</em></span>
-          </div>
+          {/* The supplied artwork is painted on a cream ground rather than a transparent
+              one, so it is used on the page's light surfaces only. The dark sidebar and the
+              auth panel keep the lettermark until there is a knockout version. */}
+          <Image
+            className="landing-logo"
+            src="/bulkshout-logo.png"
+            alt="BulkShout - Say More. Reach Further."
+            width={2321}
+            height={449}
+            priority
+          />
           {/* Both routes into the product sit together in the corner where a visitor looks
               for them, and repeat in the hero for anyone who scrolled straight past. */}
           <nav className="landing-nav">
@@ -241,11 +254,14 @@ export default function Landing({ onSignIn, onSignUp }: {
       </section>
 
       <footer className="landing-footer">
-        <div className="brand small">
-          <span className="brand-mark"><b>X</b></span>
-          <span>XPACK<em>PANEL</em></span>
-        </div>
-        <p>© {new Date().getFullYear()} Xpack. IVR voice broadcast services.</p>
+        <Image
+          className="landing-logo footer"
+          src="/bulkshout-logo.png"
+          alt="BulkShout"
+          width={2321}
+          height={449}
+        />
+        <p>© {new Date().getFullYear()} BulkShout. IVR voice broadcast services.</p>
       </footer>
     </main>
   );

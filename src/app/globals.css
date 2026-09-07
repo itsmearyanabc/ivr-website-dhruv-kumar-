@@ -2291,3 +2291,10 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   .landing-hero { grid-template-columns: 1fr; gap: 34px; padding-top: 40px; }
   .landing-hero-art { order: -1; }
 }
+
+/* The BulkShout wordmark. Sized by height so the aspect ratio is the file's own, and capped
+   on width so a narrow screen shrinks it rather than pushing the nav buttons off the header.
+   Light surfaces only: the artwork carries a cream ground, not a transparent one. */
+.landing-logo { height: 40px; width: auto; max-width: 46vw; object-fit: contain; display: block; }
+.landing-logo.footer { height: 30px; }
+@media (max-width: 620px) { .landing-logo { height: 32px; max-width: 52vw; } }
