@@ -3343,6 +3343,12 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
         {categories.length === 0 && (
           <p className="text-muted">No categories are available yet. Please contact support.</p>
         )}
+        {currentCategory?.description && (
+          <div className="catalogue-description category-description" role="status">
+            <strong>About {currentCategory.name}</strong>
+            <p>{currentCategory.description}</p>
+          </div>
+        )}
 
         {/* 2. Service Selection */}
         <label className="field-label">Service
@@ -3358,6 +3364,12 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
             ))}
           </select>
         </label>
+        {currentService?.description && (
+          <div className="catalogue-description" role="status">
+            <strong>About {currentService.name}</strong>
+            <p>{currentService.description}</p>
+          </div>
+        )}
 
         {/* 3. Voice Selection */}
         <div className="field-block">

@@ -643,6 +643,15 @@ td.empty { display: table-cell; }
 .field-label { font-weight: 700; font-size: 12.5px; display: block; color: var(--ink); margin-bottom: 8px; }
 .modal .field-label { margin: 0 0 8px; }
 .modal .field-row .field-label { margin: 0; }
+.catalogue-description {
+  margin: 0 0 14px; padding: 11px 13px;
+  border: 1px solid var(--red-line); border-radius: var(--radius-sm);
+  background: var(--red-soft); color: var(--muted);
+  font-size: 12px; line-height: 1.55;
+}
+.catalogue-description strong { display: block; color: var(--ink); font-size: 12px; }
+.catalogue-description p { margin: 3px 0 0; white-space: pre-line; overflow-wrap: anywhere; }
+.category-description { margin-top: -6px; }
 
 .pill-picker { display: flex; flex-wrap: wrap; gap: 8px; }
 .pill {
