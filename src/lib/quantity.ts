@@ -125,6 +125,13 @@ export function validateQuantity(service: QuantityPricing, quantity: number): st
 const SEPARATORS = /[\r\n,;]+/
 
 /**
+ * The same separators, captured, so a split keeps them and the text rebuilds exactly as the
+ * customer typed it - newlines from the enter key and the commas of a pasted row both survive
+ * `capNumberText` untouched. Only the entries between them are capped.
+ */
+const SEPARATORS_KEEPING = /([\r\n,;]+)/
+
+/**
  * A subscriber number is ten digits. Everything else here is about getting an entry down to
  * those ten before measuring it.
  *
@@ -199,6 +206,61 @@ export function parseNumbers(text: string): string[] {
     if (number) found.push(number)
   }
   return found
+}
+
+/**
+ * A country or trunk prefix the customer typed *deliberately*, which does not eat into the
+ * ten digits that follow.
+ *
+ * Keyed off the literal "+" or a leading zero, because those are the only unambiguous
+ * signals. A line simply beginning "91" is not treated as prefixed - 9198765432 is a
+ * perfectly ordinary ten-digit mobile, and assuming otherwise would eat the first two digits
+ * of it as the customer typed.
+ */
+const TYPED_PREFIX = /^(?:\+\s*91|0091|0)/
+
+/**
+ * One entry, with anything past ten digits dropped.
+ *
+ * Validation alone was not enough: the field went red past ten digits but happily kept taking
+ * keystrokes, so a customer typing a number with a slip in it got a growing string and no
+ * hint of where the limit was. Refusing the extra keystroke is the feedback.
+ *
+ * Non-digits are preserved exactly - spaces, hyphens and the plus stay where they were put,
+ * so "+91 98765 43210" keeps its shape while typing rather than being rewritten under the
+ * caret. Only digits are counted, and only digits are dropped.
+ */
+export function capNumberEntry(entry: string): string {
+  const lead = /^\s*/.exec(entry)![0]
+  const rest = entry.slice(lead.length)
+  if (!rest) return entry
+
+  const prefix = TYPED_PREFIX.exec(rest)?.[0] ?? ''
+  let digits = 0
+  let kept = ''
+  for (const ch of rest.slice(prefix.length)) {
+    if (ch >= '0' && ch <= '9') {
+      if (digits >= NUMBER_DIGITS) continue
+      digits++
+    }
+    kept += ch
+  }
+  return lead + prefix + kept
+}
+
+/**
+ * The whole box, every entry capped, separators untouched.
+ *
+ * Applied as the customer types, so what the field holds is always what would be billed -
+ * `countNumbers` over this text can no longer be surprised by a line it silently discards.
+ */
+export function capNumberText(text: string): string {
+  if (!text) return text
+  // The capture group keeps the separators in the split, so they survive the round trip.
+  return text
+    .split(SEPARATORS_KEEPING)
+    .map((part, i) => (i % 2 === 1 ? part : capNumberEntry(part)))
+    .join('')
 }
 
 /** Human-readable summary of a service's pricing, for a dropdown or a label. */

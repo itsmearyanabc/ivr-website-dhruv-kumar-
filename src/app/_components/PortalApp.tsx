@@ -35,6 +35,7 @@ import AddFunds from "@/app/_components/customer/AddFunds";
 import { UPLOAD_LIMITS, formatFileSize, describeLimit, isUncapped } from "@/lib/uploads";
 import { calculateFailedCallRefund } from "@/lib/refunds";
 import {
+  capNumberText,
   countEntries,
   countNumbers,
   isQuantityPriced,
@@ -3046,7 +3047,12 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   // Live counter for typed or pasted numbers. Shares `countNumbers` with the server, so the
   // figure driving the running total is the figure the order is billed on.
   const handleManualTextChange = (text: string) => {
-    setManualText(text);
+    // Capped as it is typed, not merely marked invalid afterwards. The field used to turn red
+    // past ten digits and go on accepting keystrokes, which reads as the validation being
+    // broken rather than the number being wrong - there was nothing to say where the limit
+    // was. A prefix the customer typed explicitly (+91, 0091, a leading 0) is kept and does
+    // not count towards the ten, so a pasted list in either format still lands intact.
+    setManualText(capNumberText(text));
   };
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
