@@ -958,7 +958,14 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   content: ""; position: absolute; width: 700px; height: 700px;
   border: 1px solid rgba(255, 255, 255, .12); border-radius: 50%; right: -410px; bottom: -390px;
 }
-.auth-brand .brand { padding: 0; position: absolute; top: 38px; left: clamp(42px, 8vw, 130px); }
+.auth-logo-wrap {
+  position: absolute; top: 32px; left: clamp(42px, 8vw, 130px); z-index: 1;
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  background: rgba(255, 255, 255, .96); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+}
+.auth-logo { display: block; width: 158px; height: auto; }
+.auth-logo-wrap > span { color: var(--red); font-size: 9px; font-weight: 800; letter-spacing: 1.6px; }
 .auth-brand h1 { font-size: clamp(34px, 4vw, 55px); line-height: 1.06; letter-spacing: -2px; margin: 12px 0 18px; position: relative; z-index: 1; }
 .auth-brand > div:nth-child(2) > p:last-child { max-width: 480px; font-size: 15px; color: #ccccd6; line-height: 1.65; margin: 0; position: relative; z-index: 1; }
 .auth-brand .eyebrow { color: #bbbfca; }
@@ -1021,7 +1028,7 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 @media (max-width: 980px) {
   .auth-shell { grid-template-columns: 1fr; }
   .auth-brand { min-height: 300px; padding: 92px 30px 40px; }
-  .auth-brand .brand { left: 30px; top: 26px; }
+  .auth-logo-wrap { left: 30px; top: 24px; }
   .auth-brand h1 { font-size: 36px; }
   .auth-panel { padding: 44px 24px; }
   .support-layout { grid-template-columns: 1fr; min-width: 0; }
@@ -1032,7 +1039,7 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 @media (max-width: 760px) {
   .sidebar { display: none; }
   .content { margin-left: 0; width: 100%; max-width: 100vw; overflow-x: hidden; }
-  .mobile-brand { display: block; margin-right: auto; color: var(--ink); font-weight: 900; font-size: 18px; letter-spacing: 1px; }
+  .mobile-brand { display: block; margin-right: auto; width: 132px; height: auto; max-height: 32px; object-fit: contain; }
   .mobile-menu-btn { display: block; border: 0; background: none; color: var(--ink); padding: 8px; cursor: pointer; }
   .sidebar.mobile-open { display: flex; position: fixed; inset: 0 auto 0 0; width: 282px; max-width: 82vw; z-index: 100; box-shadow: 0 0 60px rgba(0, 0, 0, .4); }
   .sidebar-backdrop.mobile-open { display: block; position: fixed; inset: 0; background: rgba(10, 10, 15, .55); z-index: 99; }
@@ -2143,6 +2150,7 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 }
 .landing-cta:hover { background: var(--red-dark); transform: translateY(-1px); }
 .landing-cta.large { padding: 14px 22px; font-size: 15px; }
+.landing-cta-short { display: none; }
 
 .landing-ghost {
   white-space: nowrap; border: 1px solid var(--red-line); background: var(--surface); cursor: pointer;
@@ -2158,6 +2166,12 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   gap: 48px; align-items: center;
 }
 .landing-hero h1 { font-size: clamp(34px, 4.6vw, 54px); line-height: 1.08; letter-spacing: -1.4px; margin: 10px 0 16px; }
+.hero-word-window { display: inline-block; height: 1.1em; overflow: hidden; vertical-align: bottom; }
+.hero-word { display: inline-block; animation: hero-word-arrive .58s cubic-bezier(.2, .85, .25, 1) both; }
+@keyframes hero-word-arrive {
+  from { opacity: 0; transform: translateY(-110%); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .landing-lede { font-size: 16px; line-height: 1.65; color: var(--muted); max-width: 46ch; margin: 0 0 26px; }
 .landing-hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 26px; }
 .landing-points { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 18px; }
@@ -2175,7 +2189,15 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .calc-card {
   width: 100%; max-width: 420px; background: var(--surface);
   border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 24px; box-shadow: var(--shadow);
+  padding: 24px; box-shadow: var(--shadow); transform: translateZ(0);
+  transition: transform .26s ease, box-shadow .26s ease, border-color .26s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .calc-card:hover {
+    border-color: rgba(73, 84, 100, .42);
+    box-shadow: 0 22px 46px rgba(28, 40, 58, .18);
+    transform: perspective(900px) translate3d(var(--pointer-x, 0), var(--pointer-y, 0), 14px) rotateX(var(--pointer-rotate-x, 0deg)) rotateY(var(--pointer-rotate-y, 0deg));
+  }
 }
 .calc-head h3 { margin: 0 0 5px; font-size: 16px; }
 .calc-head p { margin: 0 0 20px; font-size: 13px; color: var(--muted); line-height: 1.55; }
@@ -2317,3 +2339,38 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 }
 .landing-logo.footer { height: 30px; }
 @media (max-width: 620px) { .landing-logo { height: 32px; max-width: 52vw; } }
+
+/* A phone header needs to stay a single line: preserve tap targets while letting the wordmark
+   and secondary call-to-action compact before they can force "Sign in" onto two lines. */
+@media (max-width: 620px) {
+  .landing-header-inner { padding: 10px 12px; gap: 6px; }
+  .landing-logo { height: 27px; max-width: 38vw; }
+  .landing-nav { gap: 2px; margin-left: auto; }
+  .landing-link { font-size: 13px; padding: 9px 6px; white-space: nowrap; }
+  .landing-cta { font-size: 13px; padding: 9px 10px; gap: 5px; }
+}
+@media (max-width: 400px) {
+  .landing-logo { max-width: 35vw; }
+  .landing-cta-full { display: none; }
+  .landing-cta-short { display: inline; }
+  .landing-cta { padding-inline: 9px; }
+}
+
+.sidebar-logo-wrap { padding: 2px 8px 22px; }
+.sidebar-logo {
+  display: block; width: 100%; height: auto; padding: 7px 8px;
+  background: rgba(255, 255, 255, .96); border-radius: 10px;
+}
+
+@media (max-width: 980px) {
+  .auth-logo-wrap { left: 30px; top: 24px; }
+}
+@media (max-width: 760px) {
+  .auth-logo-wrap { left: 20px; top: 18px; }
+  .auth-logo { width: 142px; }
+  .auth-logo-wrap > span { font-size: 8px; letter-spacing: 1.3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-word { animation: none; }
+  .calc-card { transition: none; }
+}

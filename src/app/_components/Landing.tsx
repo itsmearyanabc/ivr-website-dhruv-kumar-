@@ -17,7 +17,7 @@
  */
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { Icon } from "@/app/_components/ui";
 import { getCategoriesWithServices } from "@/app/actions/categoriesServices";
 import { isQuantityPriced, quoteTotal, unitRate } from "@/lib/quantity";
@@ -74,6 +74,7 @@ const STEPS = [
 /** The range the slider covers. Named so the fill and the scale labels cannot drift from it. */
 const CALLS_MIN = 100;
 const CALLS_MAX = 50000;
+const HERO_WORDS = ["broadcast", "campaign", "order"];
 
 type PricedService = {
   name: string;
@@ -91,6 +92,7 @@ function serviceLabel(name: string): string {
 function CallCalculator() {
   const [services, setServices] = useState<PricedService[]>([]);
   const [calls, setCalls] = useState(5000);
+  const [pointerTilt, setPointerTilt] = useState({ x: 0, y: 0, rotateX: 0, rotateY: 0 });
 
   useEffect(() => {
     let alive = true;
@@ -131,9 +133,28 @@ function CallCalculator() {
   const money = (n: number) =>
     `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  const handlePointerMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = (event.clientX - bounds.left) / bounds.width - 0.5;
+    const y = (event.clientY - bounds.top) / bounds.height - 0.5;
+    setPointerTilt({ x: x * 10, y: y * 10, rotateX: y * -2.4, rotateY: x * 2.4 });
+  };
+
+  const cardStyle = {
+    "--pointer-x": `${pointerTilt.x}px`,
+    "--pointer-y": `${pointerTilt.y}px`,
+    "--pointer-rotate-x": `${pointerTilt.rotateX}deg`,
+    "--pointer-rotate-y": `${pointerTilt.rotateY}deg`,
+  } as CSSProperties;
+
   return (
     <div className="landing-hero-art">
-      <div className="calc-card">
+      <div
+        className="calc-card"
+        style={cardStyle}
+        onMouseMove={handlePointerMove}
+        onMouseLeave={() => setPointerTilt({ x: 0, y: 0, rotateX: 0, rotateY: 0 })}
+      >
         <div className="calc-head">
           <h3>Estimate your campaign</h3>
           <p>Move the slider to see what a broadcast of that size costs.</p>
@@ -193,6 +214,17 @@ export default function Landing({ onSignIn, onSignUp }: {
   onSignIn: () => void;
   onSignUp: () => void;
 }) {
+  const [heroWordIndex, setHeroWordIndex] = useState(0);
+
+  useEffect(() => {
+    const rotation = window.setInterval(() => {
+      setHeroWordIndex((current) => (current + 1) % HERO_WORDS.length);
+    }, 2800);
+    return () => window.clearInterval(rotation);
+  }, []);
+
+  const heroWord = HERO_WORDS[heroWordIndex];
+
   return (
     <main className="landing-page">
       <header className="landing-header">
@@ -213,7 +245,9 @@ export default function Landing({ onSignIn, onSignUp }: {
           <nav className="landing-nav">
             <button type="button" className="landing-link" onClick={onSignIn}>Sign in</button>
             <button type="button" className="landing-cta" onClick={onSignUp}>
-              Create account <Icon name="arrow" size={15} />
+              <span className="landing-cta-full">Create account</span>
+              <span className="landing-cta-short">Create</span>
+              <Icon name="arrow" size={15} />
             </button>
           </nav>
         </div>
@@ -222,7 +256,13 @@ export default function Landing({ onSignIn, onSignUp }: {
       <section className="landing-hero">
         <div className="landing-hero-copy">
           <p className="eyebrow">IVR BROADCAST PANEL</p>
-          <h1>Every broadcast,<br />clear and under control.</h1>
+          <h1>
+            Every{" "}
+            <span className="hero-word-window" aria-live="polite">
+              <span className="hero-word" key={heroWord}>{heroWord}</span>
+            </span>,
+            <br />clear and under control.
+          </h1>
           <p className="landing-lede">
             Send voice campaigns to thousands of numbers from one panel. Prepaid, priced per
             number, and reported on when it lands.

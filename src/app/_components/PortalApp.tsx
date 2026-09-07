@@ -3,6 +3,7 @@
 "use client";
 
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts, getBroadcastHistory } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
@@ -185,7 +186,7 @@ function mapBroadcast(b: any, index: number): Order {
   const reportKey = reportFileKey(b.reports);
   return {
     id: b.reference_no,
-    broadcastNo: `BR-${index + 1}`,
+    broadcastNo: `BR-${String(index + 1).padStart(4, "0")}`,
     name: b.name,
     customer: b.customer,
     email: b.email,
@@ -654,7 +655,9 @@ export default function PortalApp({ portal }: { portal: Role }) {
       <ImpersonationBanner />
       <div className={`sidebar-backdrop ${isMobileMenuOpen ? 'mobile-open' : ''}`} onClick={() => setIsMobileMenuOpen(false)}></div>
       <aside className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
-        <div className="brand"><span className="brand-mark"><b>B</b></span><span>BulkShout<em>PANEL</em></span></div>
+        <div className="sidebar-logo-wrap">
+          <Image className="sidebar-logo" src="/bulkshout-logo.png" alt="BulkShout Panel" width={719} height={120} priority />
+        </div>
         <div className="workspace"><span className="company-dot">{session.name.slice(0, 1).toUpperCase()}</span><span>{session.company || session.name}</span></div>
         <nav>{nav.map(([label, icon]) => <button key={label} onClick={() => goTo(label)} className={view === label ? "active" : ""}><Icon name={icon}/>{label}</button>)}</nav>
         <div className="sidebar-bottom">
@@ -674,7 +677,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
           <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(true)}>
             <Icon name="menu" size={24} />
           </button>
-          <div className="mobile-brand">BulkShout</div>
+          <Image className="mobile-brand" src="/bulkshout-logo.png" alt="BulkShout" width={719} height={120} priority />
           <div className="header-actions">
             <button className="balance-chip" onClick={() => goTo("Add funds")} title="Add funds">
               <Icon name="indian-rupee" size={14}/>
@@ -1170,7 +1173,17 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
   return (
     <main className={`auth-shell${isAdminPortal ? " admin-shell" : ""}`}>
       <section className="auth-brand">
-        <div className="brand"><span className="brand-mark"><b>B</b></span><span>BulkShout<em>{isAdminPortal ? "ADMIN" : "PANEL"}</em></span></div>
+        <div className="auth-logo-wrap">
+          <Image
+            className="auth-logo"
+            src="/bulkshout-logo.png"
+            alt="BulkShout"
+            width={719}
+            height={120}
+            priority
+          />
+          <span>{isAdminPortal ? "ADMIN" : "PANEL"}</span>
+        </div>
         {isAdminPortal ? (
           <div>
             <p className="eyebrow">RESTRICTED CONSOLE</p>
@@ -3844,7 +3857,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal order-modal">
         <div className="modal-head">
-          <div><p className="eyebrow">{order.broadcastNo} · {order.id}</p><h2>{order.categoryName || order.name}</h2><p>{order.customer} · {order.contacts}</p></div>
+          <div><p className="eyebrow">{order.broadcastNo}</p><h2>{order.categoryName || order.name}</h2><p>{order.customer} · {order.contacts}</p></div>
           <button className="close" onClick={onClose}><Icon name="close"/></button>
         </div>
 
