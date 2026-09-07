@@ -5,7 +5,7 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { checkIsAdmin } from "@/app/actions/auth";
 import { loadCustomerOverrides, priceFor, isVisibleTo } from "@/lib/pricing";
 import { logActivity, describeActor } from "@/lib/activity";
-import { hasServiceQuantityColumns } from "@/lib/supabase/schema";
+import { hasServiceQuantityColumns, hasServiceSortOrder } from "@/lib/supabase/schema";
 
 export interface Category {
   id: string;
@@ -45,6 +45,37 @@ export interface ServiceQuantityInput {
 }
 
 /** Shown when per-unit pricing is asked for on a database the migration has not reached. */
+const SORT_MIGRATION_REQUIRED =
+  "Service ordering is not available on this database yet. Run the migration " +
+  "supabase/migrations/20260907000000_service_sort_order.sql in the Supabase SQL editor, " +
+  "then try again.";
+
+/**
+ * A category's services in the order an operator arranged them.
+ *
+ * Sorted here rather than in the query because the services arrive as an embedded resource,
+ * and because `sort_order` may not exist on this database yet - a missing column reads as
+ * undefined and falls through to creation order, which is exactly what these lists showed
+ * before the feature existed.
+ *
+ * A service that has never been placed by hand sorts *after* every one that has, not before:
+ * a newly created service belongs at the bottom of the list the operator arranged, not
+ * jumped to the top of it.
+ */
+function inDisplayOrder<T extends { sort_order?: number | null; created_at?: string }>(
+  services: T[] | null | undefined,
+): T[] {
+  return [...(services || [])].sort((a, b) => {
+    const aPlaced = a.sort_order !== null && a.sort_order !== undefined;
+    const bPlaced = b.sort_order !== null && b.sort_order !== undefined;
+    if (aPlaced && bPlaced && a.sort_order !== b.sort_order) {
+      return (a.sort_order as number) - (b.sort_order as number);
+    }
+    if (aPlaced !== bPlaced) return aPlaced ? -1 : 1;
+    return String(a.created_at || '').localeCompare(String(b.created_at || ''));
+  });
+}
+
 const MIGRATION_REQUIRED =
   "Per-unit pricing is not available on this database yet. Run the migration " +
   "supabase/migrations/20260826000000_service_quantity_pricing.sql in the Supabase SQL editor, " +
@@ -137,14 +168,16 @@ export async function getCategoriesWithServices() {
 
     const overrides = await loadCustomerOverrides(supabase, userId);
 
-    // Filter active services and sort
+    // The customer sees the order the operator arranged on the admin screen, sorted by the
+    // same function the admin list uses - a position dragged on one screen meaning something
+    // different on the other would be very hard to reason about. Ordered before the
+    // per-customer filter, so hiding one service does not disturb the rest.
     const formatted = (categories || [])
       .map((cat: any) => ({
         ...cat,
-        services: (cat.services || [])
+        services: inDisplayOrder<any>(cat.services)
           .filter((s: any) => isVisibleTo(s, overrides))
           .map((s: any) => ({ ...s, price: priceFor(s, overrides) }))
-          .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
       }))
       .filter((cat: any) => cat.services.length > 0);
 
@@ -180,10 +213,100 @@ export async function getAllCategoriesAndServices() {
       return { error: "Failed to load categories" };
     }
 
-    return { data: categories as Category[] };
+    const ordered = (categories || []).map((cat: any) => ({
+      ...cat,
+      services: inDisplayOrder<any>(cat.services),
+    }));
+
+    return { data: ordered as Category[] };
   } catch (err: any) {
     console.error("getAllCategoriesAndServices exception:", err);
     return { error: err.message || "An error occurred" };
+  }
+}
+
+/**
+ * Admin action: reorder the services inside one category.
+ *
+ * Takes the full list of that category's service ids in their new order and numbers them from
+ * one. The whole list rather than a moved id and a target index: the browser already holds the
+ * arrangement the operator is looking at, and sending it entire means the stored order always
+ * matches the screen, with no way for the two to drift if a save is missed or two tabs are
+ * open.
+ *
+ * Ids are checked against the category before anything is written. Without that, a caller
+ * could post another category's service - or another account's - and have its position
+ * rewritten; every export of a `'use server'` module is a public endpoint.
+ */
+export async function reorderServices(categoryId: string, orderedIds: string[]) {
+  try {
+    const isAdmin = await checkIsAdmin();
+    if (!isAdmin) return { error: "Unauthorized" };
+
+    if (!categoryId) return { error: "Which category is being reordered was not provided." };
+    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+      return { error: "No services were provided to reorder." };
+    }
+    if (new Set(orderedIds).size !== orderedIds.length) {
+      return { error: "The same service appears twice in that order." };
+    }
+
+    if (!(await hasServiceSortOrder())) {
+      return { error: SORT_MIGRATION_REQUIRED };
+    }
+
+    const supabase = await createServiceRoleClient();
+
+    // Every id has to belong to this category, and the list has to be the whole category -
+    // a partial list would leave the services missing from it holding stale positions and
+    // interleaving unpredictably with the ones just moved.
+    const { data: existing, error: readErr } = await supabase
+      .from('services')
+      .select('id')
+      .eq('category_id', categoryId);
+
+    if (readErr) {
+      console.error("reorderServices read failed:", readErr);
+      return { error: "Could not load this category's services. Nothing was changed." };
+    }
+
+    const known = new Set((existing || []).map((row: any) => row.id));
+    if (orderedIds.some(id => !known.has(id))) {
+      return { error: "That order refers to a service which is not in this category. Reload and try again." };
+    }
+    if (orderedIds.length !== known.size) {
+      return { error: "This category has changed since the page loaded. Reload and arrange it again." };
+    }
+
+    // One statement per row: PostgREST has no bulk update, and an upsert would have to carry
+    // every NOT NULL column to satisfy its insert path. Issued together rather than in
+    // sequence - a category holds a handful of services, and this runs on an operator's click.
+    const results = await Promise.all(
+      orderedIds.map((id, index) =>
+        supabase.from('services').update({ sort_order: index + 1 }).eq('id', id)
+      )
+    );
+
+    const failed = results.find(r => r.error);
+    if (failed?.error) {
+      console.error("reorderServices write failed:", failed.error);
+      return { error: "The new order could not be saved. Reload to see the current arrangement." };
+    }
+
+    const { data: { user: actor } } = await (await createClient()).auth.getUser();
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'SERVICES_REORDERED',
+      entityType: 'CATEGORY',
+      entityId: categoryId,
+      description: `Reordered the ${orderedIds.length} service${orderedIds.length === 1 ? '' : 's'} in a category.`,
+      metadata: { categoryId, orderedIds },
+    });
+
+    return { data: { ordered: orderedIds.length } };
+  } catch (err: any) {
+    console.error("reorderServices exception:", err);
+    return { error: err.message || "The new order could not be saved." };
   }
 }
 
@@ -483,9 +606,7 @@ export async function getCustomerPricing(userId: string) {
 
     const rows: CustomerServiceRow[] = [];
     for (const category of (categories || []) as any[]) {
-      const services = [...(category.services || [])].sort(
-        (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
+      const services = inDisplayOrder<any>(category.services);
 
       for (const service of services) {
         const override = overrides.get(service.id);

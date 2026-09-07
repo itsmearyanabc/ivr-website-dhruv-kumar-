@@ -69,6 +69,18 @@ export function hasServiceQuantityColumns() {
   return probeColumn('services', 'unit_quantity')
 }
 
+/**
+ * True once services carry the operator's chosen position within their category.
+ *
+ * Without it the lists fall back to creation order, which is what they showed before the
+ * feature existed, and the reorder control is hidden rather than offered and then failing to
+ * save. Selecting a column that is not there fails the whole query, which would empty the
+ * services screen rather than leaving it merely unsorted.
+ */
+export function hasServiceSortOrder() {
+  return probeColumn('services', 'sort_order')
+}
+
 async function probeTable(table: string): Promise<boolean> {
   const key = `table:${table}`
   const cached = cache.get(key)

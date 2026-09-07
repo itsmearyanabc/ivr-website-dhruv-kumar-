@@ -567,6 +567,32 @@ td.empty { display: table-cell; }
 /* ------------------------------------------------------------
    Modals
    ------------------------------------------------------------ */
+
+/* ------------------------------------------------------------
+   Drag-to-reorder, services within a category
+   ------------------------------------------------------------ */
+/* The handle is the only draggable-looking thing in the row, so the grab cursor sits on it
+   rather than the whole row - otherwise every cell invites a drag and a click on Edit feels
+   like it might move something. */
+.services-table th.drag-col,
+.services-table td.drag-col { width: 34px; padding-right: 0; }
+
+.drag-handle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px;
+  color: var(--muted); cursor: grab; opacity: .55;
+  transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.services-table tr:hover .drag-handle { opacity: 1; background: var(--canvas); color: var(--ink); }
+.drag-handle:active { cursor: grabbing; }
+.drag-handle.disabled { cursor: not-allowed; opacity: .25; }
+.services-table tr:hover .drag-handle.disabled { background: none; color: var(--muted); opacity: .25; }
+
+/* The row being carried, and the gap it would land in. Kept to opacity and a single edge:
+   a moving row that also changes size makes the rest of the table jump under the cursor. */
+.services-table tr.row-dragging { opacity: .4; }
+.services-table tr.row-drop-target td { box-shadow: inset 0 2px 0 var(--red); }
+
 /* Nothing here dismisses on a backdrop click, and new modals should not either. These panels
    hold typed work - a service being priced, a refund being calculated, a report being
    attached - and a stray click beside the panel discarded all of it with nothing to undo it.

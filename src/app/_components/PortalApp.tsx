@@ -21,6 +21,7 @@ import {
   updateService,
   getCustomerPricing,
   setCustomerPricing,
+  reorderServices,
   Category,
   Service,
   CustomerServiceRow
@@ -2367,6 +2368,53 @@ function CategoryServiceManager() {
     loadData();
   };
 
+  /**
+   * Drag-to-reorder, scoped to one category.
+   *
+   * The row order is what the customer sees on their order screen, so this is the operator
+   * arranging their own catalogue rather than a cosmetic tidy of the admin table.
+   *
+   * Applied locally first and saved after. A drag that has to wait for a round trip before
+   * the row moves reads as a broken drag, and the operator lets go and tries again. If the
+   * save fails the list is reloaded, which puts it back to what is actually stored rather
+   * than leaving the screen showing an order that was never written.
+   */
+  const [dragFrom, setDragFrom] = useState<{ catId: string; index: number } | null>(null);
+  const [dragOver, setDragOver] = useState<{ catId: string; index: number } | null>(null);
+  const [savingOrder, setSavingOrder] = useState<string | null>(null);
+
+  // A filtered table shows a subset, so the arrangement on screen is not the arrangement being
+  // saved - and the server refuses a partial list rather than silently reordering around the
+  // rows it cannot see. Dragging is switched off until the search is cleared.
+  const isFiltering = searchTerm.trim().length > 0;
+
+  const handleDrop = async (catId: string, toIndex: number) => {
+    const from = dragFrom;
+    setDragFrom(null);
+    setDragOver(null);
+    if (!from || from.catId !== catId || from.index === toIndex) return;
+
+    const category = categories.find(c => c.id === catId);
+    if (!category?.services) return;
+
+    const reordered = [...category.services];
+    const [moved] = reordered.splice(from.index, 1);
+    reordered.splice(toIndex, 0, moved);
+
+    setCategories(prev => prev.map(c => (c.id === catId ? { ...c, services: reordered } : c)));
+    setSavingOrder(catId);
+    const res = await reorderServices(catId, reordered.map(x => x.id));
+    setSavingOrder(null);
+
+    if (res.error) {
+      alert(res.error);
+      loadData();
+      return;
+    }
+    setMsg(`Order saved for ${category.name}.`);
+    setTimeout(() => setMsg(""), 2500);
+  };
+
   const filteredCategories = categories.filter(cat =>
     cat.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     cat.services?.some(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -2544,6 +2592,7 @@ function CategoryServiceManager() {
                     <table>
                       <thead>
                         <tr>
+                          <th className="drag-col" aria-label="Reorder"></th>
                           <th>ID</th>
                           <th>Service Name</th>
                           <th>Type</th>
@@ -2554,7 +2603,37 @@ function CategoryServiceManager() {
                       </thead>
                       <tbody>
                         {cat.services.map((s, idx) => (
-                          <tr key={s.id}>
+                          <tr
+                            key={s.id}
+                            draggable={!isFiltering && savingOrder !== cat.id}
+                            onDragStart={() => setDragFrom({ catId: cat.id, index: idx })}
+                            onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+                            onDragOver={e => {
+                              // Without preventDefault the browser refuses the drop outright.
+                              if (isFiltering || dragFrom?.catId !== cat.id) return;
+                              e.preventDefault();
+                              setDragOver({ catId: cat.id, index: idx });
+                            }}
+                            onDrop={e => { e.preventDefault(); handleDrop(cat.id, idx); }}
+                            className={
+                              dragFrom?.catId === cat.id && dragFrom.index === idx
+                                ? "row-dragging"
+                                : dragOver?.catId === cat.id && dragOver.index === idx
+                                  ? "row-drop-target"
+                                  : ""
+                            }
+                          >
+                            <td className="drag-col">
+                              <span
+                                className={`drag-handle ${isFiltering ? "disabled" : ""}`}
+                                title={isFiltering
+                                  ? "Clear the search to rearrange services"
+                                  : "Drag to move this service up or down"}
+                                aria-hidden="true"
+                              >
+                                <Icon name="menu" size={14}/>
+                              </span>
+                            </td>
                             <td>{idx + 1}</td>
                             <td>
                               <div className="service-name">
