@@ -345,12 +345,23 @@ async function runCreateBroadcast(formData: FormData) {
 
   const contacts_key: string | null = contactsInputType === 'FILE' ? contactsUploadKey : null
 
-  // Short alphanumeric ID: base-36 of the low 30 bits of the timestamp gives 6 chars of
-  // temporal ordering, and two random chars guard against the (unlikely) same-millisecond
-  // collision. Result: "BR-A7K2M9" — human-readable and easy to read aloud on a call.
-  const ts36 = Date.now().toString(36).slice(-6).toUpperCase()
-  const rnd = Math.random().toString(36).slice(2, 4).toUpperCase()
-  const reference_no = `BR-${ts36}${rnd}`
+  // Sequential 4-digit ID: "BR-0001"
+  const { data: maxBroadcast } = await supabase
+    .from('broadcasts')
+    .select('reference_no')
+    .like('reference_no', 'BR-%')
+    .order('created_at', { ascending: false })
+    .limit(10);
+    
+  let nextId = 1;
+  for (const b of (maxBroadcast || [])) {
+    const match = b.reference_no?.match(/^BR-(\d{4})$/);
+    if (match) {
+      nextId = parseInt(match[1], 10) + 1;
+      break;
+    }
+  }
+  const reference_no = `BR-${String(nextId).padStart(4, "0")}`;
   const schedule = String(formData.get("schedule") || "")
   const scheduled_for = schedule && schedule !== 'Start on processing' ? new Date(schedule).toISOString() : null
   const broadcastName = serviceName ? `${categoryName} - ${serviceName}` : `Broadcast ${reference_no}`

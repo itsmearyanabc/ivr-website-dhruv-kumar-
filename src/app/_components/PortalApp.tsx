@@ -4008,18 +4008,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               <select value={status} onChange={e => setStatus(e.target.value as Status)}>
                 <option>Placed</option>
                 <option>In progress</option>
-                {/* A run is closed out as Partial now - the operator enters how many calls
-                    failed, which is zero for one that landed in full. Two ways to say
-                    "finished" meant the refund calculator only appeared on one of them, so a
-                    fully-failed campaign closed as Completed refunded nothing.
-
-                    Offered only for an order already in it, never as a new choice. A
-                    controlled select whose value matches no option renders blank, so dropping
-                    it outright left every historical COMPLETED order showing an empty status
-                    box - and, because the report control is hidden off `reportApplies`, one
-                    with no report attached could not be saved at all: the server still
-                    requires a report for COMPLETED and the UI offered nowhere to add it. */}
-                {order.status === "Completed" && <option>Completed</option>}
+                <option>Completed</option>
                 <option>Partial</option>
                 <option>On hold</option>
                 {/* Cancelled is a legacy status. New full reversals are always Refunds, so
