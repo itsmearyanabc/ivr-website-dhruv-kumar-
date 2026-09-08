@@ -345,7 +345,12 @@ async function runCreateBroadcast(formData: FormData) {
 
   const contacts_key: string | null = contactsInputType === 'FILE' ? contactsUploadKey : null
 
-  const reference_no = `BR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
+  // Short alphanumeric ID: base-36 of the low 30 bits of the timestamp gives 6 chars of
+  // temporal ordering, and two random chars guard against the (unlikely) same-millisecond
+  // collision. Result: "BR-A7K2M9" — human-readable and easy to read aloud on a call.
+  const ts36 = Date.now().toString(36).slice(-6).toUpperCase()
+  const rnd = Math.random().toString(36).slice(2, 4).toUpperCase()
+  const reference_no = `BR-${ts36}${rnd}`
   const schedule = String(formData.get("schedule") || "")
   const scheduled_for = schedule && schedule !== 'Start on processing' ? new Date(schedule).toISOString() : null
   const broadcastName = serviceName ? `${categoryName} - ${serviceName}` : `Broadcast ${reference_no}`

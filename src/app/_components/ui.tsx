@@ -69,7 +69,10 @@ export function formatStatus(raw: string): string {
 }
 
 export function Badge({ status }: { status: string }) {
-  return <span className={`badge ${status.toLowerCase().replaceAll(" ", "-")}`}><i />{status}</span>;
+  // Cancellation used to be a second full-refund outcome. Keep legacy records intact, but
+  // present the single customer-facing result consistently across tables and timelines.
+  const label = status.toUpperCase() === "CANCELLED" ? "Refunded" : status;
+  return <span className={`badge ${label.toLowerCase().replaceAll(" ", "-")}`}><i />{label}</span>;
 }
 
 export function Heading({ eyebrow, title, text, action, onAction }: { eyebrow: string; title: string; text: string; action?: string; onAction?: () => void }) {

@@ -73,8 +73,29 @@ const STEPS = [
 
 /** The range the slider covers. Named so the fill and the scale labels cannot drift from it. */
 const CALLS_MIN = 100;
-const CALLS_MAX = 50000;
+const CALLS_MAX = 50_000_000;
 const HERO_WORDS = ["broadcast", "campaign", "order"];
+
+/**
+ * Logarithmic slider helpers.
+ *
+ * A linear slider across 100 → 5 crore is unusable: the first 50k occupies 0.1% of the track.
+ * Mapping through log₁₀ spreads the range evenly across orders of magnitude, so 100, 1k, 10k,
+ * 1 lakh, 10 lakh, 1 crore and 5 crore each get roughly equal thumb travel.
+ */
+const LOG_MIN = Math.log10(CALLS_MIN);
+const LOG_MAX = Math.log10(CALLS_MAX);
+/** Slider position (0-1000) → actual call count. */
+function fromSliderPos(pos: number): number {
+  const logVal = LOG_MIN + (pos / 1000) * (LOG_MAX - LOG_MIN);
+  // Round to nearest 100 so the number never shows odd trailing digits.
+  return Math.round(Math.pow(10, logVal) / 100) * 100;
+}
+/** Actual call count → slider position (0-1000). */
+function toSliderPos(calls: number): number {
+  const clamped = Math.max(CALLS_MIN, Math.min(CALLS_MAX, calls));
+  return ((Math.log10(clamped) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * 1000;
+}
 
 type PricedService = {
   name: string;
@@ -167,25 +188,27 @@ function CallCalculator() {
           </div>
           {/* The badge names the real service the price came from, so the figure below can be
               checked against the catalogue rather than taken on trust. */}
-          <span className="calc-tier">{match ? serviceLabel(match.svc.name) : "—"}</span>
+          <span className="calc-tier" title={match ? serviceLabel(match.svc.name) : undefined}>
+            {match ? serviceLabel(match.svc.name) : "—"}
+          </span>
         </div>
 
-        {/* The filled portion is painted from the value rather than left to the browser:
-            a range input's track is one flat colour on every engine, so without this the
-            control shows where the thumb is but not how far along it has been dragged. */}
+        {/* Logarithmic slider: the track covers 0–1000 internal units, mapped through
+            log₁₀ so every order of magnitude gets equal thumb travel. The filled portion
+            is painted from the position since a range track cannot be split by CSS alone. */}
         <input
           type="range"
           className="calc-slider"
-          min={CALLS_MIN}
-          max={CALLS_MAX}
-          step={100}
-          value={calls}
-          onChange={e => setCalls(Number(e.target.value))}
-          style={{ ["--fill" as string]: `${((calls - CALLS_MIN) / (CALLS_MAX - CALLS_MIN)) * 100}%` }}
+          min={0}
+          max={1000}
+          step={1}
+          value={toSliderPos(calls)}
+          onChange={e => setCalls(fromSliderPos(Number(e.target.value)))}
+          style={{ ["--fill" as string]: `${(toSliderPos(calls) / 1000) * 100}%` }}
           aria-label="Number of calls"
         />
         <div className="calc-scale">
-          <span>100</span><span>10k</span><span>25k</span><span>50k</span>
+          <span>100</span><span>10k</span><span>1L</span><span>10L</span><span>1Cr</span><span>5Cr</span>
         </div>
 
         <div className="calc-total">
@@ -219,7 +242,7 @@ export default function Landing({ onSignIn, onSignUp }: {
   useEffect(() => {
     const rotation = window.setInterval(() => {
       setHeroWordIndex((current) => (current + 1) % HERO_WORDS.length);
-    }, 2800);
+    }, 1200);
     return () => window.clearInterval(rotation);
   }, []);
 
@@ -260,8 +283,8 @@ export default function Landing({ onSignIn, onSignUp }: {
             Every{" "}
             <span className="hero-word-window" aria-live="polite">
               <span className="hero-word" key={heroWord}>{heroWord}</span>
-            </span>,
-            <br />clear and under control.
+            </span>,{" "}
+            clear and under control.
           </h1>
           <p className="landing-lede">
             Send voice campaigns to thousands of numbers from one panel. Prepaid, priced per

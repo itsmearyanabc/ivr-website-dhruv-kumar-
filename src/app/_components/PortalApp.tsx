@@ -182,11 +182,11 @@ function describeActionError(e: unknown): string {
     : "Something went wrong and the change was not saved. Please try again.";
 }
 
-function mapBroadcast(b: any, index: number): Order {
+function mapBroadcast(b: any, _index: number): Order {
   const reportKey = reportFileKey(b.reports);
   return {
     id: b.reference_no,
-    broadcastNo: `BR-${String(index + 1).padStart(4, "0")}`,
+    broadcastNo: b.reference_no,
     name: b.name,
     customer: b.customer,
     email: b.email,
@@ -2001,7 +2001,7 @@ function AdminAnalytics({ orders, users, dateFilter, setDateFilter }: { orders: 
       })
     : orders;
 
-  const statuses = { placed: 0, progress: 0, hold: 0, completed: 0, cancelled: 0, refunded: 0 };
+  const statuses = { placed: 0, progress: 0, hold: 0, completed: 0, refunded: 0 };
   let totalRefunds = 0;
 
   chartOrders.forEach(o => {
@@ -2009,8 +2009,7 @@ function AdminAnalytics({ orders, users, dateFilter, setDateFilter }: { orders: 
     else if (o.status === "In progress") statuses.progress++;
     else if (o.status === "On hold") statuses.hold++;
     else if (o.status === "Completed") statuses.completed++;
-    else if (o.status === "Cancelled") statuses.cancelled++;
-    else if (o.status === "Refunded") statuses.refunded++;
+    else if (o.status === "Cancelled" || o.status === "Refunded") statuses.refunded++;
 
     if ((o.status === "Cancelled" || o.status === "Refunded") && o.charge) totalRefunds += Number(o.charge);
     if (o.partialRefundAmount) totalRefunds += Number(o.partialRefundAmount);
@@ -2022,7 +2021,6 @@ function AdminAnalytics({ orders, users, dateFilter, setDateFilter }: { orders: 
     ["progress", "In progress", statuses.progress],
     ["hold", "On hold", statuses.hold],
     ["done", "Completed", statuses.completed],
-    ["cancel", "Cancelled", statuses.cancelled],
     ["refund", "Refunded", statuses.refunded],
   ];
 
@@ -2048,6 +2046,7 @@ function AdminAnalytics({ orders, users, dateFilter, setDateFilter }: { orders: 
       </div>
       <div className="chart-column">
         <div className="chart-card"><h3>Total customers</h3><p className="chart-total">{users.length}</p><p className="chart-sub">Registered accounts</p></div>
+        <div className="chart-card"><h3>Completed broadcasts</h3><p className="chart-total">{statuses.completed}</p><p className="chart-sub">Reports delivered</p></div>
         <div className="chart-card"><h3>Total refunds</h3><p className="chart-total refund-total">₹{totalRefunds.toFixed(2)}</p><p className="chart-sub">Processed to wallet</p></div>
       </div>
     </div>
@@ -2880,8 +2879,7 @@ const BROADCAST_TABS: Array<[string, (o: Order) => boolean]> = [
   ["On hold", o => o.status === "On hold"],
   ["Completed", o => o.status === "Completed"],
   ["Partial", o => o.status === "Partial"],
-  ["Cancelled", o => o.status === "Cancelled"],
-  ["Refunded", o => o.status === "Refunded"],
+  ["Refunded", o => o.status === "Cancelled" || o.status === "Refunded"],
 ];
 
 function BroadcastTable({ orders, onSelect, admin = false, onViewCustomer }: { orders: Order[]; onSelect: (o: Order) => void; admin?: boolean; onViewCustomer?: (email: string) => void }) {
@@ -2922,7 +2920,7 @@ function BroadcastTable({ orders, onSelect, admin = false, onViewCustomer }: { o
           <tbody>
             {filteredOrders.length ? filteredOrders.map((o) => (
               <tr key={o.id}>
-                <td className="sno-col"><strong>{o.id}</strong></td>
+                <td className="sno-col"><strong>{o.broadcastNo}</strong></td>
                 <td className="muted-cell">{o.created}</td>
                 {admin && <td>{onViewCustomer ? <button className="customer-link" onClick={() => onViewCustomer(o.email)}>{o.customer}</button> : o.customer}</td>}
                 <td>
@@ -3988,7 +3986,9 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                 {order.status === "Completed" && <option>Completed</option>}
                 <option>Partial</option>
                 <option>On hold</option>
-                <option>Cancelled</option>
+                {/* Cancelled is a legacy status. New full reversals are always Refunds, so
+                    the customer sees one clear outcome and the wallet credit is explicit. */}
+                {status === "Cancelled" && <option value="Cancelled" disabled>Refunded</option>}
                 <option>Refunded</option>
               </select>
             </label>
@@ -4133,17 +4133,13 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
               <label>Hold reason<textarea value={holdReason} onChange={e => setHoldReason(e.target.value)} rows={3} placeholder="Describe why this order is on hold..."/></label>
             )}
 
-            {status === "Cancelled" && (
-              <label>Cancellation reason<textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={3} placeholder="Why is this broadcast cancelled?"/></label>
-            )}
-
             {/* Refunded was wired through to the server and written into the order history, but
                 the field to type it never existed, so the reason was always blank. */}
             {status === "Refunded" && (
               <label>Refund reason<textarea value={refundReason} onChange={e => setRefundReason(e.target.value)} rows={3} placeholder="Why is this broadcast being refunded in full?"/></label>
             )}
 
-            {(status === "Cancelled" || status === "Refunded") && (order.charge || 0) > 0 && (
+            {status === "Refunded" && (order.charge || 0) > 0 && (
               <div className="form-warning">
                 ⚠️ Saving this refunds the full ₹{(order.charge || 0).toFixed(2)} to the customer&apos;s wallet.
               </div>
