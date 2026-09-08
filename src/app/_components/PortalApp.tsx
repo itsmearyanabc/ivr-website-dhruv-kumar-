@@ -2322,6 +2322,7 @@ function CategoryServiceManager() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [catName, setCatName] = useState("");
   const [catDesc, setCatDesc] = useState("");
+  const [catRequiresAudio, setCatRequiresAudio] = useState(true);
   
   const [selectedCatId, setSelectedCatId] = useState("");
   const [servName, setServName] = useState("");
@@ -2404,13 +2405,14 @@ function CategoryServiceManager() {
     e.preventDefault();
     if (!catName.trim()) return alert("Category name is required.");
     setLoading(true);
-    const res = await createCategory(catName, catDesc);
+    const res = await createCategory(catName, catDesc, catRequiresAudio);
     setLoading(false);
     if (res.error) {
       alert(res.error);
     } else {
       setCatName("");
       setCatDesc("");
+      setCatRequiresAudio(true);
       setShowNewCategory(false);
       setMsg("Category created successfully!");
       setTimeout(() => setMsg(""), 3000);
@@ -2460,6 +2462,7 @@ function CategoryServiceManager() {
     setEditingCategory(cat);
     setCatName(cat.name);
     setCatDesc(cat.description || "");
+    setCatRequiresAudio(cat.requires_audio ?? true);
     setShowEditCategory(true);
   };
 
@@ -2481,7 +2484,7 @@ function CategoryServiceManager() {
     if (!editingCategory || !catName.trim()) return alert("Category name is required.");
 
     setLoading(true);
-    const res = await updateCategory(editingCategory.id, catName, catDesc, editingCategory.is_active);
+    const res = await updateCategory(editingCategory.id, catName, catDesc, editingCategory.is_active, catRequiresAudio);
     setLoading(false);
 
     if (res.error) return alert(res.error);
@@ -2490,6 +2493,7 @@ function CategoryServiceManager() {
     setEditingCategory(null);
     setCatName("");
     setCatDesc("");
+    setCatRequiresAudio(true);
     setMsg("Category updated successfully!");
     setTimeout(() => setMsg(""), 3000);
     loadData();
@@ -2644,6 +2648,14 @@ function CategoryServiceManager() {
                   value={catDesc} 
                   onChange={e => setCatDesc(e.target.value)}
                 />
+              </label>
+              <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+                <input 
+                  type="checkbox" 
+                  checked={catRequiresAudio} 
+                  onChange={e => setCatRequiresAudio(e.target.checked)} 
+                />
+                Requires audio upload? (Uncheck for SMS)
               </label>
               <div className="modal-footer">
                 <button type="button" className="outline" onClick={() => setShowNewCategory(false)}>Cancel</button>
@@ -2892,6 +2904,14 @@ function CategoryServiceManager() {
                   value={catDesc} 
                   onChange={e => setCatDesc(e.target.value)}
                 />
+              </label>
+              <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+                <input 
+                  type="checkbox" 
+                  checked={catRequiresAudio} 
+                  onChange={e => setCatRequiresAudio(e.target.checked)} 
+                />
+                Requires audio upload? (Uncheck for SMS)
               </label>
               <div className="modal-footer">
                 <button type="button" className="outline" onClick={() => setShowEditCategory(false)}>Cancel</button>
@@ -3198,6 +3218,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
   }, []);
 
   const currentCategory = categories.find(c => c.id === selectedCatId);
+  const requiresAudio = currentCategory?.requires_audio !== false;
   const availableServices = currentCategory?.services || [];
   const currentService = availableServices.find(s => s.id === selectedServiceId);
 
@@ -3329,11 +3350,13 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
 
     if (!canAfford) return setSubmitError(`Insufficient balance. Your wallet holds ₹${balance.toFixed(2)}, but this order costs ₹${calculatedCost.toFixed(2)}.`);
 
-    if (audioInputMethod === 'FILE' && !audioFile) {
-      return setSubmitError("Please upload an audio file.");
-    }
-    if (audioInputMethod === 'TTS' && !ttsText.trim()) {
-      return setSubmitError("Please enter the text to convert to speech.");
+    if (requiresAudio) {
+      if (audioInputMethod === 'FILE' && !audioFile) {
+        return setSubmitError("Please upload an audio file.");
+      }
+      if (audioInputMethod === 'TTS' && !ttsText.trim()) {
+        return setSubmitError("Please enter the text to convert to speech.");
+      }
     }
 
     if (inputMethod === 'FILE' && !contactsFile) {
@@ -3351,7 +3374,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     // sent as text-to-speech was blocked by the size of a recording it was never going to
     // upload, with an error naming a file the form no longer showed. The submit below already
     // only uploads what the chosen method points at; this now agrees with it.
-    if (audioInputMethod === 'FILE' && audioFile && audioFile.size > UPLOAD_LIMITS.AUDIO) {
+    if (requiresAudio && audioInputMethod === 'FILE' && audioFile && audioFile.size > UPLOAD_LIMITS.AUDIO) {
       return setSubmitError(`The audio file is ${formatFileSize(audioFile.size)}. The limit is ${describeLimit(UPLOAD_LIMITS.AUDIO)}.`);
     }
     if (inputMethod === 'FILE' && contactsFile && contactsFile.size > UPLOAD_LIMITS.CONTACTS) {
@@ -3374,7 +3397,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     // Upload straight to Supabase Storage first. Nothing is charged and no order is created
     // until every file is safely stored, so a failed upload costs the customer nothing.
     const pending: Array<{ kind: "audio" | "contacts"; file: File; label: string }> = [];
-    if (audioInputMethod === 'FILE' && audioFile) pending.push({ kind: "audio", file: audioFile, label: audioFile.name });
+    if (requiresAudio && audioInputMethod === 'FILE' && audioFile) pending.push({ kind: "audio", file: audioFile, label: audioFile.name });
     if (inputMethod === 'FILE' && contactsFile) pending.push({ kind: "contacts", file: contactsFile, label: contactsFile.name });
 
     const uploads = await uploadFiles(pending, (percent, label) => {
@@ -3390,7 +3413,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
     }
 
     let index = 0;
-    const audioKey = audioInputMethod === 'FILE' && audioFile ? uploads.keys[index++] : "";
+    const audioKey = requiresAudio && audioInputMethod === 'FILE' && audioFile ? uploads.keys[index++] : "";
     const contactsKey = inputMethod === 'FILE' && contactsFile ? uploads.keys[index] : "";
 
     const result = await onSubmit({
@@ -3401,8 +3424,8 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
       voiceType,
       notes: String(data.get("notes") || ""),
       audioKey,
-      audioInputMethod,
-      ttsText: audioInputMethod === 'TTS' ? ttsText : '',
+      audioInputMethod: requiresAudio ? audioInputMethod : '',
+      ttsText: requiresAudio && audioInputMethod === 'TTS' ? ttsText : '',
       contactsInputType: inputMethod,
       contactsKey,
       manualContacts: inputMethod === 'MANUAL' ? manualText : '',
@@ -3467,54 +3490,60 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
           </div>
         )}
 
-        {/* 3. Voice Selection */}
-        <div className="field-block">
-          <label className="field-label">Select voice</label>
-          <div className="voice-picker">
-            <button type="button" onClick={() => setVoiceType('MALE')} className={`voice-option ${voiceType === 'MALE' ? "on" : ""}`}>
-              <Icon name="mic" size={16}/> Male voice
-            </button>
-            <button type="button" onClick={() => setVoiceType('FEMALE')} className={`voice-option female ${voiceType === 'FEMALE' ? "on" : ""}`}>
-              <Icon name="mic" size={16}/> Female voice
-            </button>
-          </div>
-        </div>
+        {requiresAudio && (
+          <div className="card">
+            <h3>Voice Script</h3>
 
-        {/* 4. Audio Input Method Selection */}
-        <div className="field-block">
-          <div className="field-row">
-            <label className="field-label">Audio source</label>
-            <div className="segmented tight">
-              <button type="button" className={audioInputMethod === 'FILE' ? 'on' : ''} onClick={() => setAudioInputMethod('FILE')}>Upload file</button>
-              <button type="button" className={audioInputMethod === 'TTS' ? 'on' : ''} onClick={() => setAudioInputMethod('TTS')}>Text to speech</button>
+            {/* 3. Voice Type Selection */}
+            <div className="field-block">
+              <label className="field-label">Voice actor</label>
+              <div className="voice-picker">
+                <button type="button" onClick={() => setVoiceType('MALE')} className={`voice-option ${voiceType === 'MALE' ? "on" : ""}`}>
+                  <Icon name="mic" size={16}/> Male voice
+                </button>
+                <button type="button" onClick={() => setVoiceType('FEMALE')} className={`voice-option female ${voiceType === 'FEMALE' ? "on" : ""}`}>
+                  <Icon name="mic" size={16}/> Female voice
+                </button>
+              </div>
+            </div>
+
+            {/* 4. Audio Input Method Selection */}
+            <div className="field-block">
+              <div className="field-row">
+                <label className="field-label">Audio source</label>
+                <div className="segmented tight">
+                  <button type="button" className={audioInputMethod === 'FILE' ? 'on' : ''} onClick={() => setAudioInputMethod('FILE')}>Upload file</button>
+                  <button type="button" className={audioInputMethod === 'TTS' ? 'on' : ''} onClick={() => setAudioInputMethod('TTS')}>Text to speech</button>
+                </div>
+              </div>
+
+              {audioInputMethod === 'FILE' ? (
+                <label className="field-label">Audio file
+                  <span className="dropzone">
+                    {audioFile ? (
+                      <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></>
+                    ) : (
+                      <><Icon name="upload"/><b>Upload audio file</b><small>{isUncapped(UPLOAD_LIMITS.AUDIO) ? "Any size" : `Maximum ${describeLimit(UPLOAD_LIMITS.AUDIO)}`} (.mp3, .wav, .aac)</small></>
+                    )}
+                    <input name="audio" type="file" onChange={e => setAudioFile(e.target.files?.[0] || null)} accept="audio/*"/>
+                  </span>
+                </label>
+              ) : (
+                <label className="field-label">Text to convert to speech
+                  <textarea
+                    rows={4}
+                    placeholder="Type or paste the text you want to convert to speech. The system will generate an audio file using AI voice..."
+                    value={ttsText}
+                    onChange={e => setTtsText(e.target.value)}
+                  />
+                  {ttsText.trim().length > 0 && (
+                    <div className="flash-success small-flash">✓ {ttsText.trim().length} characters ready for conversion</div>
+                  )}
+                </label>
+              )}
             </div>
           </div>
-
-          {audioInputMethod === 'FILE' ? (
-            <label className="field-label">Audio file
-              <span className="dropzone">
-                {audioFile ? (
-                  <><Icon name="check"/><b>{audioFile.name}</b><small>Ready to upload</small></>
-                ) : (
-                  <><Icon name="upload"/><b>Upload audio file</b><small>{isUncapped(UPLOAD_LIMITS.AUDIO) ? "Any size" : `Maximum ${describeLimit(UPLOAD_LIMITS.AUDIO)}`} (.mp3, .wav, .aac)</small></>
-                )}
-                <input name="audio" type="file" onChange={e => setAudioFile(e.target.files?.[0] || null)} accept="audio/*"/>
-              </span>
-            </label>
-          ) : (
-            <label className="field-label">Text to convert to speech
-              <textarea
-                rows={4}
-                placeholder="Type or paste the text you want to convert to speech. The system will generate an audio file using AI voice..."
-                value={ttsText}
-                onChange={e => setTtsText(e.target.value)}
-              />
-              {ttsText.trim().length > 0 && (
-                <div className="flash-success small-flash">✓ {ttsText.trim().length} characters ready for conversion</div>
-              )}
-            </label>
-          )}
-        </div>
+        )}
 
         {/* 5. Target Numbers Upload (Two Methods) */}
         <div className="field-block">

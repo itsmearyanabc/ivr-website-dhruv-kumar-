@@ -6,13 +6,14 @@ import { checkIsAdmin } from "@/app/actions/auth";
 import { loadCustomerOverrides, priceFor, isVisibleTo } from "@/lib/pricing";
 import { logActivity, describeActor } from "@/lib/activity";
 import { getAuthUser } from "@/lib/session";
-import { hasServiceQuantityColumns, hasServiceSortOrder } from "@/lib/supabase/schema";
+import { hasServiceQuantityColumns, hasServiceSortOrder, hasCategoryAudioColumn } from "@/lib/supabase/schema";
 
 export interface Category {
   id: string;
   name: string;
   description?: string;
   is_active: boolean;
+  requires_audio?: boolean;
   created_at: string;
   services?: Service[];
 }
@@ -314,7 +315,7 @@ export async function reorderServices(categoryId: string, orderedIds: string[]) 
 /**
  * Admin action: Create Category with custom name and description
  */
-export async function createCategory(name: string, description?: string) {
+export async function createCategory(name: string, description?: string, requiresAudio: boolean = true) {
   try {
     const isAdmin = await checkIsAdmin();
     if (!isAdmin) return { error: "Unauthorized" };
@@ -325,13 +326,18 @@ export async function createCategory(name: string, description?: string) {
 
     const supabase = await createServiceRoleClient();
 
+    const payload: any = {
+      name: name.trim(),
+      description: description?.trim() || null,
+      is_active: true
+    };
+    if (await hasCategoryAudioColumn()) {
+      payload.requires_audio = requiresAudio;
+    }
+
     const { data, error } = await supabase
       .from('categories')
-      .insert([{
-        name: name.trim(),
-        description: description?.trim() || null,
-        is_active: true
-      }])
+      .insert([payload])
       .select()
       .single();
 
@@ -360,7 +366,7 @@ export async function createCategory(name: string, description?: string) {
 /**
  * Admin action: Update Category
  */
-export async function updateCategory(id: string, name: string, description?: string, is_active: boolean = true) {
+export async function updateCategory(id: string, name: string, description?: string, is_active: boolean = true, requiresAudio: boolean = true) {
   try {
     const isAdmin = await checkIsAdmin();
     if (!isAdmin) return { error: "Unauthorized" };
@@ -371,13 +377,18 @@ export async function updateCategory(id: string, name: string, description?: str
 
     const supabase = await createServiceRoleClient();
 
+    const payload: any = {
+      name: name.trim(),
+      description: description?.trim() || null,
+      is_active
+    };
+    if (await hasCategoryAudioColumn()) {
+      payload.requires_audio = requiresAudio;
+    }
+
     const { data, error } = await supabase
       .from('categories')
-      .update({
-        name: name.trim(),
-        description: description?.trim() || null,
-        is_active
-      })
+      .update(payload)
       .eq('id', id)
       .select()
       .single();

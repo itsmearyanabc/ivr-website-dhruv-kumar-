@@ -1,0 +1,5 @@
+ALTER TABLE categories
+ADD COLUMN requires_audio BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE broadcasts
+ALTER COLUMN audio_key DROP NOT NULL;

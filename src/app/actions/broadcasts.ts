@@ -10,7 +10,7 @@ import { resolveServicePrice, serviceIsQuantityPriced } from '@/lib/pricing'
 import { countNumbers } from '@/lib/quantity'
 import { countContactsInFile } from '@/lib/contacts'
 import { calculateFailedCallRefund } from '@/lib/refunds'
-import { hasDeliveryCountColumns } from '@/lib/supabase/schema'
+import { hasDeliveryCountColumns, hasCategoryAudioColumn } from '@/lib/supabase/schema'
 import { guard } from '@/lib/errors'
 import { getAuthUser } from '@/lib/session'
 
@@ -243,12 +243,20 @@ async function runCreateBroadcast(formData: FormData) {
   const audioInputMethod = String(formData.get("audioInputMethod") || "FILE")
   const ttsText = String(formData.get("ttsText") || "")
 
-  // Validate audio input based on method
-  if (audioInputMethod === 'FILE' && !audioUploadKey) {
-    return { error: 'Please upload an audio file.' }
+  let requiresAudio = true
+  if (categoryId && await hasCategoryAudioColumn()) {
+    const { data: cat } = await supabase.from('categories').select('requires_audio').eq('id', categoryId).single()
+    if (cat && cat.requires_audio === false) requiresAudio = false
   }
-  if (audioInputMethod === 'TTS' && !ttsText.trim()) {
-    return { error: 'Text to convert to speech is required.' }
+
+  // Validate audio input based on method
+  if (requiresAudio) {
+    if (audioInputMethod === 'FILE' && !audioUploadKey) {
+      return { error: 'Please upload an audio file.' }
+    }
+    if (audioInputMethod === 'TTS' && !ttsText.trim()) {
+      return { error: 'Text to convert to speech is required.' }
+    }
   }
 
   if (contactsInputType === 'FILE' && !contactsUploadKey) {
@@ -261,7 +269,7 @@ async function runCreateBroadcast(formData: FormData) {
 
   // Prove the keys the browser handed back are this customer's own objects, exist, and are
   // within the size limit, before any money moves.
-  if (audioUploadKey) {
+  if (requiresAudio && audioUploadKey) {
     const check = await consumeUploadedKey('audio', audioUploadKey, user.id)
     if (!check.ok) return { error: check.error }
   }
@@ -360,22 +368,24 @@ async function runCreateBroadcast(formData: FormData) {
 
   // The audio and contact files are already in storage by the time this runs. Only the TTS
   // text still needs writing, and that is a few kilobytes of plain text.
-  let audio_key: string
-  if (audioInputMethod === 'TTS') {
-    const ttsBlob = new Blob([ttsText], { type: 'text/plain' })
-    const ttsFile = new File([ttsBlob], `tts-${Date.now()}.txt`, { type: 'text/plain' })
-    audio_key = `audio/${user.id}/tts-${crypto.randomUUID()}.txt`
-    const audioUpload = await supabase.storage.from(STORAGE_BUCKET).upload(audio_key, ttsFile)
-    if (audioUpload.error) {
-      console.error('TTS Upload Error:', audioUpload.error)
-      // FIX Bug 3: Refund balance since we already deducted but the write failed
-      if (charge > 0) {
-        await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
+  let audio_key: string | null = null
+  if (requiresAudio) {
+    if (audioInputMethod === 'TTS') {
+      const ttsBlob = new Blob([ttsText], { type: 'text/plain' })
+      const ttsFile = new File([ttsBlob], `tts-${Date.now()}.txt`, { type: 'text/plain' })
+      audio_key = `audio/${user.id}/tts-${crypto.randomUUID()}.txt`
+      const audioUpload = await supabase.storage.from(STORAGE_BUCKET).upload(audio_key, ttsFile)
+      if (audioUpload.error) {
+        console.error('TTS Upload Error:', audioUpload.error)
+        // FIX Bug 3: Refund balance since we already deducted but the write failed
+        if (charge > 0) {
+          await supabase.rpc('increment_balance', { uid: user.id, amt: charge })
+        }
+        return { error: 'Failed to save text for speech conversion.' }
       }
-      return { error: 'Failed to save text for speech conversion.' }
+    } else {
+      audio_key = audioUploadKey || null
     }
-  } else {
-    audio_key = audioUploadKey
   }
 
   const contacts_key: string | null = contactsInputType === 'FILE' ? contactsUploadKey : null
@@ -420,8 +430,8 @@ async function runCreateBroadcast(formData: FormData) {
   if (error) {
     console.error('Create Broadcast Error:', error)
     // Cleanup uploaded files so a failed order does not leave orphans in the bucket
-    await discardUpload(audio_key)
-    await discardUpload(contacts_key)
+    if (audio_key) await discardUpload(audio_key)
+    if (contacts_key) await discardUpload(contacts_key)
     // FIX Bug 3: Refund balance since we already deducted but insert failed
     if (charge > 0) {
       await supabase.rpc('increment_balance', { uid: user.id, amt: charge })

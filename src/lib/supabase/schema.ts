@@ -145,3 +145,8 @@ export function hasDailyStatisticsTable() {
 export function hasAnnouncementsTable() {
   return probeTable('announcements')
 }
+
+/** True once categories has the requires_audio column. */
+export function hasCategoryAudioColumn() {
+  return probeColumn('categories', 'requires_audio')
+}
