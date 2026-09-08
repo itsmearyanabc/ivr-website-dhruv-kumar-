@@ -632,9 +632,25 @@ async function runUpdateBroadcastStatus(formData: FormData) {
   // for", and an order sitting at Completed with nothing attached gives them no way to check
   // it and the operator no record of what was delivered.
   //
-  // An order already carrying a report satisfies this - the status can be corrected, or a
-  // report replaced, without forcing the operator to re-upload a file that has not changed.
+  // Moving an order to a different closing status demands a NEW report, every time. The
+  // report is the evidence for the figures the status is claiming, so an order corrected from
+  // Completed to Partial is making a different claim - some calls failed - and the file
+  // already attached is the one that said they had not. Letting it stand leaves the customer
+  // reading a report that contradicts the status above it, and the refund derived from counts
+  // nothing on file supports.
+  //
+  // Re-saving at the SAME status is a different matter: correcting a remark or a call count on
+  // an order that is already Partial is not a new claim about the outcome, so the attached
+  // report still describes it and is not demanded again. The operator can always replace it.
+  const statusChanged = String(existingBroadcast.status) !== status
+
   if (allowsReport && !reportUploadKey) {
+    if (statusChanged) {
+      return {
+        error: `Changing this order to ${formatStatusLabel(status)} needs a fresh fulfilment report — the figures have changed, so the file already attached no longer describes it. Attach the new report and save again.`,
+      }
+    }
+
     const { data: attached } = await supabase
       .from('reports')
       .select('file_key')

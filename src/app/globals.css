@@ -2284,33 +2284,6 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   gap: 48px; align-items: center;
 }
 .landing-hero h1 { font-size: clamp(34px, 4.6vw, 54px); line-height: 1.08; letter-spacing: -1.4px; margin: 10px 0 16px; }
-/* The window holds the rotating word. It stays a FIXED width on purpose - the rest of the
-   headline must not shuffle every 1.2s - but it was far wider than it needed to be, and it
-   centred the word inside that width. At 9.5ch the box measures ~348px while the longest word
-   in the rotation, "campaign", is only ~272px, so a short word like "order" sat with roughly
-   100px of dead space on each side. That space after "Every" was the gap.
-
-   Two changes close it without anything moving:
-     - the width drops to just over the longest word. `em` rather than `ch`, because `ch` is
-       the width of "0" - much wider than these letters - which is how 9.5ch became 348px.
-     - the word is aligned to the start instead of centred, so the leading gap is the same
-       single space after "Every" no matter which word is showing.
-   The comma sits inside the window, against the word, so it travels with it rather than
-   waiting at a fixed point to the right. All the remaining slack falls after the comma, where
-   it reads as the ordinary space before "clear". */
-.hero-word-window {
-  display: inline-flex; justify-content: flex-start; vertical-align: -.04em;
-  min-width: 5.1em; /* "campaign," - the widest the rotation gets - to the pixel at 54px. */
-}
-.hero-word {
-  display: inline-block;
-  color: var(--navy);
-  animation: hero-word-arrive .22s ease-out both;
-}
-@keyframes hero-word-arrive {
-  from { opacity: 0; transform: translateY(-80%) scale(.96); filter: blur(4px); }
-  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-}
 .landing-lede { font-size: 16px; line-height: 1.65; color: var(--muted); max-width: 46ch; margin: 0 0 26px; }
 .landing-hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 26px; }
 .landing-points { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 18px; }
@@ -2439,6 +2412,47 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .landing-card h3 { margin: 0 0 7px; font-size: 15.5px; }
 .landing-card p { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
 
+/* ---- The differentiator block, directly under the hero ------------------------------- */
+/* Set as prose rather than as another row of cards: it is the one argument on the page that
+   has to be read as a paragraph to land, and a card grid would flatten it into a feature. */
+.landing-proof-lead { max-width: 72ch; margin-bottom: 30px; }
+.landing-proof-lead h2 { margin-bottom: 16px; }
+.landing-proof-lead p { margin: 0 0 14px; font-size: 15px; line-height: 1.7; color: var(--muted); }
+.landing-proof-lead strong { color: var(--text); font-weight: 700; }
+.landing-proof-list { list-style: none; margin: 22px 0 0; padding: 0; display: grid; gap: 11px; }
+.landing-proof-list li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.6; color: var(--text); }
+.landing-proof-list svg { color: var(--green); flex: none; margin-top: 2px; }
+/* Two claims side by side, and stacked below the breakpoint the auto-fit grid would use. */
+.landing-grid.two { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+/* ---- Local SEO paragraph -------------------------------------------------------------- */
+.landing-local { max-width: 1120px; }
+.landing-local h2 { margin-bottom: 14px; }
+.landing-local p { max-width: 78ch; margin: 0; font-size: 14.5px; line-height: 1.75; color: var(--muted); }
+
+/* ---- FAQ ------------------------------------------------------------------------------ */
+.landing-faq { display: grid; gap: 10px; max-width: 860px; }
+.landing-faq-item {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 2px 18px;
+}
+.landing-faq-item summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 15px 0; cursor: pointer; list-style: none;
+  font-size: 14.5px; font-weight: 700; color: var(--text);
+}
+/* Safari still paints its own disclosure triangle without this. */
+.landing-faq-item summary::-webkit-details-marker { display: none; }
+.landing-faq-item summary svg { flex: none; color: var(--muted); transition: transform .18s ease; }
+.landing-faq-item[open] summary svg { transform: rotate(180deg); }
+.landing-faq-item p {
+  margin: 0; padding: 0 0 16px; font-size: 13.8px; line-height: 1.7; color: var(--muted);
+  max-width: 68ch;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-faq-item summary svg { transition: none; }
+}
+
 .landing-steps-section { background: var(--surface); max-width: none; border-block: 1px solid var(--line); }
 .landing-steps-section > h2, .landing-steps { max-width: 1120px; margin-inline: auto; }
 .landing-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 26px; }
@@ -2519,8 +2533,6 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   .auth-logo-wrap > span { font-size: 8px; letter-spacing: 1.3px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .hero-word { animation: none; }
-  .hero-word-window { transition: none; }
   .calc-card { transition: none; }
 }
 

@@ -3858,7 +3858,13 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
 
   // Mirrors the server's own requirements so the operator is told before the upload runs,
   // rather than after. The server enforces these independently - this is the courtesy copy.
-  const reportMissing = reportApplies && !reportFile && !order.reportKey;
+  //
+  // Changing the status is a new claim about what was delivered, so it needs a new report:
+  // an order corrected from Completed to Partial is saying some calls failed, while the file
+  // attached to it is the one that said they had not. The already-attached report only
+  // satisfies a re-save at the SAME status, where the outcome is not being restated.
+  const statusChanged = status !== order.status;
+  const reportMissing = reportApplies && !reportFile && (statusChanged || !order.reportKey);
   const reasonRequired: Record<string, string> = {
     "On hold": holdReason,
     Cancelled: cancelReason,
@@ -3877,7 +3883,9 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
       : reportTooLarge
         ? `The report file is larger than ${describeLimit(UPLOAD_LIMITS.REPORT)}. Please compress it before uploading.`
         : reportMissing
-          ? `Attach the fulfilment report before marking this order ${status}. The customer is shown it as the record of what was delivered.`
+          ? statusChanged && order.reportKey
+            ? `Changing this order to ${status} needs a new fulfilment report — the figures have changed, so the report already attached no longer describes it.`
+            : `Attach the fulfilment report before marking this order ${status}. The customer is shown it as the record of what was delivered.`
           : reasonMissing
             ? `Give a reason for marking this order ${status}. The customer is shown it.`
             : "";
@@ -4168,7 +4176,11 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                   {reportFile ? (
                     <><Icon name="check"/><b>{reportFile.name}</b><small>{formatFileSize(reportFile.size)} · ready to send to the customer</small></>
                   ) : order.reportKey ? (
-                    <><Icon name="file"/><b>Replace the existing report</b><small>A report is already attached — choosing a file overwrites it</small></>
+                    statusChanged ? (
+                      <><Icon name="upload"/><b>Upload the new report</b><small>The status is changing, so the attached report no longer describes this order</small></>
+                    ) : (
+                      <><Icon name="file"/><b>Replace the existing report</b><small>A report is already attached — choosing a file overwrites it</small></>
+                    )
                   ) : (
                     <><Icon name="upload"/><b>Upload the campaign report</b><small>{REPORT_TYPES_LABEL} · up to {describeLimit(UPLOAD_LIMITS.REPORT)}</small></>
                   )}
@@ -4199,9 +4211,11 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
                   </div>
                 ) : (
                   <p className="field-hint">
-                    {order.reportKey
+                    {order.reportKey && !statusChanged
                       ? "The customer can already download the attached report. Choosing a file replaces it; that on its own moves no money — the refund follows the call counts above."
-                      : `Required — an order cannot be marked ${status} without it. The customer is shown it as the record of what was delivered.`}
+                      : order.reportKey
+                        ? `Required — you are changing this order to ${status}, so it needs a report for the new figures. The one attached describes the previous status and will be replaced.`
+                        : `Required — an order cannot be marked ${status} without it. The customer is shown it as the record of what was delivered.`}
                   </p>
                 )}
               </div>

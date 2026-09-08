@@ -22,35 +22,70 @@ import { Icon } from "@/app/_components/ui";
 import { getCategoriesWithServices } from "@/app/actions/categoriesServices";
 import { isQuantityPriced, quoteTotal, unitRate } from "@/lib/quantity";
 
-/** What a customer actually gets, in the order they tend to ask about it. */
-const CAPABILITIES = [
+/**
+ * The differentiator, which is the whole pitch: most panels bill per number uploaded, this
+ * one bills per call answered. It sits directly after the hero rather than further down,
+ * because it is the reason to keep reading.
+ */
+const PROOF_POINTS = [
+  "No wasted budget on dead numbers",
+  "A campaign of 10,000 calls means 10,000 chances to reach someone — not 10,000 charges regardless of outcome",
+  "Full transparency: your report shows exactly what connected, what didn’t, and what was refunded",
+];
+
+/** The two supporting claims, beside the one above. */
+const SUPPORTING = [
   {
-    icon: "mic",
-    title: "Voice broadcasts at scale",
-    text: "Upload a recording or have one generated from your script, attach your contact list, and reach every number on it.",
+    icon: "file",
+    title: "A report you can actually act on",
+    text: "Every broadcast comes with a delivery report the moment it completes — connected calls, failed calls, refund amount, and campaign status, all in one place. No waiting, no follow-up emails needed.",
   },
   {
     icon: "wallet",
-    title: "Prepaid wallet, no surprises",
-    text: "Top up from any UPI app. Each broadcast is priced per number before you confirm it, and the total is shown to the paisa.",
-  },
-  {
-    icon: "activity",
-    title: "Track it while it runs",
-    text: "Every campaign moves through placed, in progress and completed, with the reason recorded at each step.",
-  },
-  {
-    icon: "file",
-    title: "Reports you can act on",
-    text: "A delivery report lands against the order when it closes. Failed calls are refunded to your wallet automatically.",
+    title: "Zero setup fee, zero lock-in",
+    text: "No setup charges. A prepaid wallet you top up only when you need to run a campaign, with no auto-deduction, no forced monthly minimums, and no expiry on your balance. Start with as few as 10 calls to test before scaling to lakhs.",
   },
 ];
 
 /** The order flow, said plainly. Three steps because it genuinely is three. */
 const STEPS = [
-  { n: "1", title: "Top up your wallet", text: "Pay by UPI and submit the reference. Your balance is credited once it clears." },
-  { n: "2", title: "Build the broadcast", text: "Pick a service, add your audio or script, paste or upload the numbers." },
-  { n: "3", title: "Watch it land", text: "Follow the status live and download the report when it is done." },
+  { n: "1", title: "Top up your wallet", text: "Pay via UPI, submit the reference, and your balance is credited once it clears." },
+  { n: "2", title: "Build your broadcast", text: "Pick a call duration, upload your recording or give us a script, and add your contact list — paste numbers directly or upload a file." },
+  { n: "3", title: "We deliver, you track", text: "Your campaign runs automatically. Track it live as it moves from placed to in progress to completed, and download your report — with unanswered calls already refunded — the moment it’s done." },
+];
+
+/**
+ * The questions people actually type into a search box.
+ *
+ * One array feeds both the visible list and the FAQPage structured data below it, so the
+ * markup Google reads can never drift from the answers on the page - which is the thing that
+ * gets rich snippets withdrawn.
+ */
+const FAQS = [
+  {
+    q: "Do I get charged for calls that don’t connect?",
+    a: "No. BulkShout only charges for calls that are actually answered. Switched-off, unreachable, and unanswered calls are automatically refunded to your wallet as soon as the campaign completes — you don’t need to request anything.",
+  },
+  {
+    q: "Is there a setup fee?",
+    a: "No. There’s no setup fee and no hidden charges. You only pay per call, based on the service tier you choose.",
+  },
+  {
+    q: "Can I use my own voice recording, or do you create one for me?",
+    a: "Both. You can upload your own recording, or send us a script and we’ll create the voice recording for you at no extra cost.",
+  },
+  {
+    q: "How fast will I get my refund for failed calls?",
+    a: "Refunds for unconnected calls are credited to your wallet automatically the moment your campaign is marked complete — no waiting, no request needed.",
+  },
+  {
+    q: "Do you offer both 15-second and 30-second call options?",
+    a: "Yes. Choose a 15-second message for short offers and reminders, or a 30-second message when you need more room to explain your offer or invite customers to an event.",
+  },
+  {
+    q: "Does my wallet balance expire?",
+    a: "No. Your balance has lifetime validity — top up only when you need to run a campaign, with no forced monthly minimums or auto-deduction.",
+  },
 ];
 
 /**
@@ -70,11 +105,6 @@ const STEPS = [
  * Read through the same public catalogue action the order screen uses, so it tracks the
  * catalogue instead of being a number typed into marketing copy and left to rot.
  */
-
-/** The range the slider covers. Named so the fill and the scale labels cannot drift from it. */
-const CALLS_MIN = 1;
-const CALLS_MAX = 50_000_000;
-const HERO_WORDS = ["broadcast", "campaign", "order"];
 
 /**
  * Logarithmic slider helpers.
@@ -198,7 +228,7 @@ function CallCalculator() {
   } as CSSProperties;
 
   return (
-    <div className="landing-hero-art">
+    <div className="landing-hero-art" id="pricing">
       <div
         className="calc-card"
         style={cardStyle}
@@ -263,16 +293,10 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
   onSignUp: () => void;
   whatsappNumber?: string;
 }) {
-  const [heroWordIndex, setHeroWordIndex] = useState(0);
-
-  useEffect(() => {
-    const rotation = window.setInterval(() => {
-      setHeroWordIndex((current) => (current + 1) % HERO_WORDS.length);
-    }, 1200);
-    return () => window.clearInterval(rotation);
-  }, []);
-
-  const heroWord = HERO_WORDS[heroWordIndex];
+  /** "See live pricing" takes the visitor to the estimator rather than to another page. */
+  const showPricing = () => {
+    document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   /**
    * wa.me accepts digits only - no +, spaces or dashes - and silently fails on anything else,
@@ -282,8 +306,29 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
    */
   const waNumber = (whatsappNumber || "").replace(/\D/g, "");
 
+  /**
+   * FAQPage structured data, so the answers can surface as a rich result.
+   *
+   * Built from the same FAQS array the section below renders, because markup that claims an
+   * answer the page does not show is what gets a rich snippet withdrawn - and hand-maintained
+   * JSON-LD drifts from the copy the first time anyone edits a sentence.
+   */
+  const faqSchema = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: FAQS.map(item => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: { "@type": "Answer", text: item.a },
+    })),
+  };
+
   return (
     <main className="landing-page">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+      />
       <header className="landing-header">
         <div className="landing-header-inner">
           {/* The supplied artwork arrived on a cream ground; that ground has been made
@@ -312,44 +357,59 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
 
       <section className="landing-hero">
         <div className="landing-hero-copy">
-          <p className="eyebrow">IVR BROADCAST PANEL</p>
-          <h1>
-            Every{" "}
-            {/* Fixed width, so the line does not reshuffle as the word changes - see
-                .hero-word-window. The comma lives inside the window, immediately after the
-                word, so it stays against it instead of holding a fixed spot to the right. */}
-            <span className="hero-word-window" aria-live="polite">
-              <span className="hero-word" key={heroWord}>{heroWord}</span>
-              <span className="hero-word-punct">,</span>
-            </span>{" "}
-            clear and under control.
-          </h1>
+          <p className="eyebrow">BULK VOICE CALL SERVICE — DELHI &amp; INDIA</p>
+          <h1>Bulk voice calls that only charge you when someone actually answers</h1>
           <p className="landing-lede">
-            Send voice campaigns to thousands of numbers from one panel. Prepaid, priced per
-            number, and reported on when it lands.
+            BulkShout is a bulk voice call broadcasting service for businesses across Delhi and
+            India. Reach thousands of customers with a single recorded message — and pay
+            only for the calls that connect. Switched-off and unanswered numbers are refunded
+            automatically, no request needed.
           </p>
           <div className="landing-hero-actions">
             <button type="button" className="landing-cta large" onClick={onSignUp}>
               Create your account <Icon name="arrow" size={16} />
             </button>
-            <button type="button" className="landing-ghost" onClick={onSignIn}>
-              I already have one
+            <button type="button" className="landing-ghost" onClick={showPricing}>
+              See live pricing
             </button>
           </div>
           <ul className="landing-points">
             <li><Icon name="check" size={15} /> No setup fee</li>
-            <li><Icon name="check" size={15} /> Pay per number</li>
-            <li><Icon name="check" size={15} /> Failed calls refunded</li>
+            <li><Icon name="check" size={15} /> Pay only for answered calls</li>
+            <li><Icon name="check" size={15} /> Refund credited automatically</li>
+            <li><Icon name="check" size={15} /> Free AI voice creation</li>
           </ul>
         </div>
 
         <CallCalculator />
       </section>
 
-      <section className="landing-section">
-        <h2>What you get</h2>
-        <div className="landing-grid">
-          {CAPABILITIES.map(c => (
+      {/* The differentiator, directly after the hero: it is the reason to keep reading, and
+          burying it below the feature grid is what every competitor does. */}
+      <section className="landing-section landing-proof">
+        <div className="landing-proof-lead">
+          <h2>You don’t pay for switched-off numbers. Full stop.</h2>
+          <p>
+            Most bulk voice call providers in India charge you for every number you upload —
+            connected or not. If half your contact list is switched off, unreachable, or
+            doesn’t pick up, that’s still money out of your pocket with most panels.
+          </p>
+          <p>
+            BulkShout works differently. <strong>We only charge for calls that are actually
+            answered.</strong> Every call that doesn’t connect — switched off,
+            unreachable, out of network, no answer — is automatically refunded to your
+            wallet the moment your campaign finishes. You don’t have to raise a ticket,
+            ask for a refund, or chase support. It just happens.
+          </p>
+          <ul className="landing-proof-list">
+            {PROOF_POINTS.map(point => (
+              <li key={point}><Icon name="check" size={16} /><span>{point}</span></li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="landing-grid two">
+          {SUPPORTING.map(c => (
             <article key={c.title} className="landing-card">
               <span className="landing-card-icon"><Icon name={c.icon} size={18} /></span>
               <h3>{c.title}</h3>
@@ -372,9 +432,43 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
         </div>
       </section>
 
+      {/* Local intent: someone searching "bulk voice call service Delhi" is looking for a
+          supplier who says Delhi back to them. */}
+      <section className="landing-section landing-local">
+        <h2>Bulk voice call service for businesses in Delhi</h2>
+        <p>
+          BulkShout helps businesses across Delhi and the NCR region — real estate
+          developers, clinics, restaurants, retail stores, coaching institutes, and travel
+          agencies — reach their customers through automated voice calls without hiring a
+          calling team or managing complex software. Whether you’re announcing a new offer,
+          sending appointment reminders, or inviting customers to a launch event, BulkShout
+          handles script writing, voice creation, and campaign delivery — while making sure
+          you’re never charged for a call that didn’t connect.
+        </p>
+      </section>
+
+      <section className="landing-section landing-faq-section">
+        <h2>Frequently asked questions</h2>
+        <div className="landing-faq">
+          {FAQS.map((item, i) => (
+            /* <details> rather than a scripted accordion: it opens without JavaScript, is
+               keyboard operable as it stands, and its closed text is still in the document
+               for a crawler to read. The first is open so the section does not read as an
+               unexplained row of bars. */
+            <details key={item.q} className="landing-faq-item" open={i === 0}>
+              <summary>{item.q}<Icon name="chevron" size={16} /></summary>
+              <p>{item.a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
       <section className="landing-closer">
         <h2>Ready to send your first broadcast?</h2>
-        <p>Create an account and top up whenever you are ready. Nothing is charged until you place an order.</p>
+        <p>
+          Create your account, top up whenever you’re ready, and pay only for the calls
+          that actually reach someone. Nothing is charged until you place an order.
+        </p>
         <button type="button" className="landing-cta large" onClick={onSignUp}>
           Create your account <Icon name="arrow" size={16} />
         </button>
