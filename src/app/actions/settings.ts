@@ -23,10 +23,45 @@ export async function getSystemSettings() {
     }, {});
     
     return {
-      price_per_call: settings?.price_per_call || "0.25"
+      price_per_call: settings?.price_per_call || "0.25",
+      whatsapp_number: settings?.whatsapp_number || ""
     };
   } catch {
-    return { price_per_call: "0.25" };
+    return { price_per_call: "0.25", whatsapp_number: "" };
+  }
+}
+
+export async function updateWhatsappNumber(number: string) {
+  try {
+    const isAdmin = await checkIsAdmin();
+    if (!isAdmin) {
+      return { error: 'Unauthorized: Admin access required to update site settings.' };
+    }
+
+    const supabase = await createServiceRoleClient();
+    
+    const { error } = await supabase
+      .from('system_settings')
+      .upsert({ key: 'whatsapp_number', value: number.trim(), updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      
+    if (error) {
+      console.error("Error updating whatsapp number:", error);
+      return { error: error.message };
+    }
+
+    const actor = await getAuthUser();
+    await logActivity({
+      ...(await describeActor(actor?.id)),
+      actionType: 'SETTINGS_UPDATED',
+      entityType: 'SETTING',
+      entityId: 'whatsapp_number',
+      description: `Updated the WhatsApp contact number.`,
+    });
+
+    return { success: true };
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "An unexpected error occurred.";
+    return { error: message };
   }
 }
 

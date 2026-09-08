@@ -7,7 +7,7 @@ import Image from "next/image";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts, getBroadcastHistory } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
-import { getSystemSettings, updatePricePerCall } from "@/app/actions/settings";
+import { getSystemSettings, updatePricePerCall, updateWhatsappNumber } from "@/app/actions/settings";
 import { getUserBalance, getUserTransactions, getAllTransactions } from "@/app/actions/transactions";
 import { getAllUsers, adminAddFunds, adminSetUserPassword, adminSetUserActive, updateMyProfile, changeMyPassword, requestPasswordHelp } from "@/app/actions/users";
 import { impersonateUser, stopImpersonation, getImpersonationState } from "@/app/actions/impersonate";
@@ -282,6 +282,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [price, setPrice] = useState("0.25");
+  const [whatsappNumber, setWhatsappNumber] = useState("");
   const [pendingTopups, setPendingTopups] = useState(0);
 
   /**
@@ -346,7 +347,10 @@ export default function PortalApp({ portal }: { portal: Role }) {
       currentSession.role === "admin" ? getTopupPendingCount() : Promise.resolve(0)
     ]));
 
-        if (settings) setPrice(settings.price_per_call);
+    if (settings) {
+      setPrice(settings.price_per_call);
+      setWhatsappNumber(settings.whatsapp_number || "");
+    }
 
     if (currentSession.role === "admin") {
       if (usersData) setUsersList(usersData);
@@ -563,7 +567,13 @@ export default function PortalApp({ portal }: { portal: Role }) {
       return (
         <>
           <TopProgressBar active={pending > 0} />
-          <Landing onSignIn={() => setAuthMode("login")} onSignUp={() => setAuthMode("signup")} />
+          <div className="landing-backdrop">
+            <Landing 
+              onSignIn={() => setAuthMode("login")} 
+              onSignUp={() => setAuthMode("signup")} 
+              whatsappNumber={whatsappNumber}
+            />
+          </div>
         </>
       );
     }
@@ -636,6 +646,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
           transactions={transactions}
           price={price}
           setPrice={setPrice}
+          whatsappNumber={whatsappNumber}
+          setWhatsappNumber={setWhatsappNumber}
           setView={setView}
           select={setSelected}
           selectTicket={setSelectedTicket}
@@ -1723,7 +1735,7 @@ function CustomerDirectory({ users, orders, isDataLoading, onSelectCustomer, onC
   );
 }
 
-function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, setView, select, selectTicket, onRefreshBroadcasts, isDataLoading, onTopupsChanged, onRefreshUsers, onSelectCustomer }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void; isDataLoading?: boolean; onTopupsChanged?: () => void; onRefreshUsers: () => void; onSelectCustomer: (u: any) => void }) {
+function AdminPage({ view, orders, tickets, users, transactions, price, setPrice, whatsappNumber, setWhatsappNumber, setView, select, selectTicket, onRefreshBroadcasts, isDataLoading, onTopupsChanged, onRefreshUsers, onSelectCustomer }: { view: string; orders: Order[]; tickets: Ticket[]; users: any[]; transactions: any[]; price: string; setPrice: (p: string) => void; whatsappNumber: string; setWhatsappNumber: (n: string) => void; setView: (v: string) => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; onRefreshBroadcasts: () => void; isDataLoading?: boolean; onTopupsChanged?: () => void; onRefreshUsers: () => void; onSelectCustomer: (u: any) => void }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [dashTab, setDashTab] = useState("summary");
   const [actFilterDate, setActFilterDate] = useState("");
@@ -1734,6 +1746,10 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
   const [priceEdit, setPriceEdit] = useState<{ base: string; value: string } | null>(null);
   const localPrice = priceEdit?.base === price ? priceEdit.value : price;
   const setLocalPrice = (value: string) => setPriceEdit({ base: price, value });
+
+  const [whatsappEdit, setWhatsappEdit] = useState<{ base: string; value: string } | null>(null);
+  const localWhatsapp = whatsappEdit?.base === whatsappNumber ? whatsappEdit.value : whatsappNumber;
+  const setLocalWhatsapp = (value: string) => setWhatsappEdit({ base: whatsappNumber, value });
 
   // A view can carry an argument after a colon, e.g. "Broadcasts:scheduled". The menu uses
   // it to preselect a filter; the admin can still change the filter once the page is open.
@@ -1871,16 +1887,36 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
       }
     };
 
+    const handleSaveWhatsapp = async () => {
+      const res = await updateWhatsappNumber(localWhatsapp);
+      if (res.error) alert(res.error);
+      else {
+        alert("WhatsApp number updated successfully!");
+        setWhatsappNumber(localWhatsapp);
+      }
+    };
+
     return (
       <>
-        <Heading eyebrow="ADMIN CONSOLE" title="Global call pricing" text="Set default pricing parameters."/>
-        <section className="panel pricing-panel">
-          <PanelTop title="Call pricing (default per-call rate)" text="Used as the fallback estimate when a service has no fixed price."/>
-          <div className="admin-update pricing-form">
-            <label>Price per call (₹)<input type="text" inputMode="decimal" value={localPrice} onChange={e => setLocalPrice(sanitiseDecimalInput(e.target.value))}/></label>
-            <button className="primary" onClick={handleSavePricing}>Save pricing</button>
-          </div>
-        </section>
+        <Heading eyebrow="ADMIN CONSOLE" title="Site settings" text="Global configuration for the portal and landing page."/>
+        
+        <div className="dashboard-grid">
+          <section className="panel pricing-panel">
+            <PanelTop title="Call pricing (default rate)" text="Used as the fallback estimate when a service has no fixed price."/>
+            <div className="admin-update pricing-form">
+              <label>Price per call (₹)<input type="text" inputMode="decimal" value={localPrice} onChange={e => setLocalPrice(sanitiseDecimalInput(e.target.value))}/></label>
+              <button className="primary" onClick={handleSavePricing}>Save pricing</button>
+            </div>
+          </section>
+
+          <section className="panel pricing-panel">
+            <PanelTop title="WhatsApp contact widget" text="Leave blank to disable. Enter with country code (e.g. 919876543210)."/>
+            <div className="admin-update pricing-form">
+              <label>WhatsApp number<input type="text" value={localWhatsapp} onChange={e => setLocalWhatsapp(e.target.value)} placeholder="e.g. 919876543210"/></label>
+              <button className="primary" onClick={handleSaveWhatsapp}>Save number</button>
+            </div>
+          </section>
+        </div>
       </>
     );
   }

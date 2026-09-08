@@ -2177,11 +2177,9 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .landing-hero h1 { font-size: clamp(34px, 4.6vw, 54px); line-height: 1.08; letter-spacing: -1.4px; margin: 10px 0 16px; }
 .hero-word-window { display: inline-grid; min-width: 9.5ch; vertical-align: -.04em; text-align: center; }
 .hero-word {
-  display: block; padding: .07em .17em .1em; margin: -.07em -.17em -.1em;
-  border: 1px solid rgba(255, 255, 255, .7); border-radius: .2em;
-  background: rgba(255, 255, 255, .34); box-shadow: 0 .12em .42em rgba(30, 42, 59, .12);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  animation: hero-word-arrive .22s cubic-bezier(.16, .85, .25, 1) both;
+  display: inline-block;
+  color: var(--navy);
+  animation: hero-word-arrive .22s ease-out both;
 }
 @keyframes hero-word-arrive {
   from { opacity: 0; transform: translateY(-80%) scale(.96); filter: blur(4px); }
@@ -2397,4 +2395,33 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 @media (prefers-reduced-motion: reduce) {
   .hero-word { animation: none; }
   .calc-card { transition: none; }
+}
+
+.whatsapp-widget {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  background-color: #25D366;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.4);
+  z-index: 1000;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
+  cursor: pointer;
+  text-decoration: none;
+}
+.whatsapp-widget svg {
+  width: 32px;
+  height: 32px;
+  fill: currentColor;
+}
+.whatsapp-widget:hover {
+  transform: scale(1.1) translateY(-4px);
+  box-shadow: 0 8px 24px rgba(37, 211, 102, 0.5);
+  color: white;
 }

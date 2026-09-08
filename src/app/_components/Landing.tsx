@@ -72,7 +72,7 @@ const STEPS = [
  */
 
 /** The range the slider covers. Named so the fill and the scale labels cannot drift from it. */
-const CALLS_MIN = 100;
+const CALLS_MIN = 1;
 const CALLS_MAX = 50_000_000;
 const HERO_WORDS = ["broadcast", "campaign", "order"];
 
@@ -94,6 +94,7 @@ function fromSliderPos(pos: number): number {
 /** Actual call count → slider position (0-1000). */
 function toSliderPos(calls: number): number {
   const clamped = Math.max(CALLS_MIN, Math.min(CALLS_MAX, calls));
+  // At CALLS_MIN=1, log10(1) = 0.
   return ((Math.log10(clamped) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * 1000;
 }
 
@@ -186,11 +187,7 @@ function CallCalculator() {
             <strong>{calls.toLocaleString("en-IN")}</strong>
             <span>calls</span>
           </div>
-          {/* The badge names the real service the price came from, so the figure below can be
-              checked against the catalogue rather than taken on trust. */}
-          <span className="calc-tier" title={match ? serviceLabel(match.svc.name) : undefined}>
-            {match ? serviceLabel(match.svc.name) : "—"}
-          </span>
+          <span className="calc-tier">CALLS</span>
         </div>
 
         {/* Logarithmic slider: the track covers 0–1000 internal units, mapped through
@@ -208,7 +205,7 @@ function CallCalculator() {
           aria-label="Number of calls"
         />
         <div className="calc-scale">
-          <span>100</span><span>10k</span><span>1L</span><span>10L</span><span>1Cr</span><span>5Cr</span>
+          <span>1</span><span>100</span><span>10k</span><span>1L</span><span>1Cr</span><span>5Cr</span>
         </div>
 
         <div className="calc-total">
@@ -233,9 +230,10 @@ function CallCalculator() {
   );
 }
 
-export default function Landing({ onSignIn, onSignUp }: {
+export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
   onSignIn: () => void;
   onSignUp: () => void;
+  whatsappNumber?: string;
 }) {
   const [heroWordIndex, setHeroWordIndex] = useState(0);
 
@@ -347,15 +345,31 @@ export default function Landing({ onSignIn, onSignUp }: {
       </section>
 
       <footer className="landing-footer">
-        <Image
-          className="landing-logo footer"
-          src="/bulkshout-logo.png"
-          alt="BulkShout"
-          width={719}
-          height={120}
-        />
-        <p>© {new Date().getFullYear()} BulkShout. IVR voice broadcast services.</p>
+        <div className="landing-footer-inner">
+          <Image
+            src="/bulkshout-logo-dark.png"
+            alt="BulkShout"
+            width={719}
+            height={120}
+            className="landing-logo footer"
+          />
+          <p>© {new Date().getFullYear()} BulkShout. All rights reserved.</p>
+        </div>
       </footer>
+
+      {whatsappNumber && (
+        <a 
+          href={`https://wa.me/${whatsappNumber}`}
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="whatsapp-widget"
+          aria-label="Chat with us on WhatsApp"
+        >
+          <svg viewBox="0 0 24 24">
+            <path d="M12.031 0C5.385 0 0 5.385 0 12.031c0 2.115.548 4.183 1.589 6.002L.15 23.473l5.584-1.464c1.761.946 3.754 1.445 5.797 1.445 6.646 0 12.031-5.385 12.031-12.031S17.677 0 12.031 0zm3.896 17.156c-.168.474-.972.898-1.428.948-.426.046-.983.078-1.571-.115-.357-.118-.841-.284-1.408-.553-2.4-1.139-3.957-3.606-4.077-3.766-.12-.161-.973-1.296-.973-2.469 0-1.174.61-1.751.826-1.986.216-.236.471-.295.628-.295.157 0 .315 0 .445.006.136.006.319-.052.498.38.183.441.628 1.536.684 1.649.056.113.094.246.015.403-.078.158-.118.256-.235.394-.118.138-.246.291-.354.403-.118.125-.241.263-.105.498.138.236.612 1.009 1.314 1.636.905.807 1.666 1.056 1.902 1.168.236.113.376.094.517-.066.142-.161.611-.711.776-.956.166-.245.332-.204.549-.125.216.08 1.375.648 1.611.766.236.118.393.177.45.275.059.098.059.57-.109 1.044z" />
+          </svg>
+        </a>
+      )}
     </main>
   );
 }
