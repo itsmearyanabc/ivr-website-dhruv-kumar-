@@ -2649,7 +2649,8 @@ function CategoryServiceManager() {
                 max={servMax} setMax={setServMax}
               />
               <label>Description (optional)
-                <input 
+                <textarea 
+                  rows={3}
                   placeholder="Service details" 
                   value={servDesc} 
                   onChange={e => setServDesc(e.target.value)}
@@ -2692,7 +2693,7 @@ function CategoryServiceManager() {
                     </div>
                     <div className="category-details">
                       <h3>{cat.name}{cat.is_active === false && <span className="muted-tag">Hidden</span>}</h3>
-                      {cat.description && <p>{cat.description}</p>}
+                      {cat.description && <p style={{ whiteSpace: 'pre-wrap' }}>{cat.description}</p>}
                     </div>
                   </div>
                   <div className="category-actions">
@@ -2756,7 +2757,7 @@ function CategoryServiceManager() {
                             <td>
                               <div className="service-name">
                                 <strong>{s.name}</strong>
-                                {s.description && <small>{s.description}</small>}
+                                {s.description && <small style={{ whiteSpace: 'pre-wrap', display: 'block', marginTop: '4px' }}>{s.description}</small>}
                               </div>
                             </td>
                             <td>
@@ -2896,7 +2897,8 @@ function CategoryServiceManager() {
                 max={servMax} setMax={setServMax}
               />
               <label>Description (optional)
-                <input 
+                <textarea 
+                  rows={3}
                   placeholder="Service details" 
                   value={servDesc} 
                   onChange={e => setServDesc(e.target.value)}
@@ -3388,7 +3390,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
         {currentCategory?.description && (
           <div className="catalogue-description category-description" role="status">
             <strong>About {currentCategory.name}</strong>
-            <p>{currentCategory.description}</p>
+            <p style={{ whiteSpace: 'pre-wrap' }}>{currentCategory.description}</p>
           </div>
         )}
 
@@ -3409,7 +3411,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
         {currentService?.description && (
           <div className="catalogue-description" role="status">
             <strong>About {currentService.name}</strong>
-            <p>{currentService.description}</p>
+            <p style={{ whiteSpace: 'pre-wrap' }}>{currentService.description}</p>
           </div>
         )}
 
