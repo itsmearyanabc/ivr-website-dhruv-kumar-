@@ -307,9 +307,13 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
           <p className="eyebrow">IVR BROADCAST PANEL</p>
           <h1>
             Every{" "}
+            {/* Fixed width, so the line does not reshuffle as the word changes - see
+                .hero-word-window. The comma lives inside the window, immediately after the
+                word, so it stays against it instead of holding a fixed spot to the right. */}
             <span className="hero-word-window" aria-live="polite">
               <span className="hero-word" key={heroWord}>{heroWord}</span>
-            </span>,{" "}
+              <span className="hero-word-punct">,</span>
+            </span>{" "}
             clear and under control.
           </h1>
           <p className="landing-lede">
@@ -374,8 +378,12 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
 
       <footer className="landing-footer">
         <div className="landing-footer-inner">
+          {/* The same mark as the header. A "-dark" variant was referenced here but never
+              added to public/, so the footer requested a file that 404s and showed nothing
+              at all. The footer sits on --surface (white), which is the light ground this
+              artwork is already drawn for. */}
           <Image
-            src="/bulkshout-logo-dark.png"
+            src="/bulkshout-logo.png"
             alt="BulkShout"
             width={719}
             height={120}

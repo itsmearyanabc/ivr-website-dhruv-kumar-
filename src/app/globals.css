@@ -2143,12 +2143,19 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 }
 .landing-nav { display: flex; align-items: center; gap: 10px; }
 
+/* The header "Sign in". Bare text on the canvas did not read as a control at all, so it
+   carries the same tinted chip as the ghost button - still quieter than the filled CTA it
+   sits beside. `.inline` keeps the bare-link treatment where it genuinely is one. */
 .landing-link {
-  border: 0; background: none; cursor: pointer; font-family: inherit;
-  font-size: 14px; font-weight: 600; color: var(--red); padding: 9px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--red-line); background: var(--red-soft); cursor: pointer; font-family: inherit;
+  font-size: 14px; font-weight: 700; color: var(--red-dark); padding: 9px 14px; border-radius: var(--radius-sm);
+  transition: background .14s ease, color .14s ease;
 }
-.landing-link:hover { background: var(--red-soft); }
-.landing-link.inline { padding: 0; text-decoration: underline; }
+.landing-link:hover { background: var(--red); color: #fff; border-color: var(--red); }
+.landing-link.inline {
+  border: 0; background: none; padding: 0; text-decoration: underline; color: var(--red);
+}
+.landing-link.inline:hover { background: none; color: var(--red-dark); }
 
 .landing-cta {
   display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
@@ -2161,12 +2168,17 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .landing-cta.large { padding: 14px 22px; font-size: 15px; }
 .landing-cta-short { display: none; }
 
+/* The second route in, beside the primary call to action. It was a white button on a
+   near-white canvas behind a #bbbfca hairline, which read as disabled rather than secondary.
+   A 1.5px border in the brand navy and a tinted fill separate it from the page while still
+   deferring to the filled button next to it. */
 .landing-ghost {
-  white-space: nowrap; border: 1px solid var(--red-line); background: var(--surface); cursor: pointer;
-  font-family: inherit; font-weight: 600; font-size: 15px; color: var(--red);
-  padding: 13px 20px; border-radius: var(--radius-sm);
+  white-space: nowrap; border: 1.5px solid var(--red); background: var(--red-soft); cursor: pointer;
+  font-family: inherit; font-weight: 700; font-size: 15px; color: var(--red-dark);
+  padding: 12.5px 20px; border-radius: var(--radius-sm);
+  transition: background .14s ease, color .14s ease, transform .14s ease;
 }
-.landing-ghost:hover { background: var(--red-soft); }
+.landing-ghost:hover { background: var(--red); color: #fff; transform: translateY(-1px); }
 
 /* Hero: copy left, the order-summary abstraction right, stacking on a narrow screen. */
 .landing-hero {
@@ -2175,7 +2187,24 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   gap: 48px; align-items: center;
 }
 .landing-hero h1 { font-size: clamp(34px, 4.6vw, 54px); line-height: 1.08; letter-spacing: -1.4px; margin: 10px 0 16px; }
-.hero-word-window { display: inline-grid; min-width: 9.5ch; vertical-align: -.04em; text-align: center; }
+/* The window holds the rotating word. It stays a FIXED width on purpose - the rest of the
+   headline must not shuffle every 1.2s - but it was far wider than it needed to be, and it
+   centred the word inside that width. At 9.5ch the box measures ~348px while the longest word
+   in the rotation, "campaign", is only ~272px, so a short word like "order" sat with roughly
+   100px of dead space on each side. That space after "Every" was the gap.
+
+   Two changes close it without anything moving:
+     - the width drops to just over the longest word. `em` rather than `ch`, because `ch` is
+       the width of "0" - much wider than these letters - which is how 9.5ch became 348px.
+     - the word is aligned to the start instead of centred, so the leading gap is the same
+       single space after "Every" no matter which word is showing.
+   The comma sits inside the window, against the word, so it travels with it rather than
+   waiting at a fixed point to the right. All the remaining slack falls after the comma, where
+   it reads as the ordinary space before "clear". */
+.hero-word-window {
+  display: inline-flex; justify-content: flex-start; vertical-align: -.04em;
+  min-width: 5.1em; /* "campaign," - the widest the rotation gets - to the pixel at 54px. */
+}
 .hero-word {
   display: inline-block;
   color: var(--navy);
@@ -2394,6 +2423,7 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .hero-word { animation: none; }
+  .hero-word-window { transition: none; }
   .calc-card { transition: none; }
 }
 

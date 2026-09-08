@@ -177,6 +177,41 @@ export async function createBroadcast(formData: FormData) {
   return guard('createBroadcast', () => runCreateBroadcast(formData))
 }
 
+/**
+ * The next broadcast reference.
+ *
+ * Prefers the sequence installed by 20260908010000_broadcast_reference_sequence.sql. The
+ * fallback exists for the window where this code is deployed and that migration has not run
+ * yet - the same reason the probes in lib/supabase/schema.ts exist - and is the old
+ * read-and-increment, with the two faults that made it misbehave removed: it considers every
+ * canonical reference rather than stopping at the first one it finds in the ten newest rows,
+ * and it takes the maximum rather than whichever happened to sort first, so a legacy
+ * reference sitting at the top of the table cannot send the counter back to BR-0001.
+ *
+ * It is still not safe against two simultaneous orders. That is what the sequence is for; run
+ * the migration.
+ */
+async function allocateReferenceNo(
+  supabase: Awaited<ReturnType<typeof createServiceRoleClient>>
+): Promise<string> {
+  const { data, error } = await supabase.rpc('next_broadcast_reference')
+  if (!error && typeof data === 'string' && data) return data
+
+  const { data: existing } = await supabase
+    .from('broadcasts')
+    .select('reference_no')
+    .like('reference_no', 'BR-%')
+    .order('created_at', { ascending: false })
+    .limit(1000)
+
+  let highest = 0
+  for (const row of (existing || []) as Array<{ reference_no?: string }>) {
+    const match = row.reference_no?.match(/^BR-(\d+)$/)
+    if (match) highest = Math.max(highest, parseInt(match[1], 10))
+  }
+  return `BR-${String(highest + 1).padStart(4, "0")}`
+}
+
 async function runCreateBroadcast(formData: FormData) {
   const supabaseAuth = await createClient()
   const { data: { user }, error: authError } = await supabaseAuth.auth.getUser()
@@ -345,23 +380,13 @@ async function runCreateBroadcast(formData: FormData) {
 
   const contacts_key: string | null = contactsInputType === 'FILE' ? contactsUploadKey : null
 
-  // Sequential 4-digit ID: "BR-0001"
-  const { data: maxBroadcast } = await supabase
-    .from('broadcasts')
-    .select('reference_no')
-    .like('reference_no', 'BR-%')
-    .order('created_at', { ascending: false })
-    .limit(10);
-    
-  let nextId = 1;
-  for (const b of (maxBroadcast || [])) {
-    const match = b.reference_no?.match(/^BR-(\d{4})$/);
-    if (match) {
-      nextId = parseInt(match[1], 10) + 1;
-      break;
-    }
-  }
-  const reference_no = `BR-${String(nextId).padStart(4, "0")}`;
+  // Sequential four-digit reference: "BR-0001".
+  //
+  // Drawn from a Postgres sequence through next_broadcast_reference(), because two customers
+  // ordering at the same moment must not be handed the same number: reference_no is UNIQUE,
+  // so a collision fails the second insert and tells that customer their order could not be
+  // created. nextval is atomic; reading the table back and adding one was not.
+  const reference_no = await allocateReferenceNo(supabase)
   const schedule = String(formData.get("schedule") || "")
   const scheduled_for = schedule && schedule !== 'Start on processing' ? new Date(schedule).toISOString() : null
   const broadcastName = serviceName ? `${categoryName} - ${serviceName}` : `Broadcast ${reference_no}`
