@@ -379,8 +379,16 @@ export default function PortalApp({ portal }: { portal: Role }) {
     let mounted = true;
     
     async function initSession() {
-      const { session: serverSession } = await track(getUserSession());
+      const [ { session: serverSession }, settings ] = await track(Promise.all([
+        getUserSession(),
+        getSystemSettings()
+      ]));
+
       if (mounted) {
+        if (settings) {
+          setPrice(settings.price_per_call);
+          setWhatsappNumber(settings.whatsapp_number || "");
+        }
         if (serverSession) {
           setSession(serverSession as Session);
           fetchData(serverSession as Session);
