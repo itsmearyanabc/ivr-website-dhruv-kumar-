@@ -40,6 +40,7 @@ export const ADMIN_NAV: NavGroup[] = [
     icon: "users",
     entries: [
       { label: "All customers", view: "Customers", hint: "Directory and wallet balances" },
+      { label: "Notifications", view: "Notifications", hint: "Message every customer at once" },
       { label: "Activity log", view: "Activity log", hint: "Full operational audit trail", ownerOnly: true },
       { label: "Staff", view: "Staff", hint: "Who can operate this console", ownerOnly: true },
     ],

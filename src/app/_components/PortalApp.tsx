@@ -8,6 +8,9 @@ import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts, getBroadcastHistory } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 import { getSystemSettings, updatePricePerCall, updateWhatsappNumber } from "@/app/actions/settings";
+import { getMyAnnouncements, markAnnouncementsRead, type CustomerAnnouncement } from "@/app/actions/announcements";
+import Messages from "@/app/_components/customer/Messages";
+import Announcements from "@/app/_components/admin/Announcements";
 import { getUserBalance, getUserTransactions, getAllTransactions } from "@/app/actions/transactions";
 import { getAllUsers, adminAddFunds, adminSetUserPassword, adminSetUserActive, updateMyProfile, changeMyPassword, requestPasswordHelp } from "@/app/actions/users";
 import { impersonateUser, stopImpersonation, getImpersonationState } from "@/app/actions/impersonate";
@@ -286,6 +289,16 @@ export default function PortalApp({ portal }: { portal: Role }) {
   const [pendingTopups, setPendingTopups] = useState(0);
 
   /**
+   * The customer's message box, and how much of it is unread.
+   *
+   * Held here rather than in the panel because the sidebar badge needs the count on every
+   * screen, not just the one that lists them - an announcement is only worth sending if it
+   * is noticed from wherever the customer happens to be.
+   */
+  const [announcements, setAnnouncements] = useState<CustomerAnnouncement[]>([]);
+  const unreadMessages = announcements.filter(a => a.unread).length;
+
+  /**
    * How many server round trips are in flight, so the progress bar can reflect all of them.
    *
    * A counter rather than a boolean: several refreshes overlap routinely - approving a top-up
@@ -336,7 +349,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
 
   const fetchData = async (currentSession: Session) => {
     setIsDataLoading(true);
-    const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData, topupCount] = await track(Promise.all([
+    const [settings, bRes, tRes, usersData, txAdminData, userBal, txUserData, topupCount, annRes] = await track(Promise.all([
       getSystemSettings(),
       getBroadcasts(),
       getTickets(),
@@ -344,7 +357,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
       currentSession.role === "admin" ? getAllTransactions() : Promise.resolve(null),
       currentSession.role !== "admin" ? getUserBalance() : Promise.resolve(null),
       currentSession.role !== "admin" ? getUserTransactions() : Promise.resolve(null),
-      currentSession.role === "admin" ? getTopupPendingCount() : Promise.resolve(0)
+      currentSession.role === "admin" ? getTopupPendingCount() : Promise.resolve(0),
+      currentSession.role !== "admin" ? getMyAnnouncements() : Promise.resolve(null)
     ]));
 
     if (settings) {
@@ -359,6 +373,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
     } else {
       setBalance(userBal || 0);
       if (txUserData) setTransactions(txUserData);
+      if (annRes && !("error" in annRes)) setAnnouncements(annRes.data || []);
     }
 
     if (bRes?.data) setOrders(bRes.data.map((b: any, i: number) => mapBroadcast(b, i)));
@@ -599,7 +614,18 @@ export default function PortalApp({ portal }: { portal: Role }) {
   }
   if (session.role !== portal) return <WrongPortal role={session.role} portal={portal} onSignOut={logout} />;
 
-  const nav: Array<[string, string]> = [["Dashboard", "grid"], ["New broadcast", "plus"], ["My broadcasts", "radio"], ["Add funds", "indian-rupee"], ["Support", "help"], ["Settings", "settings"]];
+  const nav: Array<[string, string]> = [["Dashboard", "grid"], ["New broadcast", "plus"], ["My broadcasts", "radio"], ["Messages", "bell"], ["Add funds", "indian-rupee"], ["Support", "help"], ["Settings", "settings"]];
+
+  /**
+   * Clear the blink. The receipts are written server-side against the caller's own id; the
+   * local list is updated from the same ids rather than re-fetched, so the badge goes out the
+   * moment the box is opened instead of a round trip later.
+   */
+  const readMessages = async (ids: string[]) => {
+    if (!ids.length) return;
+    setAnnouncements(list => list.map(a => (ids.includes(a.id) ? { ...a, unread: false } : a)));
+    await track(markAnnouncementsRead(ids));
+  };
 
   const goTo = (label: string) => {
     setIsMobileMenuOpen(false);
@@ -679,7 +705,16 @@ export default function PortalApp({ portal }: { portal: Role }) {
           <Image className="sidebar-logo" src="/bulkshout-logo.png" alt="BulkShout Panel" width={719} height={120} priority />
         </div>
         <div className="workspace"><span className="company-dot">{session.name.slice(0, 1).toUpperCase()}</span><span>{session.company || session.name}</span></div>
-        <nav>{nav.map(([label, icon]) => <button key={label} onClick={() => goTo(label)} className={view === label ? "active" : ""}><Icon name={icon}/>{label}</button>)}</nav>
+        {/* The unread count rides on the Messages entry and blinks until the box is opened,
+            so a message is noticed from whichever screen the customer is on. */}
+        <nav>{nav.map(([label, icon]) => (
+          <button key={label} onClick={() => goTo(label)} className={view === label ? "active" : ""}>
+            <Icon name={icon}/>{label}
+            {label === "Messages" && unreadMessages > 0 && (
+              <span className="nav-unread" aria-label={`${unreadMessages} unread`}>{unreadMessages}</span>
+            )}
+          </button>
+        ))}</nav>
         <div className="sidebar-bottom">
           <div className="help-card">
             <span className="help-symbol">?</span>
@@ -696,6 +731,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
         <header>
           <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(true)}>
             <Icon name="menu" size={24} />
+            {/* The sidebar badge is behind this button on a phone, so the signal repeats here. */}
+            {unreadMessages > 0 && <span className="nav-unread-dot" aria-hidden="true" />}
           </button>
           <Image className="mobile-brand" src="/bulkshout-logo.png" alt="BulkShout" width={719} height={120} priority />
           <div className="header-actions">
@@ -716,6 +753,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
               these are display filters only - matched case-insensitively because an email
               typed with different casing used to hide a customer's own records. */}
           <CustomerPage
+            announcements={announcements}
+            onReadMessages={readMessages}
             view={view}
             orders={orders.filter(o => String(o.email || '').toLowerCase() === session.email.toLowerCase())}
             tickets={tickets}
@@ -1379,7 +1418,7 @@ function CustomerSettings({ session, onProfileSaved }: { session: Session; onPro
   );
 }
 
-function CustomerPage({ view, orders, tickets, transactions, setView, create, ticket, select, selectTicket, session, balance, onCredited, onProfileSaved }: { view: string; orders: Order[]; tickets: Ticket[]; transactions: any[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number; onCredited: () => void; onProfileSaved: (p: { name: string; company: string }) => void }) {
+function CustomerPage({ view, orders, tickets, transactions, setView, create, ticket, select, selectTicket, session, balance, onCredited, onProfileSaved, announcements, onReadMessages }: { announcements: CustomerAnnouncement[]; onReadMessages: (ids: string[]) => void; view: string; orders: Order[]; tickets: Ticket[]; transactions: any[]; setView: (v: string) => void; create: () => void; ticket: () => void; select: (o: Order) => void; selectTicket: (t: Ticket) => void; session: Session; balance: number; onCredited: () => void; onProfileSaved: (p: { name: string; company: string }) => void }) {
   if (view === "My broadcasts") {
     return (
       <>
@@ -1404,6 +1443,15 @@ function CustomerPage({ view, orders, tickets, transactions, setView, create, ti
             <button className="outline" onClick={ticket}>Raise a ticket</button>
           </aside>
         </section>
+      </>
+    );
+  }
+
+  if (view === "Messages") {
+    return (
+      <>
+        <Heading eyebrow="CUSTOMER PANEL" title="Messages" text="Updates and notices from the BulkShout team."/>
+        <Messages announcements={announcements} onRead={onReadMessages}/>
       </>
     );
   }
@@ -1867,6 +1915,10 @@ function AdminPage({ view, orders, tickets, users, transactions, price, setPrice
   }
   if (viewName === "Support desk") return <><Heading eyebrow="ADMIN CONSOLE" title="Support desk" text="Prioritize, reply to, and close customer conversations."/><section className="panel data-panel"><TicketTable tickets={tickets} admin onSelect={selectTicket}/></section></>;
   
+  if (viewName === "Notifications") {
+    return <Announcements />;
+  }
+
   if (viewName === "Staff") {
     return (
       <>

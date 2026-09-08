@@ -274,6 +274,14 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
 
   const heroWord = HERO_WORDS[heroWordIndex];
 
+  /**
+   * wa.me accepts digits only - no +, spaces or dashes - and silently fails on anything else,
+   * so an operator who types "+91 98765 43210" into Site settings would get a floating button
+   * that goes nowhere. Stripped here rather than on save, so numbers already stored in any
+   * format still work.
+   */
+  const waNumber = (whatsappNumber || "").replace(/\D/g, "");
+
   return (
     <main className="landing-page">
       <header className="landing-header">
@@ -393,9 +401,9 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
         </div>
       </footer>
 
-      {whatsappNumber && (
+      {waNumber && (
         <a 
-          href={`https://wa.me/${whatsappNumber}`}
+          href={`https://wa.me/${waNumber}`}
           target="_blank" 
           rel="noopener noreferrer" 
           className="whatsapp-widget"

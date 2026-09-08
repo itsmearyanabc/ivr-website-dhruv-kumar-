@@ -135,3 +135,13 @@ export function hasActivityLogTable() {
 export function hasDailyStatisticsTable() {
   return probeTable('daily_statistics')
 }
+
+/**
+ * True once the announcement tables exist.
+ *
+ * Without them the panel shows no messages and the badge never appears, rather than every
+ * customer's dashboard failing on a query for a table that is not there yet.
+ */
+export function hasAnnouncementsTable() {
+  return probeTable('announcements')
+}

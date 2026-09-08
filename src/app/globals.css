@@ -2103,6 +2103,103 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   .top-progress::before { animation: none; width: 100%; opacity: .55; }
 }
 
+/* ------------------------------------------------------------
+   Customer messages: the unread badge, and the message box
+   ------------------------------------------------------------ */
+
+/* The count on the sidebar's Messages entry. It pulses rather than sitting still, because a
+   static dot in a sidebar the customer has already learned to skim is not noticed - and stops
+   the moment the box is opened, which is the only thing it is asking for. Colour alone is not
+   carrying the message: the number is the label, and `aria-label` states it for a reader. */
+.nav-unread {
+  margin-left: auto; flex: none;
+  /* Amber, not the navy the rest of the panel is built from: this sits on the near-black
+     sidebar (--ink), where a navy chip is barely a shade off its own background. The status
+     accents are the one part of the palette kept loud, and being noticed is the entire job
+     of this element. */
+  background: var(--amber); color: #fff;
+  font-size: 10px; font-weight: 800; line-height: 1;
+  border-radius: 999px; padding: 3px 6px; min-width: 18px; text-align: center;
+  animation: nav-unread-pulse 1.4s ease-in-out infinite;
+}
+.sidebar nav button.active .nav-unread { background: #fff; color: var(--amber); animation: none; }
+@keyframes nav-unread-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(180, 83, 9, .55); }
+  50%      { opacity: .74; transform: scale(1.12); box-shadow: 0 0 0 5px rgba(180, 83, 9, 0); }
+}
+
+/* On a phone the sidebar is behind the menu button, so the badge above is out of sight until
+   the menu is opened. This puts the same signal on the button that opens it. */
+.mobile-menu-btn { position: relative; }
+.mobile-menu-btn .nav-unread-dot {
+  position: absolute; top: 4px; right: 4px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--amber);
+  animation: nav-unread-pulse 1.4s ease-in-out infinite;
+}
+
+.message-list { list-style: none; margin: 0; padding: 0; }
+.message-item {
+  display: flex; gap: 14px; padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.message-item:last-child { border-bottom: 0; }
+/* Unread is carried by the tinted ground and the rule down the edge as well as the "New"
+   chip, so it survives a screenshot in greyscale and does not rest on colour alone. */
+.message-item.unread { background: var(--red-soft); box-shadow: inset 3px 0 0 var(--red); }
+.message-mark {
+  flex: none; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--surface); color: var(--muted); border: 1px solid var(--line);
+}
+.message-item.unread .message-mark { background: var(--red); color: #fff; border-color: var(--red); }
+.message-body { min-width: 0; }
+.message-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.message-head strong { font-size: 14.5px; color: var(--text); }
+.message-new {
+  background: var(--red); color: #fff; font-size: 9.5px; font-weight: 800;
+  letter-spacing: .5px; text-transform: uppercase;
+  border-radius: 999px; padding: 3px 7px; line-height: 1;
+}
+/* The operator writes into a textarea, so their line breaks are the formatting. Rendered as
+   text by React, never as markup. */
+.message-text {
+  margin: 7px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--text);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.message-meta { display: block; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+
+.message-empty { padding: 54px 20px; text-align: center; color: var(--muted); }
+.message-empty svg { color: var(--red-line); }
+.message-empty h3 { margin: 12px 0 5px; font-size: 15px; color: var(--text); }
+.message-empty p { margin: 0; font-size: 13px; }
+
+/* ------------------------------------------------------------
+   Admin: compose a notification
+   ------------------------------------------------------------ */
+.notify-compose { padding: 0 0 18px; margin-bottom: 20px; }
+.notify-form { padding: 4px 20px 0; display: grid; gap: 14px; }
+.notify-form label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); }
+.notify-form input, .notify-form textarea {
+  width: 100%; margin-top: 6px; font-family: inherit; font-size: 13.5px;
+  padding: 11px 13px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text);
+}
+.notify-form textarea { resize: vertical; line-height: 1.55; }
+.notify-form input:focus, .notify-form textarea:focus { outline: 2px solid var(--red-line); outline-offset: -1px; }
+.notify-count { display: block; margin-top: 5px; text-align: right; font-size: 11px; color: var(--muted); font-weight: 600; }
+.notify-actions { display: flex; justify-content: flex-end; }
+/* The whole message in the table would set the row height by its longest paragraph, so it is
+   held to two lines - the table is an index, and the text is already on the customer's screen. */
+.notify-preview {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; white-space: pre-wrap; color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-unread, .mobile-menu-btn .nav-unread-dot { animation: none; }
+}
+
 /* Visually hidden, still announced. */
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
