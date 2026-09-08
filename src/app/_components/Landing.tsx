@@ -79,23 +79,51 @@ const HERO_WORDS = ["broadcast", "campaign", "order"];
 /**
  * Logarithmic slider helpers.
  *
- * A linear slider across 100 → 5 crore is unusable: the first 50k occupies 0.1% of the track.
- * Mapping through log₁₀ spreads the range evenly across orders of magnitude, so 100, 1k, 10k,
- * 1 lakh, 10 lakh, 1 crore and 5 crore each get roughly equal thumb travel.
+ * A linear slider across 1 → 5 crore is unusable: the first 50k occupies 0.1% of the track.
+ * This piece-wise exponential scale ensures the thumb precisely aligns with the visible scale
+ * labels while providing a smooth dragging experience through dynamic rounding.
  */
-const LOG_MIN = Math.log10(CALLS_MIN);
-const LOG_MAX = Math.log10(CALLS_MAX);
+const SCALE_STOPS = [1, 100, 10_000, 100_000, 10_000_000, 50_000_000];
+
 /** Slider position (0-1000) → actual call count. */
 function fromSliderPos(pos: number): number {
-  const logVal = LOG_MIN + (pos / 1000) * (LOG_MAX - LOG_MIN);
-  // Round to nearest 100 so the number never shows odd trailing digits.
-  return Math.round(Math.pow(10, logVal) / 100) * 100;
+  if (pos <= 0) return SCALE_STOPS[0];
+  if (pos >= 1000) return SCALE_STOPS[SCALE_STOPS.length - 1];
+  
+  const segmentLen = 1000 / (SCALE_STOPS.length - 1);
+  const segment = pos / segmentLen;
+  const i = Math.floor(segment);
+  const t = segment - i;
+  
+  const logVal = Math.log10(SCALE_STOPS[i]) * (1 - t) + Math.log10(SCALE_STOPS[i + 1]) * t;
+  const val = Math.pow(10, logVal);
+  
+  // Dynamic rounding for a buttery smooth slider that doesn't jump
+  if (val < 10) return Math.round(val);
+  if (val < 100) return Math.round(val / 5) * 5;
+  if (val < 1000) return Math.round(val / 10) * 10;
+  if (val < 10000) return Math.round(val / 100) * 100;
+  if (val < 100000) return Math.round(val / 1000) * 1000;
+  if (val < 1000000) return Math.round(val / 10000) * 10000;
+  return Math.round(val / 100000) * 100000;
 }
+
 /** Actual call count → slider position (0-1000). */
 function toSliderPos(calls: number): number {
-  const clamped = Math.max(CALLS_MIN, Math.min(CALLS_MAX, calls));
-  // At CALLS_MIN=1, log10(1) = 0.
-  return ((Math.log10(clamped) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * 1000;
+  if (calls <= SCALE_STOPS[0]) return 0;
+  if (calls >= SCALE_STOPS[SCALE_STOPS.length - 1]) return 1000;
+  
+  const segmentLen = 1000 / (SCALE_STOPS.length - 1);
+  for (let i = 0; i < SCALE_STOPS.length - 1; i++) {
+    if (calls >= SCALE_STOPS[i] && calls <= SCALE_STOPS[i + 1]) {
+      const logMin = Math.log10(SCALE_STOPS[i]);
+      const logMax = Math.log10(SCALE_STOPS[i + 1]);
+      const logVal = Math.log10(calls);
+      const t = (logVal - logMin) / (logMax - logMin);
+      return (i + t) * segmentLen;
+    }
+  }
+  return 1000;
 }
 
 type PricedService = {
