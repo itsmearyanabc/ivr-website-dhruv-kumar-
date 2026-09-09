@@ -2343,6 +2343,23 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   overflow: hidden; text-overflow: ellipsis;
 }
 
+/* The SMS / CALLS switch reuses .segmented, which is written for the light --canvas ground a
+   segmented control normally sits on: its unselected label is --muted, a mid grey. Dropped
+   onto .calc-tier's navy pill that grey reads at 1.6:1 against its own background - the
+   unselected half of the switch was effectively invisible. Both halves are restated here for
+   the dark ground: a legible off-white when unselected, and the existing white chip when not.
+   .calc-tier's own padding and border are dropped too, since the buttons bring their own. */
+.calc-tier.segmented {
+  display: inline-flex; gap: 2px; padding: 3px; border: 0;
+  background: var(--red); overflow: visible;
+}
+.calc-tier.segmented button {
+  color: rgba(255, 255, 255, .82); letter-spacing: .6px; text-transform: uppercase;
+  border-radius: 99px;
+}
+.calc-tier.segmented button:hover { color: #fff; }
+.calc-tier.segmented button.on { background: #fff; color: var(--red-dark); }
+
 /* Styled on both engines rather than relying on one: an unstyled range input falls back to
    the platform blue, which is the one colour this palette does not contain. */
 .calc-slider {
@@ -2382,6 +2399,13 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .calc-figure-label {
   display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
   text-transform: uppercase; color: var(--muted); margin-bottom: 7px;
+}
+/* The per-unit breakdown under the total. It arrived as an unstyled <span>, so it rendered at
+   full body size in body-strength text and competed with the figure above it - this is the
+   muted treatment the line had when it was a <small>. */
+.rate-breakdown {
+  display: block; margin-top: 5px; font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 .calc-total strong {
   display: block; font-size: 28px; font-weight: 700; letter-spacing: -.8px; color: var(--red);

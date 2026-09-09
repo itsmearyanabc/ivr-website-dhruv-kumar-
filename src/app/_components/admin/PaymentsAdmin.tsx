@@ -665,9 +665,18 @@ function PaymentMethodSettings() {
                 className={`mode-option ${mode === "DECENTRO" ? "on" : ""}`}
                 onClick={() => setMode("DECENTRO")}
               >
-                <Icon name="activity" size={18} />
-                <strong>Decentro bank lookup</strong>
-                <small>The backend queries your bank statement API for the UTR and amount. Requires DECENTRO_* server credentials.</small>
+                <Icon name="bolt" size={18} />
+                <strong>Decentro Lookup</strong>
+                <small>Checks the bank directly. Requires active Decentro credentials in the server environment.</small>
+              </button>
+              <button
+                type="button"
+                className={`mode-option ${mode === "GENERIC_UPI" ? "on" : ""}`}
+                onClick={() => setMode("GENERIC_UPI")}
+              >
+                <Icon name="globe" size={18} />
+                <strong>BharatPe / Generic UPI</strong>
+                <small>Checks UTRs against an external UPI gateway using Merchant ID and Token in the server environment.</small>
               </button>
             </div>
 

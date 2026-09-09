@@ -172,7 +172,7 @@ async function runUpdatePaymentMethod(formData: FormData) {
   // Uploaded straight to storage by the browser; this is just the resulting key.
   const qrUploadKey = String(formData.get('qr_image_key') || '')
 
-  if (!['MANUAL', 'DECENTRO'].includes(verificationMode)) {
+  if (!['MANUAL', 'DECENTRO', 'GENERIC_UPI'].includes(verificationMode)) {
     return { error: 'Unsupported verification mode.' }
   }
   if (!Number.isFinite(minAmount) || minAmount <= 0) {
@@ -194,6 +194,13 @@ async function runUpdatePaymentMethod(formData: FormData) {
     return {
       error:
         'Decentro credentials are missing on the server. Set the DECENTRO_* environment variables before selecting this mode.',
+    }
+  }
+
+  if (verificationMode === 'GENERIC_UPI' && !getVerifier('GENERIC_UPI').isConfigured) {
+    return {
+      error:
+        'UPI Gateway credentials are missing on the server. Set the UPI_GATEWAY_* environment variables before selecting this mode.',
     }
   }
 

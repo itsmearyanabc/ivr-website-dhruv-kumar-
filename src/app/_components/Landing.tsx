@@ -162,6 +162,7 @@ type PricedService = {
   unit_quantity?: number | null;
   min_quantity?: number | null;
   max_quantity?: number | null;
+  categoryName?: string;
 };
 
 /** Strips the operator's internal prefix so a badge reads "500 Calls", not "Min: 500 Calls". */
@@ -172,6 +173,7 @@ function serviceLabel(name: string): string {
 function CallCalculator() {
   const [services, setServices] = useState<PricedService[]>([]);
   const [calls, setCalls] = useState(5000);
+  const [calcMode, setCalcMode] = useState<"CALLS" | "SMS">("CALLS");
   const [pointerTilt, setPointerTilt] = useState({ x: 0, y: 0, rotateX: 0, rotateY: 0 });
 
   useEffect(() => {
@@ -180,12 +182,15 @@ function CallCalculator() {
       .then(res => {
         if (!alive) return;
         const found: PricedService[] = [];
-        const cats = (res.data || []) as Array<{ services?: PricedService[] }>;
+        const cats = (res.data || []) as Array<{ name?: string, services?: PricedService[] }>;
         for (const cat of cats) {
           for (const svc of cat.services || []) {
             // Flat-priced services are left out: a fixed fee per order cannot be scaled to an
             // arbitrary number of calls, so it has nothing to say on this slider.
-            if (isQuantityPriced(svc)) found.push(svc);
+            if (isQuantityPriced(svc)) {
+              svc.categoryName = cat.name || "";
+              found.push(svc);
+            }
           }
         }
         setServices(found);
@@ -194,21 +199,25 @@ function CallCalculator() {
     return () => { alive = false; };
   }, []);
 
-  /** The service a customer would pick for this many calls: the cheapest that will take it. */
   const match = useMemo(() => {
-    const eligible = services.filter(svc => {
-      const min = Number(svc.min_quantity || 0);
-      const max = Number(svc.max_quantity || 0);
-      if (min > 0 && calls < min) return false;
-      if (max > 0 && calls > max) return false;
-      return true;
-    });
-    if (!eligible.length) return null;
+    let best: { svc: PricedService; cost: number } | null = null;
+    for (const svc of services) {
+      // Filter by the selected mode: SMS services for SMS, everything else for CALLS.
+      const isSmsService = svc.categoryName?.toUpperCase().includes("SMS");
+      if (calcMode === "SMS" && !isSmsService) continue;
+      if (calcMode === "CALLS" && isSmsService) continue;
 
-    return eligible
-      .map(svc => ({ svc, total: quoteTotal(svc, calls), rate: unitRate(svc) }))
-      .sort((a, b) => a.total - b.total)[0];
-  }, [services, calls]);
+      const max = svc.max_quantity || Infinity;
+      const min = svc.min_quantity || 1;
+      if (calls >= min && calls <= max) {
+        const cost = quoteTotal(svc, calls);
+        if (!best || cost < best.cost) {
+          best = { svc, cost };
+        }
+      }
+    }
+    return best;
+  }, [services, calls, calcMode]);
 
   const money = (n: number) =>
     `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -243,9 +252,12 @@ function CallCalculator() {
         <div className="calc-readout">
           <div className="calc-calls">
             <strong>{calls.toLocaleString("en-IN")}</strong>
-            <span>calls</span>
+            <span>{calcMode === 'SMS' ? 'SMS' : 'calls'}</span>
           </div>
-          <span className="calc-tier">CALLS</span>
+          <div className="segmented tight calc-tier">
+            <button type="button" className={calcMode === 'SMS' ? 'on' : ''} onClick={() => setCalcMode('SMS')}>SMS</button>
+            <button type="button" className={calcMode === 'CALLS' ? 'on' : ''} onClick={() => setCalcMode('CALLS')}>CALLS</button>
+          </div>
         </div>
 
         {/* Logarithmic slider: the track covers 0–1000 internal units, mapped through
@@ -260,7 +272,7 @@ function CallCalculator() {
           value={toSliderPos(calls)}
           onChange={e => setCalls(fromSliderPos(Number(e.target.value)))}
           style={{ ["--fill" as string]: `${(toSliderPos(calls) / 1000) * 100}%` }}
-          aria-label="Number of calls"
+          aria-label={`Number of ${calcMode === 'SMS' ? 'SMS messages' : 'calls'}`}
         />
         <div className="calc-scale">
           <span>1</span><span>100</span><span>10k</span><span>1L</span><span>1Cr</span><span>5Cr</span>
@@ -268,14 +280,21 @@ function CallCalculator() {
 
         <div className="calc-total">
           <span className="calc-figure-label">Estimated cost</span>
-          <strong>{match ? money(match.total) : "—"}</strong>
-          <small>
-            {match
-              ? `${calls.toLocaleString("en-IN")} calls at ₹${match.rate.toFixed(2)} each`
-              : services.length
+          {/* money(), not toFixed: this is the largest number on the card and toFixed drops
+              the grouping, so a three-lakh estimate rendered as ₹300000.00 directly under a
+              call count that still read 5,00,00,000. */}
+          <strong className="amount">{match ? money(match.cost) : "—"}</strong>
+          {match && <span className="rate-breakdown">{calls.toLocaleString("en-IN")} {calcMode === 'SMS' ? 'SMS' : 'calls'} at ₹{unitRate(match.svc).toFixed(2)} each</span>}
+          {/* Only rendered when there is something to say. As an unconditional <small> it
+              still took its display:block and margin, leaving a strip of dead space under
+              every successful quote. */}
+          {!match && (
+            <small>
+              {services.length
                 ? "No service covers a campaign this size yet."
                 : "Loading current pricing…"}
-          </small>
+            </small>
+          )}
         </div>
 
         <p className="calc-note">

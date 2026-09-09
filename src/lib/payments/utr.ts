@@ -19,7 +19,7 @@ export type VerificationState =
   | 'NOT_FOUND'
   | 'ERROR';
 
-export type VerificationMode = 'MANUAL' | 'DECENTRO';
+export type VerificationMode = 'MANUAL' | 'DECENTRO' | 'GENERIC_UPI';
 
 export interface UtrVerificationRequest {
   /** 12-digit UTR exactly as the customer typed it (already format-validated). */
@@ -224,10 +224,107 @@ const decentroVerifier: UtrVerifier = {
     }
   },
 };
+// ---------------------------------------------------------------------------------------
+// Generic UPI UTR Verifier (BharatPe Unofficial / Aggregator)
+// ---------------------------------------------------------------------------------------
+
+const genericUpiVerifier: UtrVerifier = {
+  mode: 'GENERIC_UPI',
+
+  get isConfigured(): boolean {
+    return Boolean(
+      process.env.UPI_GATEWAY_URL &&
+      process.env.UPI_GATEWAY_MERCHANT_ID &&
+      process.env.UPI_GATEWAY_TOKEN
+    );
+  },
+
+  async verify({ utr, amount }: UtrVerificationRequest): Promise<UtrVerificationResult> {
+    if (!genericUpiVerifier.isConfigured) {
+      return {
+        state: 'ERROR',
+        note: 'UPI Gateway credentials (URL, Merchant ID, Token) are not configured in environment variables.',
+      };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+
+    try {
+      const payload = {
+        merchant_id: process.env.UPI_GATEWAY_MERCHANT_ID,
+        token: process.env.UPI_GATEWAY_TOKEN,
+        utr: utr,
+      };
+
+      const response = await fetch(process.env.UPI_GATEWAY_URL!, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        return {
+          state: 'ERROR',
+          note: `Gateway lookup failed with status ${response.status}. Verify manually.`,
+        };
+      }
+
+      const data = await response.json();
+
+      // Common shapes: { status: "SUCCESS", amount: 500 } or { status: "true", data: { amount: 500 } }
+      // This is a generic adapter, so we gracefully handle common success structures.
+      const isSuccess = data.status === 'SUCCESS' || data.status === true || data.status === 'true';
+      
+      if (!isSuccess) {
+        return {
+          state: 'NOT_FOUND',
+          note: data.message || 'No bank credit found against this UTR via gateway.',
+        };
+      }
+
+      const actualAmount = Number(data.amount || data.data?.amount || data.transactionAmount);
+      
+      if (!Number.isFinite(actualAmount)) {
+        return {
+          state: 'ERROR',
+          note: 'Gateway returned a success status but without a readable amount. Verify manually.',
+        };
+      }
+
+      if (!amountsMatch(amount, actualAmount)) {
+        return {
+          state: 'AMOUNT_MISMATCH',
+          verifiedAmount: actualAmount,
+          note: `Gateway received Rs ${actualAmount.toFixed(2)} but Rs ${amount.toFixed(2)} was claimed.`,
+        };
+      }
+
+      return {
+        state: 'MATCHED',
+        verifiedAmount: actualAmount,
+        note: `Gateway credit of Rs ${actualAmount.toFixed(2)} matched against this UTR.`,
+      };
+    } catch (error: unknown) {
+      const aborted = error instanceof Error && error.name === 'AbortError';
+      return {
+        state: 'ERROR',
+        note: aborted
+          ? 'Gateway lookup timed out. Verify manually.'
+          : 'Gateway lookup could not be completed. Verify manually.',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+};
 
 const VERIFIERS: Record<VerificationMode, UtrVerifier> = {
   MANUAL: manualVerifier,
   DECENTRO: decentroVerifier,
+  GENERIC_UPI: genericUpiVerifier,
 };
 
 export function getVerifier(mode: string | null | undefined): UtrVerifier {

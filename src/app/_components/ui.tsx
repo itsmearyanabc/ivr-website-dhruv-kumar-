@@ -53,6 +53,8 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
     payments: <><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20M6 14h4"/></>,
     support: <><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.6 2.6 0 1 1 4.58 1.68c-1.15 1.06-2.08 1.38-2.08 3.32M12 17h.01"/></>,
     history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/></>,
+    bolt: <><path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9Z"/></>,
+    globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.8 3.8 9S14.5 18.3 12 21c-2.5-2.7-3.8-5.8-3.8-9S9.5 5.7 12 3Z"/></>,
   };
   // An unknown name would otherwise render an empty <svg>, which reads as a broken button.
   const glyph = p[name] || p.info;
