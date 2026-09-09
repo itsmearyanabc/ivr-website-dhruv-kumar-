@@ -5,7 +5,7 @@
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
-import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts, getBroadcastHistory } from "@/app/actions/broadcasts";
+import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts, getBroadcastHistory, getBroadcastTtsText } from "@/app/actions/broadcasts";
 import { getTickets, createTicket, updateTicketStatus } from "@/app/actions/tickets";
 import { getSystemSettings, updatePricePerCall, updateWhatsappNumber } from "@/app/actions/settings";
 import { getMyAnnouncements, markAnnouncementsRead, type CustomerAnnouncement } from "@/app/actions/announcements";
@@ -48,6 +48,7 @@ import {
   isAllowedReportName,
   REPORT_ACCEPT,
   REPORT_TYPES_LABEL,
+  isTtsKey,
 } from "@/lib/uploads";
 import { sanitiseDecimalInput } from "@/lib/decimalInput";
 import { calculateFailedCallRefund } from "@/lib/refunds";
@@ -3806,6 +3807,30 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
   }, [order.id, order.contactsInputType]);
 
   /**
+   * The text-to-speech script, for an order that carries words rather than a recording.
+   *
+   * A TTS order stores the customer's script as a .txt object in storage, so the modal only
+   * ever offered it as a "Download audio" button - an operator had to download and open a
+   * text file to find out what they were meant to record, and an order whose script was the
+   * whole brief looked on screen as though nothing had been supplied. Fetched on demand for
+   * the same reason as the contact list above.
+   */
+  const isTtsOrder = isTtsKey(order.audioKey);
+  const [ttsScript, setTtsScript] = useState<string | null>(isTtsOrder ? null : '');
+
+  useEffect(() => {
+    if (!isTtsOrder) return;
+    let mounted = true;
+    (async () => {
+      const res = await getBroadcastTtsText(order.id);
+      if (!mounted) return;
+      const failed = res && typeof res === 'object' && 'error' in res && res.error;
+      setTtsScript(failed ? `(${res.error})` : ((res as { data?: string }).data || ''));
+    })();
+    return () => { mounted = false; };
+  }, [order.id, isTtsOrder]);
+
+  /**
    * The status timeline, fetched when the modal opens rather than carried on every row of the
    * orders list. Same reason as the contact list above: it is a one-to-many join that only
    * this modal renders, and it was being paid for on every load of the panel.
@@ -4016,7 +4041,13 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
           <div>
             <small>Audio asset</small>
             {order.audioKey ? (
-              <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download audio</button>
+              isTtsOrder ? (
+                /* Calling a script "Download audio" is what made a TTS order look like it
+                   had no audio at all. The words themselves are shown below. */
+                <strong>Text to speech (script below)</strong>
+              ) : (
+                <button className="text-button" onClick={() => handleDownload(order.audioKey!)} title={order.audioKey}><Icon name="download" size={14}/>Download audio</button>
+              )
             ) : <span className="text-muted">No file</span>}
           </div>
           <div>
@@ -4032,6 +4063,20 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
         {/* Display manual contacts to admin or customer if text paste was used. Loaded on
             demand: a pasted list can run to tens of thousands of numbers and does not belong
             in the payload of every screen that lists this order. */}
+        {/* The words to record, shown rather than buried in a downloadable .txt. */}
+        {isTtsOrder && (
+          <div className="detail-note">
+            <strong>Text-to-speech script{order.voiceType ? ` · ${order.voiceType === 'FEMALE' ? 'Female' : 'Male'} voice` : ''}</strong>
+            {ttsScript === null ? (
+              <p className="text-muted">Loading script…</p>
+            ) : ttsScript.trim() ? (
+              <textarea readOnly rows={5} value={ttsScript} className="mono readonly"/>
+            ) : (
+              <p className="text-muted">No script was saved against this order.</p>
+            )}
+          </div>
+        )}
+
         {order.contactsInputType === 'MANUAL' && (
           <div className="detail-note">
             <strong>Target phone numbers (text paste)</strong>

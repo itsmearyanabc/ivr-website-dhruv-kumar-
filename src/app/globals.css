@@ -2441,6 +2441,29 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
    has to be read as a paragraph to land, and a card grid would flatten it into a feature. */
 .landing-proof-lead { max-width: 72ch; margin-bottom: 30px; }
 .landing-proof-lead h2 { margin-bottom: 16px; }
+
+/* The rotating state in the proof heading. Fixed width for the same reason the hero used to
+   be: nothing after it may shuffle as the phrase changes - here that is the full stop, which
+   would otherwise hop with every rotation. The three phrases are within a character of each
+   other, so the reserved box is barely wider than any one of them. */
+.proof-word-window {
+  display: inline-flex; justify-content: flex-start; vertical-align: baseline;
+  color: var(--red);
+}
+/* The full stop rides inside the window, immediately after the phrase, so it stays against
+   whichever phrase is showing. Reserving a fixed box for the widest phrase instead pinned the
+   stop but made the box too wide to sit on the line at 375px - the heading took a third line
+   and the full stop wrapped onto it alone. With the stop carried along there is nothing after
+   it to shuffle, so the window can simply size to its content. */
+.proof-word-punct { color: var(--text); }
+.proof-word { display: inline-block; animation: proof-word-arrive .24s ease-out both; }
+@keyframes proof-word-arrive {
+  from { opacity: 0; transform: translateY(-55%); filter: blur(3px); }
+  to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .proof-word { animation: none; }
+}
 .landing-proof-lead p { margin: 0 0 14px; font-size: 15px; line-height: 1.7; color: var(--muted); }
 .landing-proof-lead strong { color: var(--text); font-weight: 700; }
 .landing-proof-list { list-style: none; margin: 22px 0 0; padding: 0; display: grid; gap: 11px; }
@@ -2514,7 +2537,11 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 
 @media (max-width: 880px) {
   .landing-hero { grid-template-columns: 1fr; gap: 34px; padding-top: 40px; }
-  .landing-hero-art { order: -1; }
+  /* The estimator used to be pulled above the copy on a narrow screen. That put a price in
+     front of a visitor who had not yet been told what the product is - on a phone the
+     headline and the two buttons were below the fold, under a slider. Source order now
+     stands: copy, then the estimator. The desktop grid is unaffected, since it places the
+     two side by side. */
 }
 
 /* The BulkShout wordmark. Sized by height so the aspect ratio is the file's own, and capped

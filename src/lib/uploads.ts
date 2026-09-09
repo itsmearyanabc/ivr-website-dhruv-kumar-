@@ -20,6 +20,23 @@ export const STORAGE_BUCKET = 'xpack_files';
 
 export type UploadKind = 'audio' | 'contacts' | 'report' | 'qr';
 
+/**
+ * Whether an order's `audio_key` points at a text-to-speech script rather than a recording.
+ *
+ * A TTS order has no audio file. createBroadcast writes the customer's script to a small
+ * .txt object at `audio/<user id>/tts-<uuid>.txt` and stores that as the audio key, so the
+ * shape of the key is the only record that this order is a script to be read rather than a
+ * file to be played - the broadcasts table has no column saying which it was.
+ *
+ * Lives here, beside the bucket the keys belong to, because both the browser (deciding
+ * whether to offer a download or show the words) and the server (deciding whether to fetch
+ * the object) have to agree on the answer.
+ */
+export function isTtsKey(key: string | null | undefined): boolean {
+  if (!key) return false;
+  return /(^|\/)tts-[^/]*\.txt$/i.test(key);
+}
+
 export const UPLOAD_LIMITS = {
   /**
    * Campaign audio - uncapped by product decision.

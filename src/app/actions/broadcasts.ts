@@ -4,7 +4,7 @@
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { logActivity, describeActor } from '@/lib/activity'
-import { STORAGE_BUCKET } from '@/lib/uploads'
+import { STORAGE_BUCKET, isTtsKey } from '@/lib/uploads'
 import { consumeUploadedKey, discardUpload } from '@/lib/storage'
 import { resolveServicePrice, serviceIsQuantityPriced } from '@/lib/pricing'
 import { countNumbers } from '@/lib/quantity'
@@ -171,6 +171,51 @@ export async function getBroadcastContacts(referenceNo: string) {
   }
 
   return { data: data?.manual_contacts || '' }
+}
+
+/**
+ * The script behind a text-to-speech order.
+ *
+ * A TTS order carries no audio file: the customer's script is written to a small .txt object
+ * in storage and `audio_key` points at it. The order screen only ever offered that key as a
+ * "Download audio" button, so the one thing an operator needs in order to fulfil the job -
+ * the words to record - was a file download that opened as a text file, and read on the
+ * screen as if no script had been supplied at all.
+ *
+ * Fetched on demand rather than carried on every order, for the same reason as
+ * getBroadcastContacts: it is unbounded operator-supplied text that has no business in the
+ * payload of every screen that lists orders.
+ */
+export async function getBroadcastTtsText(referenceNo: string) {
+  return guard('getBroadcastTtsText', async () => {
+    const isAdmin = await checkIsAdmin()
+
+    const user = await getAuthUser()
+    if (!user) return { error: 'Unauthorized' }
+
+    const supabase = await createServiceRoleClient()
+
+    let query = supabase
+      .from('broadcasts')
+      .select('audio_key')
+      .eq('reference_no', referenceNo)
+
+    // Scoped to the caller for a customer, so a guessed reference number returns nothing
+    // rather than someone else's script.
+    if (!isAdmin) query = query.eq('user_id', user.id)
+
+    const { data, error } = await query.maybeSingle()
+    if (error || !data?.audio_key) return { data: '' }
+    if (!isTtsKey(data.audio_key)) return { data: '' }
+
+    const file = await supabase.storage.from(STORAGE_BUCKET).download(data.audio_key)
+    if (file.error || !file.data) {
+      console.error('getBroadcastTtsText download error:', file.error)
+      return { error: 'Could not load the script for this order.' }
+    }
+
+    return { data: await file.data.text() }
+  })
 }
 
 export async function createBroadcast(formData: FormData) {

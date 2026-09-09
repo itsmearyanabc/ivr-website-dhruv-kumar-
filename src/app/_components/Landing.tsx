@@ -27,6 +27,15 @@ import { isQuantityPriced, quoteTotal, unitRate } from "@/lib/quantity";
  * one bills per call answered. It sits directly after the hero rather than further down,
  * because it is the reason to keep reading.
  */
+/**
+ * The three ways a call fails to connect, rotated through the proof heading.
+ *
+ * The verb rides inside each phrase rather than sitting in the sentence, because the third
+ * state is a verb phrase: "a number IS UNREACHABLE" and "a number DOESN'T PICK UP" are both
+ * grammatical, while a fixed "is" in the heading would leave "a number is doesn't pick up".
+ */
+const PROOF_STATES = ["IS SWITCHED-OFF", "IS UNREACHABLE", "DOESN’T PICK UP"];
+
 const PROOF_POINTS = [
   "No wasted budget on dead numbers",
   "A campaign of 10,000 calls means 10,000 chances to reach someone — not 10,000 charges regardless of outcome",
@@ -312,6 +321,17 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
   onSignUp: () => void;
   whatsappNumber?: string;
 }) {
+  const [proofIndex, setProofIndex] = useState(0);
+
+  useEffect(() => {
+    const rotation = window.setInterval(() => {
+      setProofIndex(current => (current + 1) % PROOF_STATES.length);
+    }, 1800);
+    return () => window.clearInterval(rotation);
+  }, []);
+
+  const proofState = PROOF_STATES[proofIndex];
+
   /** "See live pricing" takes the visitor to the estimator rather than to another page. */
   const showPricing = () => {
     document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -407,7 +427,13 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
           burying it below the feature grid is what every competitor does. */}
       <section className="landing-section landing-proof">
         <div className="landing-proof-lead">
-          <h2>You don’t pay for switched-off numbers. Full stop.</h2>
+          <h2>
+            You don’t pay when a number{" "}
+            <span className="proof-word-window" aria-live="polite">
+              <span className="proof-word" key={proofState}>{proofState}</span>
+              <span className="proof-word-punct">.</span>
+            </span>
+          </h2>
           <p>
             Most bulk voice call providers in India charge you for every number you upload —
             connected or not. If half your contact list is switched off, unreachable, or
