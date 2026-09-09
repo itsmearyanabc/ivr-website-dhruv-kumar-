@@ -8,6 +8,37 @@ Supabase is unchanged by any of this. The VPS runs the Next.js server only; auth
 file storage stay in the same Supabase project, so **there is no data migration involved in
 moving hosts**.
 
+> **This VPS already hosts other sites.** Several steps below would disturb them if run the
+> way a deployment guide normally writes them — `ufw enable` on a box whose firewall is off
+> can cut off whatever else is listening, `chown` on a shared web root changes ownership of
+> another app's files, and port 3000 may already be taken. Section 0 surveys the box first,
+> and every step after it is scoped to this app alone. Nothing here edits a config file that
+> another site owns.
+
+---
+
+## 0. Survey the box before changing anything
+
+```bash
+# What is already listening, and on which ports?
+sudo ss -tlnp
+
+# What is nginx already serving? Do not edit or remove any of these.
+ls -l /etc/nginx/sites-enabled/
+
+# What is already under pm2, and as which user?
+pm2 list
+
+# Is the firewall on? If it says "inactive", LEAVE IT INACTIVE (see section 6).
+sudo ufw status verbose
+```
+
+Two things to carry forward from that output:
+
+- **A free port.** The runbook uses **3000**; if `ss -tlnp` shows it taken, pick another
+  (3001, 3100, …) and use it consistently in sections 5 and 6.
+- **Whether ufw is active.** This decides which half of section 6 applies to you.
+
 ---
 
 ## 1. What the server needs
@@ -31,10 +62,13 @@ node -v   # must print v22.14 or newer
 ## 2. Get the code onto the box
 
 ```bash
-sudo mkdir -p /var/www && sudo chown "$USER" /var/www
-cd /var/www
-git clone https://github.com/itsmearyanabc/ivr-website-dhruv-kumar-.git bulkshout
-cd bulkshout/xpack
+# A directory of its own, owned by you. Note this does NOT chown /var/www itself - that
+# directory is shared with the other sites on this box and its ownership must not change.
+sudo mkdir -p /var/www/bulkshout
+sudo chown -R "$USER":"$USER" /var/www/bulkshout
+
+git clone https://github.com/itsmearyanabc/ivr-website-dhruv-kumar-.git /var/www/bulkshout
+cd /var/www/bulkshout/xpack
 ```
 
 The app is the **`xpack/` subdirectory**, not the repository root. Every command below runs
@@ -90,8 +124,14 @@ npm ci
 npm run build
 pm2 start ./node_modules/.bin/next --name bulkshout -- start -H 127.0.0.1 -p 3000
 pm2 save
-pm2 startup      # run the command it prints, to survive reboot
 ```
+
+`--name bulkshout` keeps it distinct from whatever else is under pm2, so `pm2 restart
+bulkshout` can never touch another app. `pm2 save` records the **whole** current process
+list, which is what you want: it preserves the other apps alongside this one.
+
+Only run `pm2 startup` if `pm2 list` in section 0 was empty — if pm2 is already managing your
+other sites, its boot hook is installed already and re-running it is unnecessary.
 
 `-H 127.0.0.1` binds the app to loopback so only nginx can reach it; `next start` defaults to
 `0.0.0.0`, which would put the unencrypted app straight on the public interface on port 3000
@@ -131,20 +171,34 @@ server {
 ```
 
 ```bash
+# A new file of its own. Do not edit `default`, and do not touch any existing site file -
+# nginx picks the server block by server_name, so this one only ever answers for this domain.
 sudo nano /etc/nginx/sites-available/bulkshout
 sudo ln -s /etc/nginx/sites-available/bulkshout /etc/nginx/sites-enabled/
+
+# `nginx -t` validates every enabled site at once. If it fails, fix it BEFORE reloading:
+# a reload with a broken config takes down the other sites too.
 sudo nginx -t && sudo systemctl reload nginx
+
+# Only this domain. Naming it explicitly stops certbot touching certificates for the others.
 sudo certbot --nginx -d bulkshout.com -d www.bulkshout.com
 ```
 
 `X-Forwarded-For` matters beyond tidiness: top-up submissions are rate-limited per hashed
 submitter IP. Without it every customer looks like the proxy and they share one limiter.
 
-Firewall — nothing but SSH and the web should be reachable, and **never expose 3000**:
+**Firewall — read this before running anything.** The usual advice is to enable ufw, and on a
+box with other services running that is how you take them offline: enabling a default-deny
+firewall drops every port you have not explicitly allowed, including whatever your other
+deployments listen on.
 
-```bash
-sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable
-```
+- If section 0 said ufw is **active**: nothing to do. Ports 80 and 443 are already open or
+  your existing sites would not be reachable, and this app only needs those.
+- If it said **inactive**: leave it inactive for now. Turning it on is a separate change to
+  make deliberately, after listing every port your other services need.
+
+Either way the app itself is bound to `127.0.0.1` in section 5, so port 3000 is not reachable
+from outside regardless of the firewall.
 
 ---
 
