@@ -76,11 +76,13 @@ sudo mkdir -p /var/www/bulkshout
 sudo chown -R "$USER":"$USER" /var/www/bulkshout
 
 git clone https://github.com/itsmearyanabc/ivr-website-dhruv-kumar-.git /var/www/bulkshout
-cd /var/www/bulkshout/xpack
+cd /var/www/bulkshout
 ```
 
-The app is the **`xpack/` subdirectory**, not the repository root. Every command below runs
-from `/var/www/bulkshout/xpack`.
+`package.json` sits at the **repository root**, so the clone target is the application
+directory - there is no subfolder to descend into. Every command below runs from
+`/var/www/bulkshout`. (The working copy on the author's machine happens to live in a folder
+named `xpack`, but that name is local to that machine and is not part of the repository.)
 
 ---
 
@@ -251,8 +253,7 @@ intended safe state, not a fault.
 ## 10. Deploying a change later
 
 ```bash
-cd /var/www/bulkshout && git pull
-cd xpack && npm ci && npm run build && pm2 restart bulkshout
+cd /var/www/bulkshout && git pull && npm ci && npm run build && pm2 restart bulkshout
 ```
 
 There is no test suite, so `npm run build` (which runs the TypeScript check) plus
