@@ -35,9 +35,13 @@ sudo ufw status verbose
 
 Two things to carry forward from that output:
 
-- **A free port.** The runbook uses **3000**; if `ss -tlnp` shows it taken, pick another
-  (3001, 3100, …) and use it consistently in sections 5 and 6.
-- **Whether ufw is active.** This decides which half of section 6 applies to you.
+On this box (surveyed 2026-09-09) that came back as:
+
+- **Port 3000 is free.** 3001 is taken by `leylegal-web`, so leave it alone.
+- **Caddy is the web server**, not nginx - see section 6.
+- **ufw is active** and already allows 22/80/443/3001, so no firewall change is needed.
+- **pm2 is already running** `leylegal-web` and `leylegal-worker`, so its boot hook is
+  installed and `pm2 startup` should not be re-run.
 
 ---
 
@@ -46,15 +50,19 @@ Two things to carry forward from that output:
 - **Node >= 22.14** (`package.json` `engines`). Ubuntu's default `nodejs` is older — install
   from NodeSource.
 - **npm** (`package-lock.json` is the authoritative lockfile; `pnpm-lock.yaml` is stale).
-- **nginx** as a reverse proxy, and **certbot** for TLS.
+- **Caddy** as the reverse proxy - already installed and serving the other site on this box.
+  It handles TLS itself, so no certbot is needed.
 - **pm2** or a systemd unit to keep the process up and restart it on boot.
 - ~1 GB RAM is comfortable. See the note on `bodySizeLimit` in section 6 before sizing down.
 
 ```bash
+# Check what is already there before installing - pm2 and Node are present for the other
+# deployment, and Caddy is already serving :80/:443.
+node -v && pm2 -v && caddy version
+
+# Only if node is older than v22.14:
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs nginx
-sudo npm install -g pm2
-node -v   # must print v22.14 or newer
+sudo apt-get install -y nodejs
 ```
 
 ---
@@ -143,62 +151,54 @@ Useful afterwards: `pm2 logs bulkshout`, `pm2 restart bulkshout`, `pm2 monit`.
 
 ---
 
-## 6. nginx — and the one setting that will bite you
+## 6. Caddy (this box does not run nginx)
 
-```nginx
-server {
-    listen 80;
-    server_name bulkshout.com www.bulkshout.com;
+The survey in section 0 found **Caddy** holding :80 and :443, and no
+`/etc/nginx/sites-enabled/` at all. So the reverse proxy is a Caddy site block, not an nginx
+server block — and two of nginx's traps do not apply here:
 
-    # REQUIRED. nginx defaults to 1 MB, and next.config.ts allows 15 MB Server Action
-    # bodies. Leave this out and fulfilment-report uploads fail at the proxy with a 413
-    # before Next ever sees them — the operator just sees the button do nothing.
-    client_max_body_size 20M;
+- **TLS is automatic.** Caddy obtains and renews the certificate itself on first request. No
+  certbot, no renewal cron.
+- **There is no 1 MB body cap.** nginx defaults `client_max_body_size` to 1 MB, which would
+  have broken 15 MB report uploads. Caddy imposes no default limit, so nothing to raise.
+- `reverse_proxy` sets `X-Forwarded-For` on its own, so the per-IP top-up rate limiting works
+  without extra configuration.
 
-    location / {
-        proxy_pass         http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade $http_upgrade;
-        proxy_set_header   Connection 'upgrade';
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-        proxy_read_timeout 300s;   # large uploads
-    }
+Append a block for this domain to the Caddyfile. **Do not edit the existing site block** -
+the other deployment on this box is served through it.
+
+```bash
+sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak   # take a backup first
+sudo nano /etc/caddy/Caddyfile
+```
+
+Add, at the end, substituting the real domain:
+
+```caddyfile
+bulkshout.com, www.bulkshout.com {
+    reverse_proxy 127.0.0.1:3000
 }
 ```
 
+That is the whole config. Then validate before reloading — a bad Caddyfile fails the reload
+for **every** site on the box, including the existing one:
+
 ```bash
-# A new file of its own. Do not edit `default`, and do not touch any existing site file -
-# nginx picks the server block by server_name, so this one only ever answers for this domain.
-sudo nano /etc/nginx/sites-available/bulkshout
-sudo ln -s /etc/nginx/sites-available/bulkshout /etc/nginx/sites-enabled/
-
-# `nginx -t` validates every enabled site at once. If it fails, fix it BEFORE reloading:
-# a reload with a broken config takes down the other sites too.
-sudo nginx -t && sudo systemctl reload nginx
-
-# Only this domain. Naming it explicitly stops certbot touching certificates for the others.
-sudo certbot --nginx -d bulkshout.com -d www.bulkshout.com
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
 ```
 
-`X-Forwarded-For` matters beyond tidiness: top-up submissions are rate-limited per hashed
-submitter IP. Without it every customer looks like the proxy and they share one limiter.
+If validation fails, restore the backup (`sudo cp /etc/caddy/Caddyfile.bak
+/etc/caddy/Caddyfile`) and fix it before reloading.
 
-**Firewall — read this before running anything.** The usual advice is to enable ufw, and on a
-box with other services running that is how you take them offline: enabling a default-deny
-firewall drops every port you have not explicitly allowed, including whatever your other
-deployments listen on.
+The domain's A record must already point at this VPS before you reload, or Caddy cannot
+complete the certificate challenge and will serve the site over plain HTTP until it can.
 
-- If section 0 said ufw is **active**: nothing to do. Ports 80 and 443 are already open or
-  your existing sites would not be reachable, and this app only needs those.
-- If it said **inactive**: leave it inactive for now. Turning it on is a separate change to
-  make deliberately, after listing every port your other services need.
+### Firewall: change nothing
 
-Either way the app itself is bound to `127.0.0.1` in section 5, so port 3000 is not reachable
-from outside regardless of the firewall.
+ufw is **active** and already allows 22, 80, 443 and 3001. The app binds to `127.0.0.1:3000`,
+which needs no rule at all - loopback traffic never passes the firewall. Do not add one, and
+do not touch the existing 3001 rule; that belongs to the other deployment.
 
 ---
 
