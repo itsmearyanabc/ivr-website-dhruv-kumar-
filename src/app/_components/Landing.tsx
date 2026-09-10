@@ -426,6 +426,7 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
       {/* The differentiator, directly after the hero: it is the reason to keep reading, and
           burying it below the feature grid is what every competitor does. */}
       <section className="landing-section landing-proof">
+        <div className="landing-proof-top">
         <div className="landing-proof-lead">
           <h2>
             You don’t pay when a number{" "}
@@ -451,6 +452,20 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
               <li key={point}><Icon name="check" size={16} /><span>{point}</span></li>
             ))}
           </ul>
+        </div>
+
+        {/* The argument on the left ran to about 72ch, which left the right half of this
+            section empty on a wide screen. The artwork fills it and says the same thing
+            visually: one message, out across the country. Not `priority` - it is well below
+            the fold, and preloading it would compete with the hero. */}
+        <div className="landing-proof-art">
+          <Image
+            src="/bulkshout-reach-india.webp"
+            alt="A single message fanning out from one phone to Delhi NCR, Mumbai, Bangalore, Kolkata, Hyderabad, Chennai and Ahmedabad across a map of India"
+            width={1200}
+            height={800}
+          />
+        </div>
         </div>
 
         <div className="landing-grid two">

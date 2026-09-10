@@ -2439,7 +2439,26 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 /* ---- The differentiator block, directly under the hero ------------------------------- */
 /* Set as prose rather than as another row of cards: it is the one argument on the page that
    has to be read as a paragraph to land, and a card grid would flatten it into a feature. */
-.landing-proof-lead { max-width: 72ch; margin-bottom: 30px; }
+/* Copy left, artwork right. The lead reads to about 72ch, which on a wide screen left the
+   right half of the section empty. */
+.landing-proof-top {
+  display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, .98fr);
+  gap: 40px; align-items: center; margin-bottom: 34px;
+}
+.landing-proof-lead { max-width: 72ch; }
+.landing-proof-art { min-width: 0; }
+.landing-proof-art img {
+  width: 100%; height: auto; display: block;
+  /* The artwork is drawn on a near-white ground (247-253) while this section sits on the
+     canvas (244), which would otherwise show as a faint rectangle around it. `multiply`
+     leaves anything white untouched by definition, so the ground disappears into the page
+     and only the drawing itself remains - no cut-out or transparency needed. */
+  mix-blend-mode: multiply;
+}
+@media (max-width: 880px) {
+  /* Stacked, and the artwork follows the argument rather than pushing it down the page. */
+  .landing-proof-top { grid-template-columns: 1fr; gap: 22px; }
+}
 .landing-proof-lead h2 { margin-bottom: 16px; }
 
 /* The rotating state in the proof heading. Fixed width for the same reason the hero used to
