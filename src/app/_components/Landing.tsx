@@ -536,6 +536,11 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
             height={120}
             className="landing-logo footer"
           />
+          <nav className="legal-footer-nav">
+            <a href="/terms">Terms and Conditions</a>
+            <a href="/refund-policy">Refund Policy</a>
+            <a href="/privacy-policy">Privacy Policy</a>
+          </nav>
           <p>© {new Date().getFullYear()} BulkShout. All rights reserved.</p>
         </div>
       </footer>

@@ -2475,7 +2475,12 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 /* ---- Local SEO paragraph -------------------------------------------------------------- */
 .landing-local { max-width: 1120px; }
 .landing-local h2 { margin-bottom: 14px; }
-.landing-local p { max-width: 78ch; margin: 0; font-size: 14.5px; line-height: 1.75; color: var(--muted); }
+/* On a card, like the steps and the FAQ entries, rather than loose on the canvas. */
+.landing-local p {
+  max-width: none; margin: 0; font-size: 14.5px; line-height: 1.75; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 22px;
+}
 
 /* ---- FAQ ------------------------------------------------------------------------------ */
 .landing-faq { display: grid; gap: 10px; max-width: 860px; }
@@ -2500,9 +2505,18 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   .landing-faq-item summary svg { transition: none; }
 }
 
-.landing-steps-section { background: var(--surface); max-width: none; border-block: 1px solid var(--line); }
-.landing-steps-section > h2, .landing-steps { max-width: 1120px; margin-inline: auto; }
-.landing-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 26px; }
+/* This section used to be a full-width white BAND, which was the only place on the page where
+   the ground changed colour - the section above and below it sat on the canvas, so the page
+   read as three different treatments stacked up. Every block of content now follows the one
+   pattern the FAQ already used: white cards on the canvas. The band is gone. */
+.landing-steps-section { max-width: 1120px; }
+.landing-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+/* Each step is its own card, so the three read as three separate steps rather than as three
+   paragraphs that happen to be numbered. */
+.landing-step {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 22px;
+}
 .landing-step-n {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; border-radius: 99px;
@@ -2515,6 +2529,37 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .landing-closer h2 { font-size: clamp(24px, 3vw, 32px); letter-spacing: -.7px; margin: 0 0 12px; }
 .landing-closer > p { color: var(--muted); font-size: 15px; line-height: 1.6; margin: 0 0 24px; }
 .landing-closer-alt { margin: 18px 0 0; font-size: 13.5px; color: var(--muted); }
+
+/* ------------------------------------------------------------
+   Policy pages: terms, refund policy, privacy policy
+   ------------------------------------------------------------ */
+.legal-page { min-height: 100vh; background: var(--canvas); color: var(--text); display: flex; flex-direction: column; }
+.legal-body { max-width: 800px; margin: auto; padding: 40px 22px 72px; width: 100%; flex: 1; }
+.legal-body h1 { font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -.8px; margin: 8px 0 10px; }
+.legal-updated { margin: 0 0 24px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.legal-intro {
+  margin: 0 0 30px; font-size: 15px; line-height: 1.7; color: var(--text);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px 20px;
+}
+.legal-body h2 { font-size: 17.5px; letter-spacing: -.3px; margin: 34px 0 10px; }
+.legal-body h3 { font-size: 14.5px; margin: 18px 0 6px; color: var(--text); }
+.legal-body p { margin: 0 0 13px; font-size: 14.5px; line-height: 1.75; color: var(--muted); }
+.legal-body strong { color: var(--text); font-weight: 700; }
+.legal-body ul { margin: 0 0 13px; padding-left: 20px; }
+.legal-body li { font-size: 14.5px; line-height: 1.75; color: var(--muted); margin-bottom: 7px; }
+.legal-body a { color: var(--red); font-weight: 600; text-decoration: underline; }
+.legal-body a:hover { color: var(--red-dark); }
+/* A detail the business still has to supply. Deliberately loud: these pages must not go live
+   with one left in, and an inline blank is exactly what slips past a final read-through. */
+.legal-fill {
+  background: var(--amber-soft); color: var(--amber);
+  border: 1px dashed var(--amber); border-radius: 5px;
+  padding: 1px 6px; font-size: 13px; font-weight: 700; font-style: normal;
+}
+.legal-footer-nav { display: flex; flex-wrap: wrap; gap: 16px; }
+.legal-footer-nav a { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.legal-footer-nav a:hover { color: var(--red); }
 
 .landing-footer {
   border-top: 1px solid var(--line); background: var(--surface);
