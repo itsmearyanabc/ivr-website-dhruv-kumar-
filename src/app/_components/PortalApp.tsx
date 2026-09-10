@@ -3,6 +3,8 @@
 "use client";
 
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { googleAuthEnabled, startGoogleAuth } from "@/lib/googleAuth";
 import Image from "next/image";
 import { signUp, signIn, signOut, getUserSession } from "@/app/actions/auth";
 import { getBroadcasts, createBroadcast, updateBroadcastStatus, getDownloadUrl, resubmitFiles, getBroadcastContacts, getBroadcastHistory, getBroadcastTtsText } from "@/app/actions/broadcasts";
@@ -249,7 +251,15 @@ function TopProgressBar({ active }: { active: boolean }) {
   );
 }
 
-export default function PortalApp({ portal }: { portal: Role }) {
+export default function PortalApp({ portal, initialAuthMode }: {
+  portal: Role;
+  /**
+   * Which card /signin and /signup open on. Passed by those routes so the auth screens have
+   * real URLs - an ad can link straight to /signup, the pixel can tell the two apart, and the
+   * back button works. Undefined on "/", which opens the landing page as before.
+   */
+  initialAuthMode?: "login" | "signup";
+}) {
   useEffect(() => {
     const handlePageShow = (e: PageTransitionEvent) => {
       if (e.persisted) {
@@ -312,7 +322,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
    */
   const [pending, setPending] = useState(0);
   /** null while the visitor is on the landing page; set once they pick sign in or sign up. */
-  const [authMode, setAuthMode] = useState<"login" | "signup" | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "signup" | null>(initialAuthMode ?? null);
+  const router = useRouter();
   /**
    * Whether this operator owns the console rather than working in it. Presentation only -
    * every owner-only read is refused server-side too, so a staff member who forged the flag
@@ -596,8 +607,8 @@ export default function PortalApp({ portal }: { portal: Role }) {
           <TopProgressBar active={pending > 0} />
           <div className="landing-backdrop">
             <Landing 
-              onSignIn={() => setAuthMode("login")} 
-              onSignUp={() => setAuthMode("signup")} 
+              onSignIn={() => router.push("/signin")} 
+              onSignUp={() => router.push("/signup")} 
               whatsappNumber={whatsappNumber}
             />
           </div>
@@ -611,7 +622,7 @@ export default function PortalApp({ portal }: { portal: Role }) {
           portal={portal}
           onLogin={login}
           initialMode={authMode || undefined}
-          onBack={portal === "admin" ? undefined : () => setAuthMode(null)}
+          onBack={portal === "admin" ? undefined : () => router.push("/")}
         />
       </>
     );
@@ -1108,10 +1119,25 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
   const [mode, setMode] = useState<"login" | "signup" | "admin" | "forgot">(
     isAdminPortal ? "admin" : initialMode || "login"
   );
-  const [error, setError] = useState("");
+  /**
+   * /auth/callback returns the customer with ?oauth=cancelled or ?oauth=failed when Google did
+   * not complete, and without this they would land here with no explanation of why they are
+   * not signed in. Read as the initial value rather than set from an effect: it is known at
+   * first render, so an effect would only cause a second one.
+   */
+  const oauthOutcome = useSearchParams().get("oauth");
+  const [error, setError] = useState(
+    oauthOutcome === "cancelled"
+      ? "Google sign-in was cancelled. You can try again, or use your email and password."
+      : oauthOutcome === "failed"
+        ? "Google sign-in could not be completed. Please try again, or use your email and password."
+        : ""
+  );
   const [notice, setNotice] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   /** The token from the ticked box, and a counter that unticks it after a failed submit. */
+  const [googleBusy, setGoogleBusy] = useState(false);
+
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaReset, setCaptchaReset] = useState(0);
   /** Set when the widget could not be drawn, so the form stops asking for an impossible tick. */
@@ -1265,6 +1291,35 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
         {/* Loaded here rather than in the root layout, so the landing page does not fetch a
             Google script for every visitor who is only reading it. */}
         <RecaptchaScript />
+        {/* Google is offered above the form, not below it: for someone who signed up that way
+            it is the whole flow, and burying it under the fields they do not need is friction.
+            Hidden on the admin console - that is the ADMIN_EMAIL pair only, deliberately. */}
+        {!isAdminPortal && googleAuthEnabled() && mode !== "forgot" && (
+          <div className="auth-oauth">
+            <button
+              type="button"
+              className="google-button"
+              disabled={isLocked || googleBusy}
+              onClick={async () => {
+                setGoogleBusy(true);
+                setError("");
+                const res = await startGoogleAuth();
+                // On success the browser is already navigating to Google, so this only runs
+                // when it did not start.
+                if (res.error) { setGoogleBusy(false); setError(res.error); }
+              }}
+            >
+              <svg viewBox="0 0 18 18" width="17" height="17" aria-hidden="true">
+                <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.83.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18Z"/>
+                <path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33Z"/>
+                <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58Z"/>
+              </svg>
+              {googleBusy ? "Opening Google…" : mode === "signup" ? "Sign up with Google" : "Continue with Google"}
+            </button>
+            <div className="auth-divider"><span>or</span></div>
+          </div>
+        )}
         <form className="auth-card" onSubmit={submit}>
           {onBack && (
             <button type="button" className="auth-back" onClick={onBack} disabled={isLocked}>
