@@ -2271,7 +2271,9 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
    deferring to the filled button next to it. */
 .landing-ghost {
   white-space: nowrap; border: 1.5px solid var(--red); background: var(--red-soft); cursor: pointer;
-  font-family: inherit; font-weight: 700; font-size: 15px; color: var(--red-dark);
+  /* 600, not 700: at 700 the secondary button was set heavier than the filled primary it
+     sits next to, which inverted the emphasis between them. */
+  font-family: inherit; font-weight: 600; font-size: 15px; color: var(--red-dark);
   padding: 12.5px 20px; border-radius: var(--radius-sm);
   transition: background .14s ease, color .14s ease, transform .14s ease;
 }
@@ -2450,14 +2452,20 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .landing-proof-art img {
   width: 100%; height: auto; display: block;
   /* The artwork is drawn on a near-white ground (247-253) while this section sits on the
-     canvas (244), which would otherwise show as a faint rectangle around it. `multiply`
-     leaves anything white untouched by definition, so the ground disappears into the page
-     and only the drawing itself remains - no cut-out or transparency needed. */
-  mix-blend-mode: multiply;
+     canvas (244), which would otherwise show as a rectangle around it.
+     `darken` keeps the per-channel minimum: the ground resolves to exactly the canvas
+     (min(247,244) = 244) so it vanishes completely, while the dark drawing is kept untouched.
+     `multiply` was close but not exact - it took the ground to 236, a shade DARKER than the
+     page, which is the faint panel that was still showing on a phone. */
+  mix-blend-mode: darken;
 }
 @media (max-width: 880px) {
   /* Stacked, and the artwork follows the argument rather than pushing it down the page. */
   .landing-proof-top { grid-template-columns: 1fr; gap: 22px; }
+  /* Edge to edge on a phone. The section pads 22px each side, which on a 375px screen was
+     spending 12% of the width on margin around an illustration that needs the room. The
+     negative margin cancels exactly that padding, so it is full-bleed and still centred. */
+  .landing-proof-art { margin-inline: -22px; }
 }
 .landing-proof-lead h2 { margin-bottom: 16px; }
 
@@ -2502,9 +2510,25 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 }
 
 /* ---- FAQ ------------------------------------------------------------------------------ */
-.landing-faq { display: grid; gap: 10px; max-width: 860px; }
+/* This section inverts the rest of the page: a white ground with grey entries, rather than
+   the canvas ground with white cards used above it. Full width so the white reads as a band
+   that closes the page rather than as a floating panel. */
+.landing-faq-section {
+  background: var(--surface); max-width: none;
+  border-block: 1px solid var(--line);
+  /* The gutter moves onto the two children below. Left here, the 22px is applied BEFORE the
+     inner band is centred within what remains, which put this section's content 22px left of
+     every other section on the page. */
+  padding-inline: 0;
+}
+.landing-faq-section > h2,
+.landing-faq { max-width: 1120px; margin-inline: auto; padding-inline: 22px; }
+/* The band is 1120 so it lines up with the rest of the page; an individual entry is capped
+   narrower, because a question set on a 1120px line is tiring to read. */
+.landing-faq { display: grid; gap: 10px; }
+.landing-faq-item { max-width: 860px; }
 .landing-faq-item {
-  background: var(--surface); border: 1px solid var(--line);
+  background: var(--canvas); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 2px 18px;
 }
 .landing-faq-item summary {
