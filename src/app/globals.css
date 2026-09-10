@@ -2688,15 +2688,17 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 /* ------------------------------------------------------------
    reCAPTCHA
    ------------------------------------------------------------ */
-/* The score-based badge pins itself bottom-right, which is exactly where the WhatsApp button
-   sits - they would overlap. Google permits hiding it provided the attribution below is shown
-   in the flow instead, which is what .recaptcha-note is for. Hiding it WITHOUT that text is a
-   terms violation, so the two belong together. */
-.grecaptcha-badge { visibility: hidden; }
-.recaptcha-note {
-  margin: 14px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted-2); text-align: center;
+/* The checkbox widget is a fixed 304x78 iframe from Google. It is centred rather than
+   stretched, because it cannot be resized - forcing the column to its width instead just
+   leaves it stranded against one edge on a wide form. */
+.recaptcha-box { margin: 14px 0 2px; display: flex; justify-content: center; }
+.recaptcha-box > div { max-width: 100%; }
+.recaptcha-failed { margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: var(--amber); text-align: center; }
+/* Below ~330px the widget is wider than the form, so it is scaled to fit rather than allowed
+   to push the page sideways. */
+@media (max-width: 350px) {
+  .recaptcha-box > div { transform: scale(.9); transform-origin: center; }
 }
-.recaptcha-note a { color: var(--muted); text-decoration: underline; }
 
 .whatsapp-widget {
   position: fixed;

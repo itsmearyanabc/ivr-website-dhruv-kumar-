@@ -51,7 +51,8 @@ import {
   isTtsKey,
 } from "@/lib/uploads";
 import { sanitiseDecimalInput } from "@/lib/decimalInput";
-import { getRecaptchaToken, recaptchaEnabled } from "@/lib/recaptchaClient";
+import { recaptchaEnabled } from "@/lib/recaptchaClient";
+import RecaptchaCheckbox from "@/app/_components/RecaptchaCheckbox";
 import RecaptchaScript from "@/app/_components/RecaptchaScript";
 import { calculateFailedCallRefund } from "@/lib/refunds";
 import {
@@ -1110,6 +1111,13 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  /** The token from the ticked box, and a counter that unticks it after a failed submit. */
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaReset, setCaptchaReset] = useState(0);
+  /** Set when the widget could not be drawn, so the form stops asking for an impossible tick. */
+  const [captchaUnavailable, setCaptchaUnavailable] = useState(false);
+  const clearCaptcha = () => { setCaptchaToken(""); setCaptchaReset(n => n + 1); };
+
   const [attempts, setAttempts] = useState(0);
   const [lockoutCount, setLockoutCount] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState<Date | null>(null);
@@ -1149,6 +1157,12 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
     const data = new FormData(e.currentTarget);
     const email = String(data.get("email") || "").trim().toLowerCase();
     
+    // Checked here purely so the customer gets a plain instruction instead of a rejection
+    // from the server. The gate itself is the assessment in @/lib/recaptcha.
+    if (recaptchaEnabled() && !captchaUnavailable && mode !== "forgot" && !captchaToken) {
+      return setError("Please tick the box to confirm you are not a robot.");
+    }
+
     const handleFailure = (msg: string) => {
       const newAttempts = attempts + 1;
       if (newAttempts >= 5) {
@@ -1165,10 +1179,12 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
         setAttempts(newAttempts);
         setError(`${msg} (${5 - newAttempts} attempts remaining)`);
       }
+      // A reCAPTCHA token is single-use, so the box has to be re-ticked before the next try.
+      clearCaptcha();
     };
 
     if (mode === "admin" || mode === "login") {
-      data.set("recaptchaToken", await getRecaptchaToken("signin"));
+      data.set("recaptchaToken", captchaToken);
       const result = await signIn(data, mode === "admin");
       if (result.error) {
         return handleFailure(result.error);
@@ -1197,9 +1213,10 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
     }
 
     if (mode === "signup") {
-      data.set("recaptchaToken", await getRecaptchaToken("signup"));
+      data.set("recaptchaToken", captchaToken);
       const result = await signUp(data);
       if (result.error) {
+        clearCaptcha();
         return setError(result.error);
       }
       setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
@@ -1260,6 +1277,13 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
           {mode !== "forgot" && <label>Password<div className="password-field"><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" autoComplete={isAdminPortal ? "off" : "current-password"} disabled={isLocked}/><button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}
           {mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}
           {mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}
+          {mode !== "forgot" && (
+            <RecaptchaCheckbox
+              onToken={setCaptchaToken}
+              onUnavailable={() => setCaptchaUnavailable(true)}
+              resetSignal={captchaReset}
+            />
+          )}
           {error && <p className="auth-error">{error}</p>}
           {notice && <p className="auth-notice">{notice}</p>}
           <button className="primary auth-submit" disabled={isLocked}>{mode === "signup" ? "Create account" : mode === "forgot" ? "Request a password reset" : isLocked ? `Locked (${timeRemaining}s)` : "Sign in"}<Icon name="arrow" size={16}/></button>
@@ -1267,17 +1291,6 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
             <p className="auth-switch">
               {mode === "signup" ? "Already have an account?" : mode === "forgot" ? "Remembered it?" : "New to BulkShout?"}{" "}
               <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : mode === "forgot" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" || mode === "forgot" ? "Sign in" : "Create an account"}</button>
-            </p>
-          )}
-          {/* Required wherever the badge is hidden, which it is - see .grecaptcha-badge in
-              globals.css. Only rendered when a site key is actually configured. */}
-          {recaptchaEnabled() && (
-            <p className="recaptcha-note">
-              This site is protected by reCAPTCHA and the Google{" "}
-              <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>{" "}
-              and{" "}
-              <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>{" "}
-              apply.
             </p>
           )}
         </form>

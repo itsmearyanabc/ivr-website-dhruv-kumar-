@@ -110,9 +110,14 @@ export async function verifyRecaptcha(
       };
     }
 
-    // A token is issued for one action. Without this check a token harvested from the signup
-    // form would be replayable against sign-in, or against the top-up form.
-    if (props.action !== expectedAction) {
+    // A score-based token is issued for one action, and checking it stops a token harvested
+    // from the signup form being replayed against sign-in or against the top-up form.
+    //
+    // A CHECKBOX token has no action at all - the customer ticked a box, they did not name an
+    // intent - so an empty action here means a checkbox key and there is nothing to compare.
+    // Comparing anyway would refuse every legitimate tick. Skipped only when the field is
+    // genuinely absent, so a score key still gets the full check.
+    if (props.action && props.action !== expectedAction) {
       return {
         ok: false,
         reason: 'The security check did not match this form. Please reload the page and try again.',

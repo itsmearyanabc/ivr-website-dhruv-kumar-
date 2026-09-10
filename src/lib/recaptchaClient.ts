@@ -1,16 +1,20 @@
 /**
- * Getting a reCAPTCHA Enterprise token in the browser.
+ * The browser half of reCAPTCHA Enterprise, checkbox ("I'm not a robot") flow.
  *
- * Pure client helper - no server imports, so it is safe in the bundle. The token it returns
- * proves nothing on its own; it is checked by @/lib/recaptcha on the server, and the action
- * passed here must match the action the server expects or the assessment is refused.
+ * Pure client helper - no server imports, so it is safe in the bundle. The token it hands back
+ * proves nothing on its own; it is checked by @/lib/recaptcha on the server.
+ *
+ * This is the CHECKBOX integration, not the score one. The difference matters in three places:
+ * the script is loaded with `render=explicit` rather than `render=<sitekey>`, the token comes
+ * from a widget the customer has ticked rather than from `execute()`, and the resulting token
+ * carries no action - which is why the server's replay check is conditional on there being one.
  */
-
-import type { RecaptchaAction } from "@/lib/recaptcha";
 
 type Enterprise = {
   ready: (cb: () => void) => void;
-  execute: (siteKey: string, opts: { action: string }) => Promise<string>;
+  render: (container: HTMLElement, params: { sitekey: string; callback?: (token: string) => void; 'expired-callback'?: () => void; 'error-callback'?: () => void }) => number;
+  getResponse: (widgetId?: number) => string;
+  reset: (widgetId?: number) => void;
 };
 
 declare global {
@@ -27,33 +31,19 @@ export function recaptchaEnabled(): boolean {
 }
 
 /**
- * A token for one action, or "" when reCAPTCHA is not configured or has not loaded.
+ * Resolves once grecaptcha.enterprise is loaded and initialised, or null on timeout.
  *
- * Never throws and never blocks a submission: an empty string is passed to the server, which
- * refuses it only when reCAPTCHA is actually configured there. A third-party script failing
- * to load must not be the thing that stops someone signing up.
+ * enterprise.js is loaded async, so a widget can be asked for before the library exists.
+ * Returning null rather than throwing keeps a failed third-party script from breaking the
+ * form it was meant to protect.
  */
-export async function getRecaptchaToken(action: RecaptchaAction): Promise<string> {
-  if (!recaptchaEnabled()) return "";
-
-  const enterprise = await waitForEnterprise();
-  if (!enterprise) return "";
-
-  try {
-    return await enterprise.execute(RECAPTCHA_SITE_KEY, { action });
-  } catch {
-    return "";
-  }
-}
-
-/** enterprise.js is loaded async, so a fast submit can arrive before it is ready. */
-function waitForEnterprise(timeoutMs = 4000): Promise<Enterprise | null> {
+export function waitForEnterprise(timeoutMs = 8000): Promise<Enterprise | null> {
   return new Promise(resolve => {
+    if (!recaptchaEnabled()) return resolve(null);
     const started = Date.now();
     const poll = () => {
       const enterprise = window.grecaptcha?.enterprise;
-      if (enterprise?.execute) {
-        // `ready` guarantees the library has finished initialising before execute is called.
+      if (enterprise?.render) {
         try {
           enterprise.ready(() => resolve(enterprise));
         } catch {

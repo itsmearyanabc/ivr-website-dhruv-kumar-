@@ -14,15 +14,17 @@
  */
 
 import Script from "next/script";
-import { RECAPTCHA_SITE_KEY, recaptchaEnabled } from "@/lib/recaptchaClient";
+import { recaptchaEnabled } from "@/lib/recaptchaClient";
 
 export default function RecaptchaScript() {
   if (!recaptchaEnabled()) return null;
 
   return (
+    // render=explicit, not render=<sitekey>: the checkbox flow draws its widget when asked
+    // to, rather than scoring the page invisibly on load.
     <Script
       id="recaptcha-enterprise"
-      src={`https://www.google.com/recaptcha/enterprise.js?render=${RECAPTCHA_SITE_KEY}`}
+      src="https://www.google.com/recaptcha/enterprise.js?render=explicit"
       strategy="afterInteractive"
     />
   );

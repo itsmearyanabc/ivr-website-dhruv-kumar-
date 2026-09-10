@@ -5,7 +5,8 @@ import { sanitiseDecimalInput } from "@/lib/decimalInput";
 import React, { FormEvent, useCallback, useEffect, useState } from "react";
 import { Icon, Badge, Heading, PanelTop } from "@/app/_components/ui";
 import { getPaymentMethod, getMyTopupRequests, submitTopupRequest } from "@/app/actions/topups";
-import { getRecaptchaToken } from "@/lib/recaptchaClient";
+import { recaptchaEnabled } from "@/lib/recaptchaClient";
+import RecaptchaCheckbox from "@/app/_components/RecaptchaCheckbox";
 import RecaptchaScript from "@/app/_components/RecaptchaScript";
 
 const money = (value: any) => `₹${Number(value || 0).toFixed(2)}`;
@@ -31,6 +32,11 @@ export default function AddFunds({
   const [requests, setRequests] = useState<any[]>([]);
   const [amount, setAmount] = useState("");
   const [utr, setUtr] = useState("");
+  /** The token from the ticked box, and a counter that unticks it after a failed submit. */
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaReset, setCaptchaReset] = useState(0);
+  /** Set when the widget could not be drawn, so the form stops asking for an impossible tick. */
+  const [captchaUnavailable, setCaptchaUnavailable] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -90,10 +96,17 @@ export default function AddFunds({
     const formData = new FormData();
     formData.set("amount", String(numericAmount));
     formData.set("utr", cleanedUtr);
-    formData.set("recaptchaToken", await getRecaptchaToken("topup"));
+    if (recaptchaEnabled() && !captchaUnavailable && !captchaToken) {
+      return setError("Please tick the box to confirm you are not a robot.");
+    }
+    formData.set("recaptchaToken", captchaToken);
 
     const res = await submitTopupRequest(formData);
     setSubmitting(false);
+
+    // A reCAPTCHA token is single-use either way, so the box is re-ticked for the next submit.
+    setCaptchaToken("");
+    setCaptchaReset(n => n + 1);
 
     if (res?.error) return setError(res.error);
 
@@ -207,6 +220,12 @@ export default function AddFunds({
                   required
                 />
               </label>
+
+              <RecaptchaCheckbox
+                onToken={setCaptchaToken}
+                onUnavailable={() => setCaptchaUnavailable(true)}
+                resetSignal={captchaReset}
+              />
 
               {error && <div className="form-error">{error}</div>}
               {success && <div className="form-success">✓ {success}</div>}
