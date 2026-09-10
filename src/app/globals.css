@@ -2685,6 +2685,19 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   .calc-card { transition: none; }
 }
 
+/* ------------------------------------------------------------
+   reCAPTCHA
+   ------------------------------------------------------------ */
+/* The score-based badge pins itself bottom-right, which is exactly where the WhatsApp button
+   sits - they would overlap. Google permits hiding it provided the attribution below is shown
+   in the flow instead, which is what .recaptcha-note is for. Hiding it WITHOUT that text is a
+   terms violation, so the two belong together. */
+.grecaptcha-badge { visibility: hidden; }
+.recaptcha-note {
+  margin: 14px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted-2); text-align: center;
+}
+.recaptcha-note a { color: var(--muted); text-decoration: underline; }
+
 .whatsapp-widget {
   position: fixed;
   bottom: 24px;

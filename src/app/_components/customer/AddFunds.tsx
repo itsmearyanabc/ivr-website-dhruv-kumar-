@@ -5,6 +5,7 @@ import { sanitiseDecimalInput } from "@/lib/decimalInput";
 import React, { FormEvent, useCallback, useEffect, useState } from "react";
 import { Icon, Badge, Heading, PanelTop } from "@/app/_components/ui";
 import { getPaymentMethod, getMyTopupRequests, submitTopupRequest } from "@/app/actions/topups";
+import { getRecaptchaToken } from "@/lib/recaptchaClient";
 
 const money = (value: any) => `₹${Number(value || 0).toFixed(2)}`;
 
@@ -88,6 +89,7 @@ export default function AddFunds({
     const formData = new FormData();
     formData.set("amount", String(numericAmount));
     formData.set("utr", cleanedUtr);
+    formData.set("recaptchaToken", await getRecaptchaToken("topup"));
 
     const res = await submitTopupRequest(formData);
     setSubmitting(false);

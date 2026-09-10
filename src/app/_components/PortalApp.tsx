@@ -51,6 +51,7 @@ import {
   isTtsKey,
 } from "@/lib/uploads";
 import { sanitiseDecimalInput } from "@/lib/decimalInput";
+import { getRecaptchaToken, recaptchaEnabled } from "@/lib/recaptchaClient";
 import { calculateFailedCallRefund } from "@/lib/refunds";
 import {
   capNumberText,
@@ -1188,6 +1189,7 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
     };
 
     if (mode === "admin" || mode === "login") {
+      data.set("recaptchaToken", await getRecaptchaToken("signin"));
       const result = await signIn(data, mode === "admin");
       if (result.error) {
         return handleFailure(result.error);
@@ -1216,6 +1218,7 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
     }
 
     if (mode === "signup") {
+      data.set("recaptchaToken", await getRecaptchaToken("signup"));
       const result = await signUp(data);
       if (result.error) {
         resetCaptcha();
@@ -1284,6 +1287,17 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
             <p className="auth-switch">
               {mode === "signup" ? "Already have an account?" : mode === "forgot" ? "Remembered it?" : "New to BulkShout?"}{" "}
               <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : mode === "forgot" ? "login" : "signup")} disabled={isLocked}>{mode === "signup" || mode === "forgot" ? "Sign in" : "Create an account"}</button>
+            </p>
+          )}
+          {/* Required wherever the badge is hidden, which it is - see .grecaptcha-badge in
+              globals.css. Only rendered when a site key is actually configured. */}
+          {recaptchaEnabled() && (
+            <p className="recaptcha-note">
+              This site is protected by reCAPTCHA and the Google{" "}
+              <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>{" "}
+              and{" "}
+              <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>{" "}
+              apply.
             </p>
           )}
         </form>

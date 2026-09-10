@@ -11,6 +11,7 @@ import { STORAGE_BUCKET } from '@/lib/uploads'
 import { consumeUploadedKey, discardUpload } from '@/lib/storage'
 import { guard } from '@/lib/errors'
 import { getAuthUser } from '@/lib/session'
+import { guardRecaptcha } from '@/lib/recaptcha'
 
 const METHOD_CODE = 'UPI_QR'
 
@@ -270,6 +271,12 @@ export async function submitTopupRequest(formData: FormData): Promise<TopupSubmi
 async function runSubmitTopupRequest(formData: FormData): Promise<TopupSubmitResult> {
   const user = await getAuthUser()
   if (!user) return { error: 'Unauthorized' }
+
+  // Checked before the attempt is recorded, so a scripted run of guessed UTRs cannot use the
+  // limiter's own bookkeeping as a side channel. The per-user and per-IP limits below still
+  // apply; this stops the traffic that never came from the page at all.
+  const refused = await guardRecaptcha(String(formData.get('recaptchaToken') || ''), 'topup')
+  if (refused) return { error: refused.error }
 
   const ipHash = await getIpHash()
   const supabase = await createServiceRoleClient()

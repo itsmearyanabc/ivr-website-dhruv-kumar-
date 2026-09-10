@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Montserrat } from "next/font/google";
 import "./globals.css";
 
@@ -28,6 +29,8 @@ export const viewport = {
   maximumScale: 1,
 };
 
+const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -35,7 +38,20 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={montserrat.variable}>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* reCAPTCHA Enterprise, score-based: no puzzle, no checkbox - it scores the session
+            and the server decides. Loaded lazily because nothing on first paint needs it and
+            the token is only wanted at submit time; getRecaptchaToken waits for it. Rendered
+            only when a site key is set, so an unconfigured deployment ships no third-party
+            script at all. */}
+        {siteKey && (
+          <Script
+            src={`https://www.google.com/recaptcha/enterprise.js?render=${siteKey}`}
+            strategy="lazyOnload"
+          />
+        )}
+      </body>
     </html>
   );
 }

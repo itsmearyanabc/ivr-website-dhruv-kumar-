@@ -3,6 +3,7 @@ import { createClient, createAdminClient, createServiceRoleClient } from '@/lib/
 import { logActivity } from '@/lib/activity'
 import { hasPasswordColumn } from '@/lib/supabase/schema'
 import { resolveIsAdmin } from '@/lib/session'
+import { guardRecaptcha } from "@/lib/recaptcha"
 
 /**
  * Whether the caller is an administrator.
@@ -16,6 +17,11 @@ export async function checkIsAdmin() {
 }
 
 export async function signUp(formData: FormData) {
+  // Before anything else, and before any write. signUp is a public endpoint, so the
+  // arithmetic question on the form is not a gate - only this is.
+  const refused = await guardRecaptcha(String(formData.get("recaptchaToken") || ""), 'signup')
+  if (refused) return { error: refused.error }
+
   const email = String(formData.get("email") || "").trim().toLowerCase()
   const password = String(formData.get("password") || "")
   const name = String(formData.get("name") || "")
@@ -141,6 +147,11 @@ async function signInStaff(email: string, password: string): Promise<
 }
 
 export async function signIn(formData: FormData, isAdmin = false) {
+  // Credential stuffing is the attack this stops: signIn is a public endpoint, so the
+  // per-browser lockout counter in the auth card is not a gate either.
+  const refused = await guardRecaptcha(String(formData.get("recaptchaToken") || ""), 'signin')
+  if (refused) return { error: refused.error }
+
   const email = String(formData.get("email") || "").trim().toLowerCase()
   const password = String(formData.get("password") || "")
 
