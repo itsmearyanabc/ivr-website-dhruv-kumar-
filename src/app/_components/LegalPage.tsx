@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import MetaPixel from "@/app/_components/MetaPixel";
+import SiteControl from "@/app/_components/SiteControl";
 
 /**
  * The shell the three policy pages share: terms, refund policy, privacy policy.
@@ -32,6 +33,7 @@ export default function LegalPage({
   return (
     <main className="legal-page">
       <MetaPixel />
+      <SiteControl />
       <header className="landing-header">
         <div className="landing-header-inner">
           <Link href="/" aria-label="BulkShout home">

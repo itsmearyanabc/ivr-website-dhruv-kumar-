@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import PortalApp from "@/app/_components/PortalApp";
 import MetaPixel from "@/app/_components/MetaPixel";
+import SiteControl from "@/app/_components/SiteControl";
 
 /**
  * Route-level metadata, which overrides the generic defaults in layout.tsx.
@@ -57,6 +58,7 @@ export default function CustomerPortalPage() {
   return (
     <>
       <MetaPixel />
+      <SiteControl />
       <PortalApp portal="customer" />
     </>
   );
