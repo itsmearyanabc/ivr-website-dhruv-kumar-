@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import LegalPage, { Fill } from "@/app/_components/LegalPage";
+import LegalPage from "@/app/_components/LegalPage";
 
 export const metadata: Metadata = {
   title: "Refund Policy | BulkShout",
@@ -62,7 +62,7 @@ export default function RefundPolicyPage() {
         <li>
           Unused wallet balance may be eligible for a refund to your original payment method{" "}
           <strong>
-            only if requested within <Fill>Insert Number</Fill> days of the top-up
+            only if requested within 30 days of the top-up
           </strong>
           , and <strong>only for the unused portion</strong> of that top-up.
         </li>
@@ -110,7 +110,7 @@ export default function RefundPolicyPage() {
       <h2>6. Disputes</h2>
       <p>
         If you believe a refund has been calculated incorrectly, contact our support team within{" "}
-        <Fill>Insert Number</Fill> days of the campaign&rsquo;s completion with your Broadcast
+        30 days of the campaign&rsquo;s completion with your Broadcast
         ID. We will review your delivery report and resolve the matter promptly.
       </p>
 
