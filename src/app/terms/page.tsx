@@ -11,7 +11,7 @@ export default function TermsPage() {
   return (
     <LegalPage
       title="Terms and Conditions"
-      updated={<Fill>Insert Date</Fill>}
+      updated="10 September 2026"
       intro={
         <>
           Please read these Terms and Conditions (&ldquo;Terms&rdquo;) carefully before using
@@ -202,7 +202,7 @@ export default function TermsPage() {
       <p>
         These Terms are governed by the laws of India. Any disputes arising from these Terms or
         your use of BulkShout shall be subject to the exclusive jurisdiction of the courts of{" "}
-        <Fill>Insert City, e.g. Delhi</Fill>.
+        Delhi.
       </p>
 
       <h2>14. Contact Us</h2>

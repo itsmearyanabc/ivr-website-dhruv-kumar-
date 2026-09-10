@@ -2586,6 +2586,16 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   align-items: center; justify-content: space-between;
   max-width: none;
 }
+/* The wrapper had no layout of its own, so its children simply stacked against the left edge
+   while the footer around it centred nothing - the mark, the policy links and the copyright
+   sat in a cramped column. It is the band now: centred to the same 1120px as the rest of the
+   page, with the three parts spread across it, wrapping to a column only when there is no
+   room for them side by side. */
+.landing-footer-inner {
+  width: 100%; max-width: 1120px; margin-inline: auto;
+  display: flex; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: 14px 26px;
+}
 .landing-footer p { margin: 0; font-size: 12.5px; color: var(--muted); }
 .landing-footer .brand { color: var(--text); }
 

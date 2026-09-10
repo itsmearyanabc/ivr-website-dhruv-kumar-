@@ -11,7 +11,7 @@ export default function PrivacyPolicyPage() {
   return (
     <LegalPage
       title="Privacy Policy"
-      updated={<Fill>Insert Date</Fill>}
+      updated="10 September 2026"
       intro={
         <>
           BulkShout (&ldquo;we,&rdquo; &ldquo;us,&rdquo; &ldquo;our&rdquo;) provides bulk voice

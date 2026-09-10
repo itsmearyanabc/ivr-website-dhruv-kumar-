@@ -11,7 +11,7 @@ export default function RefundPolicyPage() {
   return (
     <LegalPage
       title="Refund Policy"
-      updated={<Fill>Insert Date</Fill>}
+      updated="10 September 2026"
       intro={
         <>
           BulkShout operates on a prepaid, pay-for-delivery model. This policy explains exactly
