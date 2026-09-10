@@ -6,6 +6,7 @@ import React, { FormEvent, useCallback, useEffect, useState } from "react";
 import { Icon, Badge, Heading, PanelTop } from "@/app/_components/ui";
 import { getPaymentMethod, getMyTopupRequests, submitTopupRequest } from "@/app/actions/topups";
 import { getRecaptchaToken } from "@/lib/recaptchaClient";
+import RecaptchaScript from "@/app/_components/RecaptchaScript";
 
 const money = (value: any) => `₹${Number(value || 0).toFixed(2)}`;
 
@@ -108,6 +109,7 @@ export default function AddFunds({
 
   return (
     <>
+      <RecaptchaScript />
       <Heading eyebrow="WALLET" title="Add funds" text="Pay to our UPI QR, then submit the UTR to have your wallet credited." />
 
       <div className="dashboard-grid">

@@ -52,6 +52,7 @@ import {
 } from "@/lib/uploads";
 import { sanitiseDecimalInput } from "@/lib/decimalInput";
 import { getRecaptchaToken, recaptchaEnabled } from "@/lib/recaptchaClient";
+import RecaptchaScript from "@/app/_components/RecaptchaScript";
 import { calculateFailedCallRefund } from "@/lib/refunds";
 import {
   capNumberText,
@@ -1109,23 +1110,10 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [captchaQ, setCaptchaQ] = useState({ n1: 4, n2: 7 });
-  const [captchaAnswer, setCaptchaAnswer] = useState("");
   const [attempts, setAttempts] = useState(0);
   const [lockoutCount, setLockoutCount] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState<Date | null>(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
-
-  const resetCaptcha = () => {
-    setCaptchaQ({ n1: Math.floor(Math.random() * 10) + 1, n2: Math.floor(Math.random() * 10) + 1 });
-    setCaptchaAnswer("");
-  };
-
-  // The captcha starts as a fixed pair so the server and client render the same markup, then
-  // randomises once on mount. Generating it during render instead would either desync
-  // hydration or hand every visitor the same sum.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { resetCaptcha(); }, []);
 
   const changeMode = (newMode: typeof mode) => {
     // The admin console never exposes the customer sign-up / customer sign-in flows,
@@ -1134,7 +1122,6 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
     setMode(newMode);
     setError("");
     setNotice("");
-    resetCaptcha();
   };
 
   useEffect(() => {
@@ -1162,13 +1149,6 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
     const data = new FormData(e.currentTarget);
     const email = String(data.get("email") || "").trim().toLowerCase();
     
-    if (mode !== "forgot") {
-      if (parseInt(captchaAnswer) !== captchaQ.n1 + captchaQ.n2) {
-        resetCaptcha();
-        return setError(`Please solve the CAPTCHA correctly.`);
-      }
-    }
-
     const handleFailure = (msg: string) => {
       const newAttempts = attempts + 1;
       if (newAttempts >= 5) {
@@ -1185,7 +1165,6 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
         setAttempts(newAttempts);
         setError(`${msg} (${5 - newAttempts} attempts remaining)`);
       }
-      resetCaptcha();
     };
 
     if (mode === "admin" || mode === "login") {
@@ -1221,7 +1200,6 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
       data.set("recaptchaToken", await getRecaptchaToken("signup"));
       const result = await signUp(data);
       if (result.error) {
-        resetCaptcha();
         return setError(result.error);
       }
       setAttempts(0); setLockoutCount(0); setLockoutUntil(null);
@@ -1267,6 +1245,9 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
         </div>
       </section>
       <section className="auth-panel">
+        {/* Loaded here rather than in the root layout, so the landing page does not fetch a
+            Google script for every visitor who is only reading it. */}
+        <RecaptchaScript />
         <form className="auth-card" onSubmit={submit}>
           {onBack && (
             <button type="button" className="auth-back" onClick={onBack} disabled={isLocked}>
@@ -1278,7 +1259,6 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
           <label>Email address<input name="email" type="email" required placeholder={isAdminPortal ? "administrator email" : "you@company.com"} autoComplete={isAdminPortal ? "off" : "email"} disabled={isLocked}/></label>
           {mode !== "forgot" && <label>Password<div className="password-field"><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" autoComplete={isAdminPortal ? "off" : "current-password"} disabled={isLocked}/><button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}
           {mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}
-          {mode !== "forgot" && <label>Security check: what is {captchaQ.n1} + {captchaQ.n2}?<input type="number" required placeholder="Your answer" value={captchaAnswer} onChange={e => setCaptchaAnswer(e.target.value)} disabled={isLocked}/></label>}
           {mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}
           {error && <p className="auth-error">{error}</p>}
           {notice && <p className="auth-notice">{notice}</p>}
