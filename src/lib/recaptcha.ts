@@ -31,6 +31,22 @@ export type RecaptchaResult =
   /** Refused. `reason` is safe to show a person; `detail` is for the server log only. */
   | { ok: false; reason: string; detail?: string };
 
+/**
+ * Whether a refusal actually refuses.
+ *
+ * 'monitor' assesses every request and logs the verdict, then lets it through regardless.
+ * That is how this should be rolled out: a captcha that is wrong about real customers turns
+ * away business silently, and the only way to know how real traffic scores is to watch it
+ * score real traffic. Once the log shows legitimate sign-ins landing above the threshold,
+ * set RECAPTCHA_MODE=enforce.
+ *
+ * Defaults to monitor deliberately. Enforcing is a decision to make on evidence, not the
+ * thing that happens by default the moment an API key is pasted in.
+ */
+function isEnforcing(): boolean {
+  return (process.env.RECAPTCHA_MODE || 'monitor').toLowerCase() === 'enforce';
+}
+
 /** True once the project and API key are set. The site key alone is not enough. */
 export function isRecaptchaConfigured(): boolean {
   return Boolean(
@@ -137,6 +153,12 @@ export async function guardRecaptcha(
 ): Promise<{ error: string } | null> {
   const result = await verifyRecaptcha(token, action);
   if (result.ok) return null;
+
+  if (!isEnforcing()) {
+    console.warn(`[recaptcha][monitor] WOULD REFUSE ${action}: ${result.detail || result.reason} - allowed through because RECAPTCHA_MODE is not 'enforce'`);
+    return null;
+  }
+
   console.warn(`[recaptcha] refused ${action}: ${result.detail || result.reason}`);
   return { error: result.reason };
 }
