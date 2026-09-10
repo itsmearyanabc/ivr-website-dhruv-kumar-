@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import LegalPage, { Fill } from "@/app/_components/LegalPage";
+import LegalPage from "@/app/_components/LegalPage";
 
 export const metadata: Metadata = {
   title: "Privacy Policy | BulkShout",
@@ -127,7 +127,7 @@ export default function PrivacyPolicyPage() {
         <li>Withdraw consent for future communications from us at any time</li>
       </ul>
       <p>
-        To exercise these rights, contact us at <Fill>Insert Support Email</Fill>.
+        To exercise these rights, contact us at <a href="mailto:Bulkshout@gmail.com">Bulkshout@gmail.com</a>.
       </p>
 
       <h2>8. Cookies</h2>
@@ -156,9 +156,9 @@ export default function PrivacyPolicyPage() {
         at:
       </p>
       <p>
-        <strong>Email:</strong> <Fill>Insert Support Email</Fill>
+        <strong>Email:</strong> <a href="mailto:Bulkshout@gmail.com">Bulkshout@gmail.com</a>
         <br />
-        <strong>Phone:</strong> <Fill>Insert Support Number</Fill>
+        <strong>Phone:</strong> <a href="tel:+918826171727">+91 88261 71727</a>
         <br />
         <strong>Working Hours:</strong> 9:00 AM &ndash; 7:00 PM, Monday to Saturday
       </p>

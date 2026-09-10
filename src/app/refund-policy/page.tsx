@@ -73,7 +73,7 @@ export default function RefundPolicyPage() {
         </li>
         <li>
           To request a wallet balance refund, contact our support team at{" "}
-          <Fill>Insert Support Email</Fill> with your account details and the top-up reference.
+          <a href="mailto:Bulkshout@gmail.com">Bulkshout@gmail.com</a> with your account details and the top-up reference.
         </li>
       </ul>
 
@@ -116,9 +116,9 @@ export default function RefundPolicyPage() {
 
       <h2>7. Contact Us</h2>
       <p>
-        <strong>Email:</strong> <Fill>Insert Support Email</Fill>
+        <strong>Email:</strong> <a href="mailto:Bulkshout@gmail.com">Bulkshout@gmail.com</a>
         <br />
-        <strong>Phone:</strong> <Fill>Insert Support Number</Fill>
+        <strong>Phone:</strong> <a href="tel:+918826171727">+91 88261 71727</a>
         <br />
         <strong>Working Hours:</strong> 9:00 AM &ndash; 7:00 PM, Monday to Saturday
       </p>
