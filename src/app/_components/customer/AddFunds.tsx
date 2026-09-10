@@ -8,6 +8,8 @@ import { getPaymentMethod, getMyTopupRequests, submitTopupRequest } from "@/app/
 import { recaptchaEnabled } from "@/lib/recaptchaClient";
 import RecaptchaCheckbox from "@/app/_components/RecaptchaCheckbox";
 import RecaptchaScript from "@/app/_components/RecaptchaScript";
+import PaytmTopup from "@/app/_components/customer/PaytmTopup";
+import { paytmAvailable } from "@/app/actions/paytm";
 
 const money = (value: any) => `₹${Number(value || 0).toFixed(2)}`;
 
@@ -32,6 +34,25 @@ export default function AddFunds({
   const [requests, setRequests] = useState<any[]>([]);
   const [amount, setAmount] = useState("");
   const [utr, setUtr] = useState("");
+  /**
+   * Whether the Paytm gateway is configured on this server. Asked rather than assumed: the
+   * answer lives in server-side environment variables the browser cannot see, and the card
+   * simply is not offered when it is unset.
+   */
+  const [paytm, setPaytm] = useState<{ mid: string; isProduction: boolean } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    paytmAvailable()
+      .then(res => {
+        if (!alive) return;
+        if ("available" in res && res.available && res.mid) {
+          setPaytm({ mid: res.mid, isProduction: Boolean(res.isProduction) });
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   /** The token from the ticked box, and a counter that unticks it after a failed submit. */
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaReset, setCaptchaReset] = useState(0);
@@ -123,7 +144,25 @@ export default function AddFunds({
   return (
     <>
       <RecaptchaScript />
-      <Heading eyebrow="WALLET" title="Add funds" text="Pay to our UPI QR, then submit the UTR to have your wallet credited." />
+      <Heading eyebrow="WALLET" title="Add funds" text="Pay by card, UPI or netbanking and your wallet credits instantly — or pay our UPI QR and submit the UTR." />
+
+      {/* Offered first, because it is the one that needs nothing from the customer afterwards.
+          The QR and UTR route stays below it, unchanged, for anyone who prefers it. */}
+      {paytm && (
+        <section className="panel paytm-panel">
+          <PanelTop
+            title="Pay instantly"
+            text="Card, UPI or netbanking through Paytm. Credited the moment it succeeds."
+          />
+          <PaytmTopup
+            mid={paytm.mid}
+            isProduction={paytm.isProduction}
+            min={Number(method?.min_amount) || 100}
+            max={Number(method?.max_amount) || 100000}
+            onCredited={async () => { onCredited(); await loadRequests(); }}
+          />
+        </section>
+      )}
 
       <div className="dashboard-grid">
         <section className="panel balance-panel">

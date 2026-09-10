@@ -2707,6 +2707,21 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 }
 
 /* ------------------------------------------------------------
+   Paytm gateway top-up
+   ------------------------------------------------------------ */
+.paytm-panel { margin-bottom: 20px; }
+.paytm-box { padding: 4px 20px 18px; display: grid; gap: 12px; }
+.paytm-box label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); }
+.paytm-box input {
+  width: 100%; margin-top: 6px; font-family: inherit; font-size: 15px; font-weight: 700;
+  padding: 12px 13px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text);
+}
+.paytm-box input:focus { outline: 2px solid var(--red-line); outline-offset: -1px; }
+.paytm-box .primary { justify-content: center; }
+.paytm-box .field-hint { margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
+
+/* ------------------------------------------------------------
    reCAPTCHA
    ------------------------------------------------------------ */
 /* The checkbox widget is a fixed 304x78 iframe from Google. It is centred rather than
