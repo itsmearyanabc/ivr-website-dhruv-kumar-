@@ -1,26 +1,20 @@
-"use client";
-
 /**
  * Meta (Facebook) Pixel.
  *
- * Mounted on the customer-facing surfaces only - the landing page, the customer panel and the
- * policy pages - and deliberately NOT on /admin. Operators working the console all day would
- * otherwise be counted as traffic, and their sessions would pollute the very audience and
- * conversion figures the pixel exists to produce.
+ * Plain tags in a server component rather than next/script, for the same reason as
+ * SiteControl: next/script injects from JavaScript after load, which works but leaves nothing
+ * in the HTML the server sends - so the snippet appears to be missing when anyone checks
+ * "View page source". Rendered this way it is in the delivered markup, exactly as Meta
+ * supply it.
  *
- * `afterInteractive` so it never competes with first paint: an analytics script has nothing
- * to contribute until the page is usable.
+ * Mounted on the customer-facing surfaces only and never on /admin. Operators working the
+ * console all day would otherwise be counted as traffic, polluting the very audience and
+ * conversion figures the pixel exists to produce.
  */
-
-import Script from "next/script";
 
 const PIXEL_ID = "1599486971561330";
 
-export default function MetaPixel() {
-  return (
-    <>
-      <Script id="meta-pixel" strategy="afterInteractive">
-        {`!function(f,b,e,v,n,t,s)
+const SNIPPET = `!function(f,b,e,v,n,t,s)
 {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
 n.callMethod.apply(n,arguments):n.queue.push(arguments)};
 if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
@@ -29,8 +23,12 @@ t.src=v;s=b.getElementsByTagName(e)[0];
 s.parentNode.insertBefore(t,s)}(window, document,'script',
 'https://connect.facebook.net/en_US/fbevents.js');
 fbq('init', '${PIXEL_ID}');
-fbq('track', 'PageView');`}
-      </Script>
+fbq('track', 'PageView');`;
+
+export default function MetaPixel() {
+  return (
+    <>
+      <script dangerouslySetInnerHTML={{ __html: SNIPPET }} />
       <noscript>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img

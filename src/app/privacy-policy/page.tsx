@@ -98,6 +98,12 @@ export default function PrivacyPolicyPage() {
           <strong>Law enforcement or regulatory authorities</strong> &mdash; only where required
           by applicable law
         </li>
+        <li>
+          <strong>Advertising and analytics providers</strong> &mdash; our website uses the Meta
+          (Facebook) Pixel and Getsitecontrol. These record page visits and on-site activity so
+          we can measure our advertising and improve the site. They do not receive your contact
+          lists, campaign content, wallet balance or any order detail.
+        </li>
       </ul>
 
       <h2>5. Data Security</h2>
@@ -130,11 +136,24 @@ export default function PrivacyPolicyPage() {
         To exercise these rights, contact us at <a href="mailto:Bulkshout@gmail.com">Bulkshout@gmail.com</a>.
       </p>
 
-      <h2>8. Cookies</h2>
+      <h2>8. Cookies and Tracking</h2>
       <p>
-        Our website may use cookies or similar technologies to remember your login session and
-        improve your browsing experience. You can control cookie preferences through your
-        browser settings.
+        Our website uses cookies and similar technologies to remember your login session and
+        improve your browsing experience.
+      </p>
+      <p>
+        We also use third-party advertising and analytics technologies &mdash; the Meta
+        (Facebook) Pixel and Getsitecontrol &mdash; on our public website pages. These set their
+        own cookies and record page visits, which allows us to measure the performance of our
+        advertising and to show relevant ads to people who have visited us. They are not used
+        inside the operations console, and they never receive your contact lists, campaign
+        content or order details.
+      </p>
+      <p>
+        You can control or block cookies through your browser settings, and you can opt out of
+        interest-based advertising through your{" "}
+        <a href="https://www.facebook.com/settings?tab=ads" target="_blank" rel="noopener noreferrer">Meta ad preferences</a>.
+        Blocking these does not affect your ability to use your BulkShout account.
       </p>
 
       <h2>9. Children&rsquo;s Privacy</h2>
