@@ -19,7 +19,7 @@ export type VerificationState =
   | 'NOT_FOUND'
   | 'ERROR';
 
-export type VerificationMode = 'MANUAL' | 'DECENTRO' | 'GENERIC_UPI';
+export type VerificationMode = 'MANUAL' | 'DECENTRO' | 'GENERIC_UPI' | 'PAYTM';
 
 export interface UtrVerificationRequest {
   /** 12-digit UTR exactly as the customer typed it (already format-validated). */
@@ -321,10 +321,127 @@ const genericUpiVerifier: UtrVerifier = {
   },
 };
 
+// ---------------------------------------------------------------------------------------
+// Paytm QR lookup by Merchant ID
+// ---------------------------------------------------------------------------------------
+
+/**
+ * Paytm's merchant status lookup answers with the MID alone - no merchant key. That is what
+ * makes it usable for a plain Paytm for Business QR account, which has a MID but no payment
+ * gateway key. The UTR the customer typed is sent as the order reference.
+ *
+ * Paytm does not document this for static-QR payments, so the answer is read defensively:
+ * anything but a successful, unrefunded payment to this MID, for this reference, inside the
+ * lookup window, is not a match.
+ *
+ *   PAYTM_MID   the Merchant ID the QR settles into. Ignored while PAYTM_ENV=staging, when
+ *               it holds a test MID that this production lookup would never find.
+ */
+const PAYTM_STATUS_URL = 'https://securegw.paytm.in/merchant-status/getTxnStatus';
+
+function paytmQrMid(): string | null {
+  if (process.env.PAYTM_ENV === 'staging') return null;
+  return process.env.PAYTM_MID?.trim() || null;
+}
+
+/** Paytm reports TXNDATE in IST, as "YYYY-MM-DD HH:mm:ss.S". */
+function parsePaytmDate(value: unknown): Date | null {
+  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/.exec(String(value ?? ''));
+  if (!match) return null;
+  const date = new Date(`${match[1]}T${match[2]}+05:30`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+const paytmQrVerifier: UtrVerifier = {
+  mode: 'PAYTM',
+
+  get isConfigured(): boolean {
+    return paytmQrMid() !== null;
+  },
+
+  async verify({ utr, amount, since }: UtrVerificationRequest): Promise<UtrVerificationResult> {
+    const mid = paytmQrMid();
+    if (!mid) {
+      return { state: 'ERROR', note: 'PAYTM_MID is not set on the server. Verify manually.' };
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+
+    try {
+      const query = encodeURIComponent(JSON.stringify({ MID: mid, ORDERID: utr }));
+      const response = await fetch(`${PAYTM_STATUS_URL}?JsonData=${query}`, {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        return { state: 'ERROR', note: `Paytm lookup failed with status ${response.status}. Verify manually.` };
+      }
+
+      const data = await response.json();
+
+      // The answer has to be about this account and this reference, or it proves nothing.
+      if (data?.MID !== mid || String(data?.ORDERID ?? '') !== utr) {
+        return { state: 'ERROR', note: 'Paytm answered about a different payment. Verify manually.' };
+      }
+
+      if (data.STATUS !== 'TXN_SUCCESS') {
+        return {
+          state: 'NOT_FOUND',
+          note: `Paytm: ${data.RESPMSG || data.STATUS || 'no successful payment'} (code ${data.RESPCODE || 'none'}).`,
+        };
+      }
+
+      if (Number(data.REFUNDAMT) > 0) {
+        return { state: 'ERROR', note: 'Paytm shows this payment was refunded. Verify manually.' };
+      }
+
+      const paidAt = parsePaytmDate(data.TXNDATE);
+      if (!paidAt) {
+        return { state: 'ERROR', note: 'Paytm confirmed the payment but its date was unreadable. Verify manually.' };
+      }
+      if (paidAt < since) {
+        return { state: 'NOT_FOUND', note: `Paytm payment is dated ${data.TXNDATE}, older than the lookup window.` };
+      }
+
+      const actual = Number(data.TXNAMOUNT);
+      if (!Number.isFinite(actual)) {
+        return { state: 'ERROR', note: 'Paytm confirmed the payment without a readable amount. Verify manually.' };
+      }
+
+      if (!amountsMatch(amount, actual)) {
+        return {
+          state: 'AMOUNT_MISMATCH',
+          verifiedAmount: actual,
+          note: `Paytm received Rs ${actual.toFixed(2)} but Rs ${amount.toFixed(2)} was claimed.`,
+        };
+      }
+
+      return {
+        state: 'MATCHED',
+        verifiedAmount: actual,
+        note: `Paytm payment of Rs ${actual.toFixed(2)} matched against this UTR.`,
+      };
+    } catch (error: unknown) {
+      const aborted = error instanceof Error && error.name === 'AbortError';
+      return {
+        state: 'ERROR',
+        note: aborted
+          ? 'Paytm lookup timed out. Verify manually.'
+          : 'Paytm lookup could not be completed. Verify manually.',
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+};
+
 const VERIFIERS: Record<VerificationMode, UtrVerifier> = {
   MANUAL: manualVerifier,
   DECENTRO: decentroVerifier,
   GENERIC_UPI: genericUpiVerifier,
+  PAYTM: paytmQrVerifier,
 };
 
 export function getVerifier(mode: string | null | undefined): UtrVerifier {

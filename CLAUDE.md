@@ -80,10 +80,14 @@ inline to the operator. `categories.requires_audio = false` lets SMS categories 
 - *UPI QR + UTR (manual).* The customer pays a static QR, submits the amount and 12-digit UTR,
   and the admin approves or rejects it (`approve_wallet_topup` / `reject_wallet_topup`). A UTR
   can be claimed once — a partial unique index enforces it. `verification_mode` can be MANUAL,
-  DECENTRO or GENERIC_UPI, but GENERIC_UPI has no working endpoint (BharatPe's portal API is a
-  login redirect loop), so leave it on MANUAL. The QR, UPI ID and payee name are data, set in
-  Admin → Payment methods; as of 2026-09-11 they are moving from BharatPe to the Paytm QR
-  (`paytmqr281005050101efba4uh8izkq@paytm`). Automatic crediting is the gateway's job, not the QR's.
+  DECENTRO, GENERIC_UPI or PAYTM. GENERIC_UPI has no working endpoint (BharatPe's portal API is a
+  login redirect loop). PAYTM asks Paytm's `merchant-status/getTxnStatus` about the UTR using
+  `PAYTM_MID` alone - no key, so it works for a QR-only Paytm for Business account - and only
+  matches a successful, unrefunded payment to that MID inside the lookup window. Paytm doesn't
+  document that lookup for static-QR payments; as of 2026-09-11 a real UTR has not yet been
+  seen to match, so a miss leaves the claim PENDING for the admin. The QR, UPI ID and payee
+  name are data, set in Admin → Payment methods (now the Paytm QR,
+  `paytmqr281005050101efba4uh8izkq@paytm`).
 - *Paytm Payment Gateway (automatic).* `startPaytmTopup` → Paytm checkout →
   `settlePaytmOrder`, which credits **only** after `fetchOrderStatus` asks Paytm
   server-to-server. The POST to `/api/paytm/callback` and the browser's return are never

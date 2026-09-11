@@ -173,7 +173,7 @@ async function runUpdatePaymentMethod(formData: FormData) {
   // Uploaded straight to storage by the browser; this is just the resulting key.
   const qrUploadKey = String(formData.get('qr_image_key') || '')
 
-  if (!['MANUAL', 'DECENTRO', 'GENERIC_UPI'].includes(verificationMode)) {
+  if (!['MANUAL', 'DECENTRO', 'GENERIC_UPI', 'PAYTM'].includes(verificationMode)) {
     return { error: 'Unsupported verification mode.' }
   }
   if (!Number.isFinite(minAmount) || minAmount <= 0) {
@@ -202,6 +202,13 @@ async function runUpdatePaymentMethod(formData: FormData) {
     return {
       error:
         'UPI Gateway credentials are missing on the server. Set the UPI_GATEWAY_* environment variables before selecting this mode.',
+    }
+  }
+
+  if (verificationMode === 'PAYTM' && !getVerifier('PAYTM').isConfigured) {
+    return {
+      error:
+        'The Paytm Merchant ID is missing on the server. Set PAYTM_MID in the server environment before selecting this mode.',
     }
   }
 

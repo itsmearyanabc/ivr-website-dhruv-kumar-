@@ -678,6 +678,15 @@ function PaymentMethodSettings() {
                 <strong>BharatPe / Generic UPI</strong>
                 <small>Checks UTRs against an external UPI gateway using Merchant ID and Token in the server environment.</small>
               </button>
+              <button
+                type="button"
+                className={`mode-option ${mode === "PAYTM" ? "on" : ""}`}
+                onClick={() => setMode("PAYTM")}
+              >
+                <Icon name="qr" size={18} />
+                <strong>Paytm (Merchant ID)</strong>
+                <small>Asks Paytm about each UTR using your Merchant ID - no key needed. For a Paytm QR. Needs PAYTM_MID in the server environment.</small>
+              </button>
             </div>
 
             {mode === "DECENTRO" && !config.verifier_configured && (
@@ -687,7 +696,7 @@ function PaymentMethodSettings() {
               </div>
             )}
 
-            {mode === "DECENTRO" && (
+            {(mode === "DECENTRO" || mode === "PAYTM") && (
               <label className="toggle-row">
                 Automatically credit the wallet when the bank confirms an exact amount match
                 <input type="checkbox" checked={autoCredit} onChange={(e) => setAutoCredit(e.target.checked)} />
