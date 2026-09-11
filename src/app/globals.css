@@ -2287,7 +2287,6 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 }
 .landing-cta:hover { background: var(--red-dark); transform: translateY(-1px); }
 .landing-cta.large { padding: 14px 22px; font-size: 15px; }
-.landing-cta-short { display: none; }
 
 /* The second route in, beside the primary call to action. It was a white button on a
    near-white canvas behind a #bbbfca hairline, which read as disabled rather than secondary.
@@ -2696,20 +2695,17 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 .landing-logo.footer { height: 30px; }
 @media (max-width: 620px) { .landing-logo { height: 32px; max-width: 52vw; } }
 
-/* A phone header needs to stay a single line: preserve tap targets while letting the wordmark
-   and secondary call-to-action compact before they can force "Sign in" onto two lines. */
+/* A phone header needs to stay a single line: the wordmark and "Sign in" only. The header's
+   Create account is dropped there - the hero's "Create your account" sits just below it. */
 @media (max-width: 620px) {
   .landing-header-inner { padding: 10px 12px; gap: 6px; }
   .landing-logo { height: 27px; max-width: 38vw; }
   .landing-nav { gap: 2px; margin-left: auto; }
   .landing-link { font-size: 13px; padding: 9px 6px; white-space: nowrap; }
-  .landing-cta { font-size: 13px; padding: 9px 10px; gap: 5px; }
+  .landing-nav .landing-cta { display: none; }
 }
 @media (max-width: 400px) {
   .landing-logo { max-width: 35vw; }
-  .landing-cta-full { display: none; }
-  .landing-cta-short { display: inline; }
-  .landing-cta { padding-inline: 9px; }
 }
 
 .sidebar-logo-wrap { padding: 2px 8px 22px; }

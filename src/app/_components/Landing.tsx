@@ -382,12 +382,12 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
             priority
           />
           {/* Both routes into the product sit together in the corner where a visitor looks
-              for them, and repeat in the hero for anyone who scrolled straight past. */}
+              for them, and repeat in the hero. On a phone only Sign in stays up here: the
+              hero's "Create your account" button is right below it. */}
           <nav className="landing-nav">
             <button type="button" className="landing-link" onClick={onSignIn}>Sign in</button>
             <button type="button" className="landing-cta" onClick={onSignUp}>
-              <span className="landing-cta-full">Create account</span>
-              <span className="landing-cta-short">Create</span>
+              Create account
               <Icon name="arrow" size={15} />
             </button>
           </nav>
@@ -396,7 +396,7 @@ export default function Landing({ onSignIn, onSignUp, whatsappNumber }: {
 
       <section className="landing-hero">
         <div className="landing-hero-copy">
-          <p className="eyebrow">BULK VOICE CALL SERVICE — DELHI &amp; INDIA</p>
+          <p className="eyebrow">BULK VOICE CALL AND SMS SERVICE — TO ALL INDIA</p>
           <h1>Bulk voice calls that only charge you when someone actually answers</h1>
           <p className="landing-lede">
             BulkShout is a bulk voice call broadcasting service for businesses across Delhi and

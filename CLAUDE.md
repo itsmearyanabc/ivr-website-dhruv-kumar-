@@ -91,10 +91,11 @@ inline to the operator. `categories.requires_audio = false` lets SMS categories 
   for Business account. On TXN_SUCCESS it inserts the row with Paytm's BANKTXNID as `utr_number`
   (so the UTR form cannot claim the same payment again) and credits via `approve_wallet_topup`
   when auto-credit is on. A UTR sent to that lookup comes back "Invalid Order Id" (seen
-  2026-09-11) because Paytm files payments by order number, so UTR claims stay manual. As of
-  2026-09-11 the first real per-payment QR payment was still to be tested. The UPI ID
-  (`bulkshout@ptaxis`) and payee name are data, set in Admin → Payment methods; the UPI ID must
-  belong to the MID or Paytm never reports its payments.
+  2026-09-11) because Paytm files payments by order number, so UTR claims stay manual. The UPI ID
+  and payee name are data, set in Admin → Payment methods. **It must be Paytm's own QR handle,
+  `paytmqr281005050101efba4uh8izkq@paytm`** - confirmed crediting automatically on 2026-09-11.
+  The same account's custom handle `bulkshout@ptaxis` takes the money but Paytm files it under
+  its own order number, so the lookup answers "Invalid Order Id" and nothing ever credits.
 - *Paytm Payment Gateway (automatic).* `startPaytmTopup` → Paytm checkout →
   `settlePaytmOrder`, which credits **only** after `fetchOrderStatus` asks Paytm
   server-to-server. The POST to `/api/paytm/callback` and the browser's return are never

@@ -1330,7 +1330,7 @@ function Auth({ portal, onLogin, initialMode, onBack }: {
           {mode === "signup" && <><label>Full name<input name="name" required placeholder="Your full name" disabled={isLocked}/></label><label>Company name <span>(optional)</span><input name="company" placeholder="Your company" disabled={isLocked}/></label><label>Phone number<input name="phone" required placeholder="+91 00000 00000" disabled={isLocked}/></label></>}
           <label>Email address<input name="email" type="email" required placeholder={isAdminPortal ? "administrator email" : "you@company.com"} autoComplete={isAdminPortal ? "off" : "email"} disabled={isLocked}/></label>
           {mode !== "forgot" && <label>Password<div className="password-field"><input name="password" type={showPassword ? "text" : "password"} required minLength={8} placeholder="••••••••" autoComplete={isAdminPortal ? "off" : "current-password"} disabled={isLocked}/><button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} disabled={isLocked}><Icon name={showPassword ? "eye-off" : "eye"} size={16}/></button></div></label>}
-          {mode === "signup" && <label>Confirm password<input name="confirm" type="password" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}
+          {mode === "signup" && <label>Confirm password<PasswordInput name="confirm" required minLength={8} placeholder="••••••••" disabled={isLocked}/></label>}
           {mode === "login" && <div className="auth-options"><label className="check"><input type="checkbox" defaultChecked disabled={isLocked}/> Remember me</label><button type="button" onClick={() => changeMode("forgot")} disabled={isLocked}>Forgot password?</button></div>}
           {mode !== "forgot" && (
             <RecaptchaCheckbox
@@ -1391,6 +1391,28 @@ function TransactionTable({ transactions }: { transactions: any[] }) {
 }
 
 /** Customer account screen: profile details and password change, both persisted. */
+/**
+ * A password input with a show/hide eye, matching the one on the sign-in form. Each field keeps
+ * its own toggle, so revealing one never reveals the others.
+ */
+function PasswordInput(props: Omit<React.ComponentProps<"input">, "type">) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="password-field">
+      <input {...props} type={shown ? "text" : "password"} />
+      <button
+        type="button"
+        className="password-toggle"
+        onClick={() => setShown(s => !s)}
+        disabled={props.disabled}
+        aria-label={shown ? "Hide password" : "Show password"}
+      >
+        <Icon name={shown ? "eye-off" : "eye"} size={16} />
+      </button>
+    </div>
+  );
+}
+
 function CustomerSettings({ session, onProfileSaved }: { session: Session; onProfileSaved: (p: { name: string; company: string }) => void }) {
   const [fullName, setFullName] = useState(session.name);
   const [company, setCompany] = useState(session.company || "");
@@ -1468,9 +1490,9 @@ function CustomerSettings({ session, onProfileSaved }: { session: Session; onPro
           <h2>Change password</h2>
           <p>You will stay signed in on this device after changing it.</p>
           <div className="form-grid">
-            <label>Current password<input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required/></label>
-            <label>New password<input type="password" minLength={8} value={newPassword} onChange={e => setNewPassword(e.target.value)} required/></label>
-            <label>Confirm new password<input type="password" minLength={8} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required/></label>
+            <label>Current password<PasswordInput value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required/></label>
+            <label>New password<PasswordInput minLength={8} value={newPassword} onChange={e => setNewPassword(e.target.value)} required/></label>
+            <label>Confirm new password<PasswordInput minLength={8} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required/></label>
           </div>
           {passwordErr && <p className="form-error">{passwordErr}</p>}
           {passwordMsg && <p className="form-success">✓ {passwordMsg}</p>}

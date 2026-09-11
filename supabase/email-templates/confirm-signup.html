@@ -1,0 +1,44 @@
+<!-- Supabase → Authentication → Emails → Templates → "Confirm signup".
+     Subject: Confirm your BulkShout account
+     Sent from the custom SMTP sender set in Authentication → Emails → SMTP Settings. -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f2;padding:32px 12px;font-family:Montserrat,Arial,Helvetica,sans-serif;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border:1px solid #e1e2de;border-radius:14px;">
+        <tr>
+          <td style="padding:30px 28px 0;">
+            <img src="https://bulkshout.com/bulkshout-logo.png" alt="BulkShout" width="180" style="display:block;width:180px;height:auto;border:0;">
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:24px 28px 8px;font-size:22px;font-weight:700;line-height:1.3;color:#14141b;">
+            Confirm your email
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 28px 24px;font-size:15px;line-height:1.6;color:#5d646e;">
+            Thanks for signing up for BulkShout. Press the button below to confirm
+            <strong style="color:#14141b;">{{ .Email }}</strong> and open your customer panel.
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 28px 26px;">
+            <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#495464;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 24px;border-radius:9px;">Confirm my account</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 28px 22px;font-size:13px;line-height:1.6;color:#878d96;">
+            Button not working? Copy this link into your browser:<br>
+            <a href="{{ .ConfirmationURL }}" style="color:#495464;word-break:break-all;">{{ .ConfirmationURL }}</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:18px 28px 26px;border-top:1px solid #e1e2de;font-size:13px;line-height:1.6;color:#878d96;">
+            Didn't sign up for BulkShout? You can safely ignore this email.
+          </td>
+        </tr>
+      </table>
+      <p style="margin:16px 0 0;font-size:12px;color:#878d96;">BulkShout · Bulk voice calls and SMS across India · bulkshout.com</p>
+    </td>
+  </tr>
+</table>
