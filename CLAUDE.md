@@ -53,7 +53,10 @@ Add funds…) are component state, not routes.
 
 All server work happens in **Server Actions** under `src/app/actions/`. Two route handlers
 exist only because redirect flows cannot be Server Actions: `/auth/callback` (Google OAuth code
-exchange) and `/api/paytm/callback` (Paytm's return after checkout).
+exchange) and `/api/paytm/callback` (Paytm's return after checkout). Both redirect with
+[`relativeRedirect()`](src/lib/relativeRedirect.ts) - never build a redirect from `request.url`:
+behind Caddy, `next start` reports every request as `http://localhost:3000/...`, so an absolute
+redirect built from it sends customers to localhost.
 
 Customer nav: Dashboard · New broadcast · My broadcasts · Messages · Add funds · Support ·
 Settings. Admin: orders queue, customer directory, notifications, activity log and staff (owner

@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
-import { NextResponse } from 'next/server'
 import { settlePaytmOrder } from '@/app/actions/paytm'
+import { relativeRedirect } from '@/lib/relativeRedirect'
 
 /**
  * Where Paytm returns the customer after checkout.
@@ -15,7 +15,6 @@ import { settlePaytmOrder } from '@/app/actions/paytm'
  * the panel - the redirect below is presentation, not the thing that pays.
  */
 async function handle(request: Request) {
-  const origin = new URL(request.url).origin
   let orderId = ''
 
   try {
@@ -31,7 +30,7 @@ async function handle(request: Request) {
   }
 
   if (!orderId) {
-    return NextResponse.redirect(new URL('/?topup=unknown', origin), { status: 303 })
+    return relativeRedirect('/?topup=unknown')
   }
 
   const result = await settlePaytmOrder(orderId)
@@ -40,8 +39,7 @@ async function handle(request: Request) {
     : 'status' in result && result.status === 'PENDING' ? 'pending'
     : 'failed'
 
-  // 303 so the browser follows with GET: without it the redirect repeats this POST.
-  return NextResponse.redirect(new URL(`/?topup=${state}`, origin), { status: 303 })
+  return relativeRedirect(`/?topup=${state}`)
 }
 
 export async function POST(request: Request) { return handle(request) }
