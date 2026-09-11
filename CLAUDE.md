@@ -81,15 +81,19 @@ inline to the operator. `categories.requires_audio = false` lets SMS categories 
   and the admin approves or rejects it (`approve_wallet_topup` / `reject_wallet_topup`). A UTR
   can be claimed once — a partial unique index enforces it. `verification_mode` can be MANUAL,
   DECENTRO or GENERIC_UPI, but GENERIC_UPI has no working endpoint (BharatPe's portal API is a
-  login redirect loop), so leave it on MANUAL.
+  login redirect loop), so leave it on MANUAL. The QR, UPI ID and payee name are data, set in
+  Admin → Payment methods; as of 2026-09-11 they are moving from BharatPe to the Paytm QR
+  (`paytmqr281005050101efba4uh8izkq@paytm`). Automatic crediting is the gateway's job, not the QR's.
 - *Paytm Payment Gateway (automatic).* `startPaytmTopup` → Paytm checkout →
   `settlePaytmOrder`, which credits **only** after `fetchOrderStatus` asks Paytm
   server-to-server. The POST to `/api/paytm/callback` and the browser's return are never
   trusted; the amount credited is Paytm's figure. It credits through `approve_wallet_topup`,
   which locks the row and refuses anything not PENDING — that is what makes repeat calls safe.
-  Needs `PAYTM_ENV`, `PAYTM_MID`, `PAYTM_MERCHANT_KEY` and migration `20260910000000`. As of
-  2026-09-11 the migration is not run and Paytm rejects the supplied test pair with "System
-  Error" on every endpoint — a credentials problem, not a code one.
+  Needs `PAYTM_ENV`, `PAYTM_MID`, `PAYTM_MERCHANT_KEY` and migration `20260910000000` (run
+  2026-09-11). The test pair is refused with `501 System Error` on every endpoint, on both
+  `securegw-stage.paytm.in` and Paytm's newer `securestage.paytmpayments.com` - the account's
+  sandbox is not provisioned, which is Paytm's side. The plan is to go live on the production
+  MID and key; the card stays hidden until `PAYTM_*` is set on the VPS.
 
 **Refunds.** `calculateFailedCallRefund` splits `broadcasts.charge` across delivered + failed
 calls and credits back the failed share, capped at what is still refundable. The rate comes

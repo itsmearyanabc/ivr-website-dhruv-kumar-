@@ -144,7 +144,14 @@ export default function AddFunds({
   return (
     <>
       <RecaptchaScript />
-      <Heading eyebrow="WALLET" title="Add funds" text="Pay by card, UPI or netbanking and your wallet credits instantly — or pay our UPI QR and submit the UTR." />
+      {/* Only promise instant card payments when the Paytm card below is actually offered. */}
+      <Heading
+        eyebrow="WALLET"
+        title="Add funds"
+        text={paytm
+          ? "Pay by card, UPI or netbanking and your wallet credits instantly — or pay our UPI QR and submit the UTR."
+          : "Pay our UPI QR with any UPI app, then submit the UTR to claim the payment."}
+      />
 
       {/* Offered first, because it is the one that needs nothing from the customer afterwards.
           The QR and UTR route stays below it, unchanged, for anyone who prefers it. */}
