@@ -67,9 +67,10 @@ export async function startPaytmTopup(amountRupees: number) {
       user_id: user.id,
       method_code: METHOD_CODE,
       amount,
-      // The column is NOT NULL and carries the payment's reference. Paytm's own transaction id
-      // replaces it the moment there is one; until then the order id stands in, which keeps the
-      // partial unique index on this column doing its job.
+      // The column is NOT NULL and carries the payment's bank reference, which does not exist
+      // until Paytm confirms. The order id stands in meanwhile - migration 20260911000000 allows
+      // it on PAYTM_PG rows, and its letters mean it can never collide with a 12-digit UTR in the
+      // partial unique index that stops a payment being claimed twice.
       utr_number: orderId,
       status: "PENDING",
       verification_mode: "PAYTM",
@@ -115,6 +116,9 @@ export async function settlePaytmOrder(orderId: string) {
       .from("wallet_topup_requests")
       .select("id, user_id, amount, status, reference_no")
       .eq("reference_no", orderId)
+      // Gateway orders only. A per-payment QR order is settled by checkQrTopup under its own
+      // rules - settled here it would skip the operator review a mismatched amount gets there.
+      .eq("method_code", METHOD_CODE)
       .maybeSingle();
 
     if (!request) return { error: "That payment reference is not recognised." };
@@ -126,7 +130,9 @@ export async function settlePaytmOrder(orderId: string) {
       const failed = verdict.status === "TXN_FAILURE";
       await supabase.from("wallet_topup_requests").update({
         status: failed ? "REJECTED" : "PENDING",
-        verification_state: verdict.status,
+        // The ledger's own vocabulary (wallet_topup_verification_state), not Paytm's. Paytm's
+        // status words were refused by that CHECK, so a failed order was never marked at all.
+        verification_state: failed ? "NOT_FOUND" : verdict.status === "PENDING" ? "NOT_CHECKED" : "ERROR",
         verification_note: verdict.message,
         verified_at: new Date().toISOString(),
         ...(failed ? { rejection_reason: verdict.message } : {}),
@@ -141,16 +147,53 @@ export async function settlePaytmOrder(orderId: string) {
     // someone edits the amount mid-flow, and the bank's figure is the only true one.
     const paid = verdict.amount ?? Number(request.amount);
 
+    // A UPI payment's bank reference is the UTR its payer sees. Storing it puts the payment under
+    // the same partial unique index as the UTR form, so it cannot be claimed a second time there.
+    // Anything else - a card or netbanking reference, or none - keeps the order id, already unique.
+    const reference = verdict.bankTxnId && /^\d{12}$/.test(verdict.bankTxnId) ? verdict.bankTxnId : orderId;
+
     // `amount` is set to what Paytm reports, not just recorded alongside it: the RPC below
     // credits the row's own amount column, so this is the figure that becomes money.
-    await supabase.from("wallet_topup_requests").update({
+    const { error: recordError } = await supabase.from("wallet_topup_requests").update({
       amount: paid,
-      utr_number: verdict.txnId || orderId,
+      utr_number: reference,
       verification_state: "MATCHED",
       verified_amount: paid,
-      verification_note: verdict.message,
+      verification_note: `${verdict.message} Paytm txn ${verdict.txnId || "not given"}.`,
       verified_at: new Date().toISOString(),
     }).eq("id", request.id);
+
+    // Nothing is credited unless that write landed: the RPC pays out the row as it stands.
+    if (recordError) {
+      if (recordError.code === "23505") {
+        // This UPI reference is already on another live request - most likely the customer also
+        // submitted it through the UTR form. Crediting here would pay the same money twice, so
+        // this one waits for an operator, with the reason on it.
+        await supabase.from("wallet_topup_requests").update({
+          amount: paid,
+          verification_state: "ERROR",
+          verified_amount: paid,
+          verification_note:
+            `Paytm confirmed Rs ${paid.toFixed(2)}, but UPI reference ${reference} is already claimed ` +
+            `on another request. Check both before approving either.`,
+          verified_at: new Date().toISOString(),
+        }).eq("id", request.id);
+
+        await logActivity({
+          ...(await describeActor(request.user_id)),
+          actionType: "PAYMENT_UTR_CONFLICT",
+          entityType: "TOPUP",
+          entityId: orderId,
+          description: `Paytm gateway order ${orderId} was paid, but its UPI reference ${reference} is already claimed on another request.`,
+          metadata: { utr: reference, orderId },
+        });
+
+        return { status: "PENDING" as const, message: "Your payment went through. Our team will confirm it shortly." };
+      }
+
+      console.error("[paytm] could not record the confirmed payment for", orderId, recordError.message);
+      return { error: "Your payment succeeded but could not be recorded. Contact support with this reference: " + orderId };
+    }
 
     // The same RPC the manual queue uses: it locks the row, refuses anything that is not
     // still PENDING, and moves the balance in one transaction - which is what makes calling

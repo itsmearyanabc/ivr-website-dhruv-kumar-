@@ -100,13 +100,16 @@ inline to the operator. `categories.requires_audio = false` lets SMS categories 
   server-to-server. The POST to `/api/paytm/callback` and the browser's return are never
   trusted; the amount credited is Paytm's figure. It credits through `approve_wallet_topup`,
   which locks the row and refuses anything not PENDING — that is what makes repeat calls safe.
-  Needs `PAYTM_ENV`, `PAYTM_MID`, `PAYTM_MERCHANT_KEY` and migration `20260910000000` (run
-  2026-09-11). The test pair is refused with `501 System Error` on every endpoint, on both
-  `securegw-stage.paytm.in` and Paytm's newer `securestage.paytmpayments.com` - the account's
-  sandbox is not provisioned, which is Paytm's side. The plan is to go live on the production
-  MID and key; the card stays hidden until `PAYTM_*` is set on the VPS. **Fix before enabling
-  it:** `startPaytmTopup` writes the order id into `utr_number`, and later Paytm's TXNID, but
-  `wallet_topup_utr_format` only allows 12 digits, so the insert fails and no payment can start.
+  Needs `PAYTM_ENV`, `PAYTM_MID`, `PAYTM_MERCHANT_KEY`, migration `20260910000000` (run
+  2026-09-11) and migration `20260911000000` (not yet run as of 2026-09-11). The row is written
+  PENDING when the checkout opens, holding the order id in `utr_number`; the second migration
+  allows that on PAYTM_PG rows only. Settlement swaps in Paytm's 12-digit UPI reference when
+  there is one, so the UTR form cannot claim the same payment, and if that reference is already
+  claimed the row waits for the admin instead of crediting. The test pair is refused with
+  `501 System Error` on every endpoint, on both `securegw-stage.paytm.in` and Paytm's newer
+  `securestage.paytmpayments.com` - the account's sandbox is not provisioned, which is Paytm's
+  side. The plan is to go live on the production MID and key; the card stays hidden until
+  `PAYTM_*` is set on the VPS.
 
 **Refunds.** `calculateFailedCallRefund` splits `broadcasts.charge` across delivered + failed
 calls and credits back the failed share, capped at what is still refundable. The rate comes
@@ -200,7 +203,7 @@ hand, and confirm with a verdict (`grep -c`, a length check) rather than by echo
 
 ## Database
 
-Supabase Postgres, Free tier. Migrations in `supabase/migrations/` (16, chronological); the SQL
+Supabase Postgres, Free tier. Migrations in `supabase/migrations/` (17, chronological); the SQL
 in `database/` is a duplicate/bootstrap set. Every migration is additive, idempotent and ends
 with a verification `SELECT` — keep writing them that way, since the owner pastes them into the
 SQL editor by hand. RLS is on everywhere, with `public.is_admin()` (ADMIN or STAFF) as the admin

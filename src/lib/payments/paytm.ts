@@ -124,6 +124,11 @@ export type PaytmOrderStatus = {
   amount: number | null;
   /** Paytm's own transaction id, stored so a payment cannot be claimed twice. */
   txnId: string | null;
+  /**
+   * The bank's reference for the payment. For UPI it is the 12-digit RRN the payer's app calls
+   * the UTR, which is what lets settlement stop the same payment being claimed via the UTR form.
+   */
+  bankTxnId: string | null;
   message: string;
 };
 
@@ -132,7 +137,7 @@ export type PaytmOrderStatus = {
  */
 export async function fetchOrderStatus(orderId: string): Promise<PaytmOrderStatus> {
   const cfg = getPaytmConfig();
-  if (!cfg) return { status: 'UNKNOWN', amount: null, txnId: null, message: 'Paytm is not configured.' };
+  if (!cfg) return { status: 'UNKNOWN', amount: null, txnId: null, bankTxnId: null, message: 'Paytm is not configured.' };
 
   try {
     const result = await signedPost(
@@ -155,11 +160,12 @@ export async function fetchOrderStatus(orderId: string): Promise<PaytmOrderStatu
       status,
       amount: Number.isFinite(amount) ? amount : null,
       txnId: body?.txnId ? String(body.txnId) : null,
+      bankTxnId: body?.bankTxnId ? String(body.bankTxnId).trim() : null,
       message: body?.resultInfo?.resultMsg || 'No message from Paytm.',
     };
   } catch (e: unknown) {
     console.error('[paytm] fetchOrderStatus failed:', e instanceof Error ? e.message : e);
-    return { status: 'UNKNOWN', amount: null, txnId: null, message: 'Could not reach Paytm to confirm this payment.' };
+    return { status: 'UNKNOWN', amount: null, txnId: null, bankTxnId: null, message: 'Could not reach Paytm to confirm this payment.' };
   }
 }
 
