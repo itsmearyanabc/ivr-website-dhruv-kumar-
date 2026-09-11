@@ -1302,6 +1302,9 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   padding: 10px; margin-bottom: 14px;
 }
 .qr-frame img { width: 196px; height: 196px; object-fit: contain; display: block; }
+/* In the wide column the QR is the main thing on the page: bigger code, chip kept readable. */
+.pay-panel .qr-frame img { width: 280px; height: 280px; }
+.pay-panel .vpa-chip { max-width: 440px; margin: 0 auto; }
 .qr-frame.empty-qr {
   width: 216px; height: 216px; flex-direction: column; gap: 8px; color: var(--muted-2);
   border-style: dashed;

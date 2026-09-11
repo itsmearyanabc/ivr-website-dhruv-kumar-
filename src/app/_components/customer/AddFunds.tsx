@@ -171,27 +171,10 @@ export default function AddFunds({
         </section>
       )}
 
+      {/* The QR gets the wide column: it is what the customer acts on, and a phone camera
+          reads a large code faster. The balance is a glance, so it takes the side. */}
       <div className="dashboard-grid">
-        <section className="panel balance-panel">
-          <div className="balance-orb"><Icon name="indian-rupee" size={32} /></div>
-          <p className="eyebrow">CURRENT BALANCE</p>
-          <h2 className="balance-amount">{money(balance)}</h2>
-          <p className="text-muted balance-note">
-            Your wallet is debited the service price the moment a broadcast is created, and credited back
-            automatically on cancellations and refunds.
-          </p>
-          {pending.length > 0 && (
-            <div className="pending-strip">
-              <Icon name="clock" size={15} />
-              <span>
-                {pending.length} top-up{pending.length > 1 ? "s" : ""} awaiting verification
-                {" · "}{money(pending.reduce((sum, r) => sum + Number(r.amount || 0), 0))}
-              </span>
-            </div>
-          )}
-        </section>
-
-        <aside className="panel pay-panel">
+        <section className="panel pay-panel">
           <PanelTop title="Pay via UPI" text="Scan with any UPI app, then claim the payment below." />
 
           {loading ? (
@@ -227,6 +210,25 @@ export default function AddFunds({
               <p className="limit-line">
                 Accepted amounts: {money(method.min_amount)} – {money(method.max_amount)}
               </p>
+            </div>
+          )}
+        </section>
+
+        <aside className="panel balance-panel">
+          <div className="balance-orb"><Icon name="indian-rupee" size={32} /></div>
+          <p className="eyebrow">CURRENT BALANCE</p>
+          <h2 className="balance-amount">{money(balance)}</h2>
+          <p className="text-muted balance-note">
+            Your wallet is debited the service price the moment a broadcast is created, and credited back
+            automatically on cancellations and refunds.
+          </p>
+          {pending.length > 0 && (
+            <div className="pending-strip">
+              <Icon name="clock" size={15} />
+              <span>
+                {pending.length} top-up{pending.length > 1 ? "s" : ""} awaiting verification
+                {" · "}{money(pending.reduce((sum, r) => sum + Number(r.amount || 0), 0))}
+              </span>
             </div>
           )}
         </aside>
