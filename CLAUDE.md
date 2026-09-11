@@ -117,9 +117,12 @@ calls and credits back the failed share, capped at what is still refundable. The
 from the order's own charge, never from the current price table, so an old order refunds at
 the rate it was sold at.
 
-**Sign-in.** Email and password, plus Google through Supabase OAuth. `NEXT_PUBLIC_GOOGLE_AUTH=1`
-shows the button, and the provider must also be enabled in Supabase (it was disabled as of
-2026-09-11). The `on_auth_user_created` trigger builds the `users` row from provider metadata;
+**Sign-in.** Email and password, plus Google through Supabase OAuth (live since 2026-09-11;
+`NEXT_PUBLIC_GOOGLE_AUTH=1` shows the button). Sign-up creates the user with
+`auth.admin.createUser({ email_confirm: true })`, not `auth.signUp`, so Supabase never sends a
+confirmation email - reCAPTCHA is the gate in front of it. The panel has no email of its own
+(password resets go through the admin), so nothing depends on Supabase's mailer.
+The `on_auth_user_created` trigger builds the `users` row from provider metadata;
 `phone` and `company_name` are nullable, so Google accounts need no migration. reCAPTCHA
 Enterprise uses a **checkbox** key on sign-in, sign-up and top-up, verified server-side in
 [recaptcha.ts](src/lib/recaptcha.ts); `RECAPTCHA_MODE` is `monitor` or `enforce`, and enforce is

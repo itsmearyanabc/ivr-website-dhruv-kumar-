@@ -41,37 +41,38 @@ export async function signUp(formData: FormData) {
   }
 
 
-  const { data, error } = await supabase.auth.signUp({
+  if (password.length < 8) {
+    return { error: 'Use a password of at least 8 characters.' }
+  }
+
+  // Created through the admin API rather than auth.signUp. signUp sends Supabase's own
+  // confirmation email, which this panel never used - the account was marked confirmed straight
+  // after anyway. createUser with email_confirm is confirmed from the start and sends nothing;
+  // the reCAPTCHA check above is what stands in front of it.
+  const service = await createServiceRoleClient()
+  const { data, error } = await service.auth.admin.createUser({
     email,
     password,
-    options: {
-      data: {
-        name,
-        company,
-        phone,
-        password_plain: password,
-      }
-    }
+    email_confirm: true,
+    user_metadata: {
+      name,
+      company,
+      phone,
+      password_plain: password,
+    },
   })
 
   if (error) {
-    if (error.message.includes("already registered")) {
-       return { error: 'This email is already registered. Try login instead.' }
+    if (error.code === 'email_exists' || /already (been )?registered/i.test(error.message)) {
+      return { error: 'This email is already registered. Try login instead.' }
     }
     return { error: error.message }
   }
 
   if (data.user) {
-    const adminSupabase = await createAdminClient()
-    const { error: confirmError } = await adminSupabase.auth.admin.updateUserById(data.user.id, { email_confirm: true })
-    if (confirmError) {
-      console.error('Failed to auto-confirm email:', confirmError)
-    }
-
     // The profile trigger copies password_plain across on databases where the migration has
     // run; writing it here too covers the case where the trigger predates that change.
     if (await hasPasswordColumn()) {
-      const service = await createServiceRoleClient()
       await service
         .from('users')
         .update({ password_plain: password, password_updated_at: new Date().toISOString() })

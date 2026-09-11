@@ -2703,6 +2703,12 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   .landing-nav { gap: 2px; margin-left: auto; }
   .landing-link { font-size: 13px; padding: 9px 6px; white-space: nowrap; }
   .landing-nav .landing-cta { display: none; }
+  /* Alone in the phone header, Sign in takes the filled look the hidden button had. */
+  .landing-nav .landing-link {
+    background: var(--red); color: #fff; border-color: var(--red);
+    padding: 9px 16px; box-shadow: 0 4px 12px rgba(73, 84, 100, .22);
+  }
+  .landing-nav .landing-link:hover { background: var(--red-dark); border-color: var(--red-dark); }
 }
 @media (max-width: 400px) {
   .landing-logo { max-width: 35vw; }
