@@ -685,7 +685,7 @@ function PaymentMethodSettings() {
               >
                 <Icon name="qr" size={18} />
                 <strong>Paytm (Merchant ID)</strong>
-                <small>Asks Paytm about each UTR using your Merchant ID - no key needed. For a Paytm QR. Needs PAYTM_MID in the server environment.</small>
+                <small>Each customer gets a QR for the amount they enter, paying the UPI ID above, and Paytm confirms it by your Merchant ID - no key needed. The UPI ID must belong to that Merchant ID. Needs PAYTM_MID on the server.</small>
               </button>
             </div>
 

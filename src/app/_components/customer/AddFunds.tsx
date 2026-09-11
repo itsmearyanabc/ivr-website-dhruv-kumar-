@@ -9,14 +9,16 @@ import { recaptchaEnabled } from "@/lib/recaptchaClient";
 import RecaptchaCheckbox from "@/app/_components/RecaptchaCheckbox";
 import RecaptchaScript from "@/app/_components/RecaptchaScript";
 import PaytmTopup from "@/app/_components/customer/PaytmTopup";
+import QrTopup from "@/app/_components/customer/QrTopup";
 import { paytmAvailable } from "@/app/actions/paytm";
 
 const money = (value: any) => `₹${Number(value || 0).toFixed(2)}`;
 
 /**
- * Customer wallet top-up: pay to a static UPI QR, then claim the payment with its UTR.
- * The wallet only moves once the backend (or an admin) has matched that UTR to a real
- * bank credit, so nothing here optimistically updates the balance.
+ * Customer wallet top-up. With the Paytm mode on, a QR made for each payment that confirms
+ * itself (QrTopup); otherwise a static UPI QR, claimed with its UTR. Either way the wallet only
+ * moves once the backend (or an admin) has matched the payment to a real credit, so nothing
+ * here optimistically updates the balance.
  */
 export default function AddFunds({
   balance,
@@ -175,7 +177,12 @@ export default function AddFunds({
           reads a large code faster. The balance is a glance, so it takes the side. */}
       <div className="dashboard-grid">
         <section className="panel pay-panel">
-          <PanelTop title="Pay via UPI" text="Scan with any UPI app, then claim the payment below." />
+          <PanelTop
+            title="Pay via UPI"
+            text={method?.auto_qr
+              ? "Enter an amount, scan the QR with any UPI app, and your wallet is credited automatically."
+              : "Scan with any UPI app, then claim the payment below."}
+          />
 
           {loading ? (
             <div className="loading-block"><div className="loader" /></div>
@@ -184,6 +191,12 @@ export default function AddFunds({
               <strong>Top-ups are temporarily unavailable</strong>
               <p>{methodError || "Our payment method is being updated. Please raise a support ticket to add funds."}</p>
             </div>
+          ) : method.auto_qr ? (
+            <QrTopup
+              min={Number(method.min_amount)}
+              max={Number(method.max_amount)}
+              onSettled={async () => { onCredited(); await loadRequests(); }}
+            />
           ) : (
             <div className="upi-box">
               {method.qr_url ? (
@@ -236,14 +249,27 @@ export default function AddFunds({
 
       {method?.is_enabled && (
         <section className="panel">
-          <PanelTop title="Claim your payment" text="Enter exactly what you paid and the 12-digit UTR from your UPI app." />
+          <PanelTop
+            title={method.auto_qr ? "Paid but not credited?" : "Claim your payment"}
+            text={method.auto_qr
+              ? "If a QR payment did not confirm, send us its UTR and our team will check it."
+              : "Enter exactly what you paid and the 12-digit UTR from your UPI app."}
+          />
 
           <div className="topup-layout">
-            <ol className="topup-steps">
-              <li><span>1</span><div><strong>Scan &amp; pay</strong><p>Open any UPI app, scan the QR, and pay the amount you want in your wallet.</p></div></li>
-              <li><span>2</span><div><strong>Copy the UTR</strong><p>Open the completed payment in your UPI app and copy the 12-digit UTR / transaction reference.</p></div></li>
-              <li><span>3</span><div><strong>Submit below</strong><p>We match the UTR against our bank statement and credit your wallet once it is confirmed.</p></div></li>
-            </ol>
+            {method.auto_qr ? (
+              <ol className="topup-steps">
+                <li><span>1</span><div><strong>Pay with the QR above</strong><p>Most payments are credited within seconds, with nothing to fill in.</p></div></li>
+                <li><span>2</span><div><strong>Not credited after a few minutes?</strong><p>Open the payment in your UPI app and copy its 12-digit UTR / transaction reference.</p></div></li>
+                <li><span>3</span><div><strong>Submit it here</strong><p>Our team checks it against Paytm and credits your wallet.</p></div></li>
+              </ol>
+            ) : (
+              <ol className="topup-steps">
+                <li><span>1</span><div><strong>Scan &amp; pay</strong><p>Open any UPI app, scan the QR, and pay the amount you want in your wallet.</p></div></li>
+                <li><span>2</span><div><strong>Copy the UTR</strong><p>Open the completed payment in your UPI app and copy the 12-digit UTR / transaction reference.</p></div></li>
+                <li><span>3</span><div><strong>Submit below</strong><p>We match the UTR against our bank statement and credit your wallet once it is confirmed.</p></div></li>
+              </ol>
+            )}
 
             <form className="admin-update boxed-form topup-form" onSubmit={submit}>
               <label>Amount paid (₹)

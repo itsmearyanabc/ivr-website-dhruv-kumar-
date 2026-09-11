@@ -81,13 +81,20 @@ inline to the operator. `categories.requires_audio = false` lets SMS categories 
   and the admin approves or rejects it (`approve_wallet_topup` / `reject_wallet_topup`). A UTR
   can be claimed once — a partial unique index enforces it. `verification_mode` can be MANUAL,
   DECENTRO, GENERIC_UPI or PAYTM. GENERIC_UPI has no working endpoint (BharatPe's portal API is a
-  login redirect loop). PAYTM asks Paytm's `merchant-status/getTxnStatus` about the UTR using
-  `PAYTM_MID` alone - no key, so it works for a QR-only Paytm for Business account - and only
-  matches a successful, unrefunded payment to that MID inside the lookup window. Paytm doesn't
-  document that lookup for static-QR payments; as of 2026-09-11 a real UTR has not yet been
-  seen to match, so a miss leaves the claim PENDING for the admin. The QR, UPI ID and payee
-  name are data, set in Admin → Payment methods (now the Paytm QR,
-  `paytmqr281005050101efba4uh8izkq@paytm`).
+  login redirect loop).
+- *Per-payment Paytm QR (automatic, mode PAYTM).* Add funds swaps the static QR for
+  [QrTopup](src/app/_components/customer/QrTopup.tsx): the QR carries the amount and an order
+  number made up here (`tr`), and the order lives in an HMAC-signed token the browser holds -
+  nothing is written until Paytm confirms, so abandoned QRs never reach the admin queue.
+  `checkQrTopup` ([actions/paytmQr.ts](src/app/actions/paytmQr.ts)) asks Paytm's
+  `merchant-status/getTxnStatus` by `PAYTM_MID` alone - no key, so it works for a QR-only Paytm
+  for Business account. On TXN_SUCCESS it inserts the row with Paytm's BANKTXNID as `utr_number`
+  (so the UTR form cannot claim the same payment again) and credits via `approve_wallet_topup`
+  when auto-credit is on. A UTR sent to that lookup comes back "Invalid Order Id" (seen
+  2026-09-11) because Paytm files payments by order number, so UTR claims stay manual. As of
+  2026-09-11 the first real per-payment QR payment was still to be tested. The UPI ID
+  (`bulkshout@ptaxis`) and payee name are data, set in Admin → Payment methods; the UPI ID must
+  belong to the MID or Paytm never reports its payments.
 - *Paytm Payment Gateway (automatic).* `startPaytmTopup` → Paytm checkout →
   `settlePaytmOrder`, which credits **only** after `fetchOrderStatus` asks Paytm
   server-to-server. The POST to `/api/paytm/callback` and the browser's return are never
@@ -97,7 +104,9 @@ inline to the operator. `categories.requires_audio = false` lets SMS categories 
   2026-09-11). The test pair is refused with `501 System Error` on every endpoint, on both
   `securegw-stage.paytm.in` and Paytm's newer `securestage.paytmpayments.com` - the account's
   sandbox is not provisioned, which is Paytm's side. The plan is to go live on the production
-  MID and key; the card stays hidden until `PAYTM_*` is set on the VPS.
+  MID and key; the card stays hidden until `PAYTM_*` is set on the VPS. **Fix before enabling
+  it:** `startPaytmTopup` writes the order id into `utr_number`, and later Paytm's TXNID, but
+  `wallet_topup_utr_format` only allows 12 digits, so the insert fails and no payment can start.
 
 **Refunds.** `calculateFailedCallRefund` splits `broadcasts.charge` across delivered + failed
 calls and credits back the failed share, capped at what is still refundable. The rate comes

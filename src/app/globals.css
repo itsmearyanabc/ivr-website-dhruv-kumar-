@@ -1305,6 +1305,27 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
 /* In the wide column the QR is the main thing on the page: bigger code, chip kept readable. */
 .pay-panel .qr-frame img { width: 280px; height: 280px; }
 .pay-panel .vpa-chip { max-width: 440px; margin: 0 auto; }
+
+/* Per-payment Paytm QR (QrTopup) */
+.qr-live { padding: 4px 20px 22px; display: grid; justify-items: center; gap: 12px; text-align: center; }
+.qr-live .qr-frame { margin-bottom: 0; }
+.qr-frame.is-expired img { opacity: .25; }
+.qr-amount { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -.5px; color: var(--ink); }
+.qr-to { margin: 0; font-size: 12.5px; color: var(--muted); }
+.qr-to strong { color: var(--ink); word-break: break-all; }
+.qr-status {
+  display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0;
+  max-width: 460px; font-size: 12px; color: var(--muted); line-height: 1.55;
+}
+.qr-pulse { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--green); animation: qr-pulse 1.4s ease-in-out infinite; }
+@keyframes qr-pulse { 50% { opacity: .3; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .qr-pulse { animation: none; } }
+.qr-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+/* The UPI deep link only does something on a phone, where the QR cannot be scanned anyway. */
+.qr-app-link { display: none; }
+@media (hover: none) { .qr-app-link { display: inline-flex; } }
+.qr-live .fine-print, .qr-live .field-hint { margin: 0; }
+.qr-live .form-success, .qr-live .detail-note { margin: 0; max-width: 460px; }
 .qr-frame.empty-qr {
   width: 216px; height: 216px; flex-direction: column; gap: 8px; color: var(--muted-2);
   border-style: dashed;

@@ -6,6 +6,7 @@ import { headers } from 'next/headers'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 import { checkIsAdmin } from '@/app/actions/auth'
 import { getVerifier, canAutoCredit } from '@/lib/payments/utr'
+import { paytmQrMid } from '@/lib/payments/paytmQr'
 import { logActivity, describeActor } from '@/lib/activity'
 import { STORAGE_BUCKET } from '@/lib/uploads'
 import { consumeUploadedKey, discardUpload } from '@/lib/storage'
@@ -112,7 +113,7 @@ export async function getPaymentMethod() {
   const supabase = await createServiceRoleClient()
   const { data, error } = await supabase
     .from('payment_methods')
-    .select('code, label, is_enabled, upi_vpa, upi_payee_name, qr_image_key, min_amount, max_amount, instructions')
+    .select('code, label, is_enabled, upi_vpa, upi_payee_name, qr_image_key, min_amount, max_amount, instructions, verification_mode')
     .eq('code', METHOD_CODE)
     .single()
 
@@ -120,11 +121,16 @@ export async function getPaymentMethod() {
     return { error: 'Payment method is not configured yet. Please contact support.' }
   }
 
-  if (!data.is_enabled) {
-    return { data: { ...data, qr_url: null, is_enabled: false } }
+  // The mode itself stays an operator concern. The screen only learns whether it can offer a
+  // per-payment QR that confirms itself (see actions/paytmQr).
+  const { verification_mode: mode, ...method } = data
+  const autoQr = mode === 'PAYTM' && Boolean(paytmQrMid()) && Boolean(method.upi_vpa)
+
+  if (!method.is_enabled) {
+    return { data: { ...method, auto_qr: false, qr_url: null, is_enabled: false } }
   }
 
-  return { data: { ...data, qr_url: await signQrUrl(data.qr_image_key) } }
+  return { data: { ...method, auto_qr: autoQr, qr_url: await signQrUrl(method.qr_image_key) } }
 }
 
 /** Full configuration for the admin settings screen. */
