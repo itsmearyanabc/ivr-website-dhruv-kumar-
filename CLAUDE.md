@@ -73,7 +73,10 @@ Status moves PLACED → IN_PROGRESS → COMPLETED / PARTIAL / CANCELLED, each tr
 Moving an order to a different closing status demands a fresh fulfilment report. References
 are `BR-NNNN` from a Postgres sequence (`next_broadcast_reference()`). A TTS order's
 `audio_key` points at a `.txt` script (`isTtsKey` in [uploads.ts](src/lib/uploads.ts)), shown
-inline to the operator. `categories.requires_audio = false` lets SMS categories skip audio.
+inline to the operator. `categories.requires_audio = false` lets SMS categories skip audio,
+and such an order stores `voice_type` NULL - migration `20260912000000` cleared the 'MALE'
+default off the ones already recorded, so no screen shows a voice actor on an SMS run.
+The admin's `admin_comment` is shown to the customer too: on the row and in the order.
 
 **Wallet top-up — two routes.**
 

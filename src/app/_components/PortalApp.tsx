@@ -3131,16 +3131,24 @@ function BroadcastTable({ orders, onSelect, admin = false, onViewCustomer }: { o
                   {o.serviceName && <div className="service-line">{o.serviceName}</div>}
                 </td>
                 <td>
-                  <span className={`voice-tag ${o.voiceType === 'FEMALE' ? 'female' : 'male'}`}>
-                    {o.voiceType === 'FEMALE' ? 'Female' : 'Male'}
-                  </span>
+                  {/* An SMS order carries no voice: its category takes no audio at all. */}
+                  {o.voiceType ? (
+                    <span className={`voice-tag ${o.voiceType === 'FEMALE' ? 'female' : 'male'}`}>
+                      {o.voiceType === 'FEMALE' ? 'Female' : 'Male'}
+                    </span>
+                  ) : <span className="text-muted">—</span>}
                 </td>
                 <td>
                   <div><strong>{o.contacts}</strong></div>
                   <small>{o.contactsInputType === 'MANUAL' ? 'Text paste' : 'File upload'}</small>
                 </td>
                 <td><strong className="amount">₹{(o.charge || 0).toFixed(2)}</strong></td>
-                <td><Badge status={o.status}/></td>
+                <td>
+                  <Badge status={o.status}/>
+                  {/* A customer should not have to open an order to find what was said about
+                      it, so the operator's remark rides on the row. */}
+                  {o.adminComment && <p className="row-remark" title={o.adminComment}>{o.adminComment}</p>}
+                </td>
                 <td><button className="outline small" onClick={() => onSelect(o)}>View</button></td>
               </tr>
             )) : (
@@ -3695,7 +3703,7 @@ function BroadcastModal({ onClose, onSubmit, session, balance, price }: { onClos
               total against a price they have to scroll up to find. The price here is already
               this customer's own, where one is set for them. */}
           <div className="summary-row"><span>Selected service</span><strong>{currentService ? `${currentService.name} — ₹${Number(currentService.price).toFixed(2)}` : 'None selected'}</strong></div>
-          <div className="summary-row"><span>Selected voice</span><strong>{voiceType === 'FEMALE' ? 'Female voice' : 'Male voice'}</strong></div>
+          {requiresAudio && <div className="summary-row"><span>Selected voice</span><strong>{voiceType === 'FEMALE' ? 'Female voice' : 'Male voice'}</strong></div>}
           <div className="summary-row"><span>Target contacts</span><strong>{contactsCount > 0 ? `${contactsCount.toLocaleString("en-IN")} contacts` : '-'}</strong></div>
           {currentService && quantityPriced && (
             <div className="summary-row"><span>Rate</span><strong>₹{formatRate(unitRate(currentService))} per number</strong></div>
@@ -4119,7 +4127,7 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
 
         <div className="detail-grid">
           <div><small>Current status</small><Badge status={order.status}/></div>
-          <div><small>Voice type</small><strong>{order.voiceType === 'FEMALE' ? 'Female voice' : 'Male voice'}</strong></div>
+          {order.voiceType && <div><small>Voice type</small><strong>{order.voiceType === 'FEMALE' ? 'Female voice' : 'Male voice'}</strong></div>}
           <div><small>Category &amp; service</small><strong>{order.categoryName || 'General'}</strong><span className="service-line">{order.serviceName}</span></div>
           <div><small>Total charge</small><strong className="amount">₹{(order.charge || 0).toFixed(2)}</strong></div>
           <div>
@@ -4179,14 +4187,14 @@ function OrderModal({ order, admin, onClose, onUpdate, onResubmit }: {
           </div>
         )}
 
-        <OrderStatusHistory history={history ?? undefined} created={order.created}/>
-
         {order.adminComment && (
           <div className="detail-note info">
-            <strong>Admin remarks / report note</strong>
+            <strong>{admin ? "Admin remarks / report note" : "Message from BulkShout"}</strong>
             <p>{order.adminComment}</p>
           </div>
         )}
+
+        <OrderStatusHistory history={history ?? undefined} created={order.created}/>
 
         {order.partialRefundAmount && order.partialRefundAmount > 0 && (
           <div className="refund-box">

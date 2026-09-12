@@ -457,7 +457,9 @@ async function runCreateBroadcast(formData: FormData) {
         service_id: serviceId || null,
         category_name: categoryName || null,
         service_name: serviceName || null,
-        voice_type: voiceType,
+        // Null for a category that takes no audio (SMS): there is no voice to record, and a
+        // stored MALE showed up as a voice actor on every SMS order.
+        voice_type: requiresAudio ? voiceType : null,
         description: notes,
         audio_key,
         contacts_input_type: contactsInputType,
