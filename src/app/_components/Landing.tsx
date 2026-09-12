@@ -131,19 +131,48 @@ type PricedService = {
   categoryName?: string;
 };
 
-const SCALE_STOPS = [1, 100, 10_000, 100_000, 10_000_000, 50_000_000];
+const DECADE_STOPS = [1, 100, 10_000, 100_000, 10_000_000, 50_000_000];
+/** Nothing on this slider reaches past 5 crore. */
+const MAX_REACH = 50_000_000;
+
+/**
+ * The scale the slider covers, built from the services on sale in the chosen mode: the
+ * smallest minimum any of them accepts, the largest maximum, and whichever round numbers sit
+ * between. A fixed scale went on offering 1Cr and 5Cr long after those services were deleted,
+ * so the thumb could be dragged into a range nothing on the price list could quote.
+ */
+function buildStops(list: PricedService[]): number[] {
+  let lo = Infinity;
+  let hi = 0;
+  for (const svc of list) {
+    lo = Math.min(lo, Math.max(1, Number(svc.min_quantity) || 1));
+    hi = Math.max(hi, Math.min(MAX_REACH, Number(svc.max_quantity) || MAX_REACH));
+  }
+  if (!Number.isFinite(lo) || hi <= lo) return hi > lo ? [lo, hi] : [];
+  return [lo, ...DECADE_STOPS.filter(stop => stop > lo && stop < hi), hi];
+}
+
+/** 1 -> "1", 10000 -> "10k", 250000 -> "2.5L", 50000000 -> "5Cr". */
+function formatStop(value: number): string {
+  const trim = (n: number) => Number(n.toFixed(1)).toString();
+  if (value >= 10_000_000) return `${trim(value / 10_000_000)}Cr`;
+  if (value >= 100_000) return `${trim(value / 100_000)}L`;
+  if (value >= 1_000) return `${trim(value / 1_000)}k`;
+  return String(Math.round(value));
+}
 
 /** Slider position (0-1000) -> actual call count. */
-function fromSliderPos(pos: number): number {
-  if (pos <= 0) return SCALE_STOPS[0];
-  if (pos >= 1000) return SCALE_STOPS[SCALE_STOPS.length - 1];
+function fromSliderPos(pos: number, stops: number[]): number {
+  if (!stops.length) return 0;
+  if (pos <= 0) return stops[0];
+  if (pos >= 1000) return stops[stops.length - 1];
 
-  const segmentLen = 1000 / (SCALE_STOPS.length - 1);
+  const segmentLen = 1000 / (stops.length - 1);
   const segment = pos / segmentLen;
   const i = Math.floor(segment);
   const t = segment - i;
 
-  const logVal = Math.log10(SCALE_STOPS[i]) * (1 - t) + Math.log10(SCALE_STOPS[i + 1]) * t;
+  const logVal = Math.log10(stops[i]) * (1 - t) + Math.log10(stops[i + 1]) * t;
   const val = Math.pow(10, logVal);
 
   // Dynamic rounding for a buttery smooth slider that doesn't jump
@@ -157,15 +186,16 @@ function fromSliderPos(pos: number): number {
 }
 
 /** Actual call count -> slider position (0-1000). */
-function toSliderPos(calls: number): number {
-  if (calls <= SCALE_STOPS[0]) return 0;
-  if (calls >= SCALE_STOPS[SCALE_STOPS.length - 1]) return 1000;
+function toSliderPos(calls: number, stops: number[]): number {
+  if (!stops.length) return 0;
+  if (calls <= stops[0]) return 0;
+  if (calls >= stops[stops.length - 1]) return 1000;
 
-  const segmentLen = 1000 / (SCALE_STOPS.length - 1);
-  for (let i = 0; i < SCALE_STOPS.length - 1; i++) {
-    if (calls >= SCALE_STOPS[i] && calls <= SCALE_STOPS[i + 1]) {
-      const logMin = Math.log10(SCALE_STOPS[i]);
-      const logMax = Math.log10(SCALE_STOPS[i + 1]);
+  const segmentLen = 1000 / (stops.length - 1);
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (calls >= stops[i] && calls <= stops[i + 1]) {
+      const logMin = Math.log10(stops[i]);
+      const logMax = Math.log10(stops[i + 1]);
       const logVal = Math.log10(calls);
       const t = (logVal - logMin) / (logMax - logMin);
       return (i + t) * segmentLen;
@@ -181,7 +211,7 @@ function serviceLabel(name: string): string {
 
 function CallCalculator() {
   const [services, setServices] = useState<PricedService[]>([]);
-  const [calls, setCalls] = useState(5000);
+  const [rawCalls, setCalls] = useState(5000);
   const [calcMode, setCalcMode] = useState<"CALLS" | "SMS">("CALLS");
   const [pointerTilt, setPointerTilt] = useState({ x: 0, y: 0, rotateX: 0, rotateY: 0 });
 
@@ -216,6 +246,16 @@ function CallCalculator() {
     }),
     [services, calcMode],
   );
+
+  /**
+   * The scale, and the count held inside it. Clamped on the way out rather than corrected in
+   * an effect, so switching mode or losing a service cannot leave the readout quoting a size
+   * the slider no longer reaches.
+   */
+  const stops = useMemo(() => buildStops(modeServices), [modeServices]);
+  const calls = stops.length
+    ? Math.min(Math.max(rawCalls, stops[0]), stops[stops.length - 1])
+    : rawCalls;
 
   const match = useMemo(() => {
     let best: { svc: PricedService; cost: number } | null = null;
@@ -282,13 +322,14 @@ function CallCalculator() {
           min={0}
           max={1000}
           step={1}
-          value={toSliderPos(calls)}
-          onChange={e => setCalls(fromSliderPos(Number(e.target.value)))}
-          style={{ ["--fill" as string]: `${(toSliderPos(calls) / 1000) * 100}%` }}
+          value={toSliderPos(calls, stops)}
+          onChange={e => setCalls(fromSliderPos(Number(e.target.value), stops))}
+          style={{ ["--fill" as string]: `${(toSliderPos(calls, stops) / 1000) * 100}%` }}
           aria-label={`Number of ${calcMode === 'SMS' ? 'SMS messages' : 'calls'}`}
+          disabled={!stops.length}
         />
         <div className="calc-scale">
-          <span>1</span><span>100</span><span>10k</span><span>1L</span><span>1Cr</span><span>5Cr</span>
+          {stops.map(stop => <span key={stop}>{formatStop(stop)}</span>)}
         </div>
 
         <div className="calc-total">
