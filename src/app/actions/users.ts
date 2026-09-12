@@ -306,6 +306,33 @@ export async function updateMyProfile(formData: FormData) {
   return { success: true, profile: data };
 }
 
+/**
+ * The signed-in customer's own profile row.
+ *
+ * The Settings form and the details prompt both write every field at once, so they have to
+ * start from what is stored: an empty phone box saved as "no number", which is how a customer
+ * who edited their name lost the number operations calls them on.
+ */
+export async function getMyProfile() {
+  const supabaseAuth = await createClient();
+  const { data: { user } } = await supabaseAuth.auth.getUser();
+  if (!user) return { error: "Please sign in again." };
+
+  const service = await createServiceRoleClient();
+  const { data, error } = await service
+    .from("users")
+    .select("full_name, company_name, phone, email")
+    .eq("id", user.id)
+    .single();
+
+  if (error) {
+    console.error("getMyProfile error:", error);
+    return { error: "Could not load your profile." };
+  }
+
+  return { profile: data };
+}
+
 /** Customer-facing password change. Keeps the admin-visible copy in step. */
 export async function changeMyPassword(currentPassword: string, newPassword: string) {
   const supabaseAuth = await createClient();

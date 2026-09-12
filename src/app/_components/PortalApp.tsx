@@ -14,7 +14,7 @@ import { getMyAnnouncements, markAnnouncementsRead, type CustomerAnnouncement } 
 import Messages from "@/app/_components/customer/Messages";
 import Announcements from "@/app/_components/admin/Announcements";
 import { getUserBalance, getUserTransactions, getAllTransactions } from "@/app/actions/transactions";
-import { getAllUsers, adminAddFunds, adminSetUserPassword, adminSetUserActive, updateMyProfile, changeMyPassword, requestPasswordHelp } from "@/app/actions/users";
+import { getAllUsers, adminAddFunds, adminSetUserPassword, adminSetUserActive, updateMyProfile, getMyProfile, changeMyPassword, requestPasswordHelp } from "@/app/actions/users";
 import { impersonateUser, stopImpersonation, getImpersonationState } from "@/app/actions/impersonate";
 import { 
   getCategoriesWithServices, 
@@ -654,6 +654,12 @@ export default function PortalApp({ portal, initialAuthMode }: {
   const overlays = (
     <>
       <TopProgressBar active={pending > 0} />
+      {session.role === "customer" && (
+        <CompleteProfileModal
+          session={session}
+          onSaved={({ name, company }) => setSession(s => (s ? { ...s, name, company } : s))}
+        />
+      )}
       {showBroadcast && <BroadcastModal onClose={() => setShowBroadcast(false)} onSubmit={addOrder} session={session} balance={balance} price={price} />}
       {showTicket && <TicketModal onClose={() => setShowTicket(false)} onSubmit={addTicket} session={session}/>}
       {selected && <OrderModal order={selected} admin={session.role === "admin"} onClose={() => setSelected(null)} onUpdate={updateOrder} onResubmit={handleResubmit}/>}
@@ -1413,6 +1419,97 @@ function PasswordInput(props: Omit<React.ComponentProps<"input">, "type">) {
   );
 }
 
+/**
+ * The details a Google sign-up never gave us.
+ *
+ * Signing in with Google hands over a name and an email and nothing else, so those customers
+ * arrive with no phone number - the one thing operations needs to reach them about a run, and
+ * the reason their orders showed as "Unknown" in the queue. Asked once, on the first screen
+ * after they land, and never shown again once the row is complete.
+ */
+function CompleteProfileModal({ session, onSaved }: {
+  session: Session;
+  onSaved: (p: { name: string; company: string }) => void;
+}) {
+  const [asking, setAsking] = useState(false);
+  const [fullName, setFullName] = useState(session.name || "");
+  const [company, setCompany] = useState(session.company || "");
+  const [phone, setPhone] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    getMyProfile()
+      .then(res => {
+        const profile = res && "profile" in res ? res.profile : null;
+        if (!alive || !profile) return;
+        if (profile.full_name) setFullName(profile.full_name);
+        if (profile.company_name) setCompany(profile.company_name);
+        if (profile.phone) setPhone(profile.phone);
+        setAsking(!profile.phone || !profile.full_name);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+
+    const name = fullName.trim();
+    if (!name) return setError("Please tell us your name.");
+    // Ten digits is the shortest number anyone can be called on in India. Counted rather than
+    // pattern-matched, so +91, spaces and dashes are all fine.
+    if (phone.replace(/\D/g, "").length < 10) {
+      return setError("Enter a phone number we can reach you on — at least 10 digits.");
+    }
+
+    setSaving(true);
+    const formData = new FormData();
+    formData.set("full_name", name);
+    formData.set("company_name", company.trim());
+    formData.set("phone", phone.trim());
+    const res = await updateMyProfile(formData);
+    setSaving(false);
+
+    if (res?.error) return setError(res.error);
+    setAsking(false);
+    onSaved({ name, company: company.trim() });
+  };
+
+  if (!asking) return null;
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal confirm-modal">
+        <h2>Two details before you start</h2>
+        <p>
+          We call you about your broadcasts, so we need a number to reach you on. This is asked
+          once.
+        </p>
+        <form className="admin-update boxed-form" onSubmit={save}>
+          <label>Full name
+            <input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Your full name" required />
+          </label>
+          <label>Company name <span>(optional)</span>
+            <input value={company} onChange={e => setCompany(e.target.value)} placeholder="Your company" />
+          </label>
+          <label>Phone number
+            <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91 00000 00000" required />
+          </label>
+
+          {error && <div className="form-error">{error}</div>}
+
+          <button className="primary" disabled={saving}>
+            {saving ? "Saving…" : "Save and continue"} <Icon name="arrow" size={16} />
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function CustomerSettings({ session, onProfileSaved }: { session: Session; onProfileSaved: (p: { name: string; company: string }) => void }) {
   const [fullName, setFullName] = useState(session.name);
   const [company, setCompany] = useState(session.company || "");
@@ -1427,6 +1524,25 @@ function CustomerSettings({ session, onProfileSaved }: { session: Session; onPro
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordMsg, setPasswordMsg] = useState("");
   const [passwordErr, setPasswordErr] = useState("");
+
+  /**
+   * The stored profile, not just what the session carries. The phone lives only in the users
+   * row, so a form that opened with it blank saved "no number" the moment anything else was
+   * edited - which is how customers lost the number operations calls them on.
+   */
+  useEffect(() => {
+    let alive = true;
+    getMyProfile()
+      .then(res => {
+        const profile = res && "profile" in res ? res.profile : null;
+        if (!alive || !profile) return;
+        setFullName(profile.full_name || session.name);
+        setCompany(profile.company_name || "");
+        setPhone(profile.phone || "");
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [session.name]);
 
   const saveProfile = async (e: FormEvent) => {
     e.preventDefault();

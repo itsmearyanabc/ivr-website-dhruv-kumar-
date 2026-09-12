@@ -125,7 +125,10 @@ the rate it was sold at.
 `auth.admin.createUser({ email_confirm: true })`, not `auth.signUp`, so Supabase never sends a
 confirmation email - reCAPTCHA is the gate in front of it. The panel has no email of its own
 (password resets go through the admin), so nothing depends on Supabase's mailer.
-The `on_auth_user_created` trigger builds the `users` row from provider metadata;
+The `on_auth_user_created` trigger builds the `users` row from provider metadata, which for
+Google carries no phone and no company - so a customer whose row has no phone is asked for
+name, company and number once, by `CompleteProfileModal`, on their first screen. Screens
+naming a customer fall through company_name -> full_name -> email before saying "Unknown".
 `phone` and `company_name` are nullable, so Google accounts need no migration. reCAPTCHA
 Enterprise uses a **checkbox** key on sign-in, sign-up and top-up, verified server-side in
 [recaptcha.ts](src/lib/recaptcha.ts); `RECAPTCHA_MODE` is `monitor` or `enforce`, and enforce is

@@ -70,6 +70,7 @@ export async function getBroadcasts() {
     .select(`
       ${columns},
       users!inner (
+        full_name,
         company_name,
         email
       ),
@@ -92,7 +93,9 @@ export async function getBroadcasts() {
 
   const formatted = broadcasts?.map((b: any) => ({
     ...b,
-    customer: b.users?.company_name || 'Unknown',
+    // A Google sign-up has no company, and older rows may have no name either: fall through
+    // the identities we do hold rather than labelling a real customer "Unknown".
+    customer: b.users?.company_name || b.users?.full_name || b.users?.email || 'Unknown',
     email: b.users?.email || 'Unknown',
   }))
 
