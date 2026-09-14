@@ -188,6 +188,12 @@ export default function StatisticsGraph() {
             ))}
           </svg>
 
+          {/* On a phone the chart is squeezed to a quarter of its drawn width, which flattens the
+              SVG's own day numbers into slivers. These take their place there - see globals.css. */}
+          <div className="chart-days" aria-hidden="true" style={{ gridTemplateColumns: `repeat(${daysInMonth}, 1fr)` }}>
+            {chartData.map(d => <span key={d.day}>{d.day}</span>)}
+          </div>
+
           <div className="chart-legend">
             <div className="legend-item">
               <span className="legend-dot" style={{ background: "#3b82f6" }}></span>

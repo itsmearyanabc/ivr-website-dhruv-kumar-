@@ -1381,12 +1381,20 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   /* The bare `header` rules - 70px, and 62px under 760px - belong to the customer panel but
      also match this <header>. Held at that height, the open menu spilled out of the bar and
      over the page with no background behind it. The bar grows with its menu instead. */
-  .admin-bar { height: auto; }
-  .admin-bar-inner { flex-wrap: wrap; height: auto; padding: 12px 16px; gap: 12px; }
-  .admin-burger { display: block; }
-  .admin-bar-actions { order: 3; margin-left: 0; width: 100%; justify-content: flex-end; }
+  /* The same rules also pad the bar, doubling the inner padding and setting the brand in from
+     the page content below it. */
+  .admin-bar { height: auto; padding: 0; }
+  /* Full width: the bare `header` rule makes the bar a flex row, which would otherwise shrink
+     this to its contents and centre it. 14px sides line the brand up with .admin-page. */
+  .admin-bar-inner { flex-wrap: wrap; height: auto; padding: 12px 14px; gap: 10px; width: 100%; }
+  /* One row: brand, then bell / avatar / logout, then the menu button. Given a row of their
+     own, the three icons sat stranded under the brand. */
+  .admin-burger { display: block; order: 3; margin-left: 0; }
+  .admin-bar-actions { order: 2; margin-left: auto; gap: 8px; }
 
+  /* A full-width basis, or the menu's base `flex: 1` (basis 0) squeezes it into the brand row. */
   .admin-nav {
+    flex: 1 1 100%;
     display: none; order: 4; width: 100%; flex-direction: column;
     align-items: stretch; gap: 3px; padding-bottom: 8px;
   }
@@ -2800,4 +2808,64 @@ body:has(.impersonation-banner) .modal-backdrop { top: 44px; }
   transform: scale(1.1) translateY(-4px);
   box-shadow: 0 8px 24px rgba(37, 211, 102, 0.5);
   color: white;
+}
+
+/* ============================================================
+   ADMIN CONSOLE ON PHONES
+   Last in the file on purpose: these override base rules declared further up (statistics,
+   activity log, forms), which an earlier media query would lose to. Everything here sits in a
+   width query except .chart-days, which stays hidden wherever those queries do not reach -
+   the desktop console is unchanged.
+   ============================================================ */
+.chart-days { display: none; }
+
+@media (max-width: 900px) {
+  /* `.admin-update` is declared after `.boxed-form` / `.pricing-form` and resets their side
+     padding, so these forms ran into the edges of their cards. */
+  .admin-page .admin-update.boxed-form,
+  .admin-page .admin-update.pricing-form { padding: 16px 20px 22px; }
+
+  /* The staff screen puts its toolbar and notices straight inside a flush panel. */
+  .admin-page .data-panel > .services-toolbar { padding: 16px 16px 0; margin-bottom: 16px; }
+  .admin-page .data-panel > .form-error,
+  .admin-page .data-panel > .flash-success { margin: 16px 16px 0; }
+}
+
+@media (max-width: 760px) {
+  /* Search, filter tabs and status dropdown each take the full row, so their edges line up. */
+  .admin-page .table-tools > .search,
+  .admin-page .table-tools > .segmented,
+  .admin-page .table-tools > select { flex: 1 1 100%; max-width: none; min-width: 0; }
+  .admin-page .table-tools .segmented button { flex: 1; }
+
+  /* Statistics: month, year and Export drop under the title instead of pushing Export off
+     the screen. */
+  .statistics-graph-container { padding: 18px 16px; }
+  .stats-header { flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+  .stats-controls { width: 100%; }
+  .stats-controls select { flex: 1; min-width: 0; }
+  /* The SVG is drawn a month wide and squeezed to fit, flattening its dots into dashes and its
+     numbers into slivers. The lines keep their weight; every fifth day is labelled in HTML. */
+  .line-chart circle, .line-chart text { display: none; }
+  .line-chart polyline, .line-chart line { vector-effect: non-scaling-stroke; }
+  .chart-days { display: grid; margin-top: -16px; font-size: 10px; color: #6b7280; text-align: center; }
+  .chart-days span { visibility: hidden; }
+  .chart-days span:first-child, .chart-days span:nth-child(5n) { visibility: visible; }
+  .chart-legend { gap: 16px; flex-wrap: wrap; }
+
+  /* Activity log: the date filter moves under the heading instead of squeezing it into a
+     one-word column. */
+  .activity-log-container { padding: 18px 16px; }
+  .activity-log-header { flex-direction: column; gap: 14px; }
+  .activity-filter { flex-wrap: wrap; width: 100%; }
+  .activity-filter label { width: 100%; }
+  .activity-filter input[type="date"] { flex: 1; min-width: 0; }
+  .activity-item { padding: 12px; gap: 12px; }
+  .activity-header, .activity-meta { flex-wrap: wrap; gap: 6px 10px; }
+}
+
+@media (max-width: 400px) {
+  /* The initials avatar is the one thing in the admin bar that does nothing, so it gives way
+     and the bar still fits one row on the narrowest phones. */
+  .admin-bar-actions .header-user { display: none; }
 }
